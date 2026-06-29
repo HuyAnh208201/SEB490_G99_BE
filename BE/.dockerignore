@@ -1,0 +1,18 @@
+# .dockerignore
+target/
+!target/fitverse-api-*.jar
+.mvn
+mvnw
+mvnw.cmd
+Dockerfile
+docker-compose.yml
+README.md
+.git
+.gitignore
+*.md
+.DS_Store
+.idea
+*.iml
+*.ipr
+*.iws
+uploads/
