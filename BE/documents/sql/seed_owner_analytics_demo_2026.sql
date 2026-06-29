@@ -1,0 +1,157 @@
+-- =============================================================================
+-- Pickaboo — Seed demo Owner Analytics (năm 2026), chạy 1 lượt trên DBeaver
+-- =============================================================================
+-- DBeaver: Ctrl+A → chạy **Execute SQL Script** (Alt+X hoặc biểu tượng "Play với nhiều dòng"),
+--          KHÔNG dùng Ctrl+Enter (chỉ chạy 1 câu lệnh hiện tại).
+-- MySQL 8+. Khối id seed: 9006001–9007199 (tránh trùng dữ liệu thật).
+--
+-- Mật khẩu user seed (nếu login): password
+--   Hash BCrypt (Spring BCryptPasswordEncoder): xem biến @seed_pwd bên dưới.
+-- =============================================================================
+
+SET NAMES utf8mb4;
+
+SET FOREIGN_KEY_CHECKS = 0;
+START TRANSACTION;
+
+-- -----------------------------------------------------------------------------
+-- Gỡ seed cũ (theo id — an toàn cho chạy lại)
+-- -----------------------------------------------------------------------------
+DELETE FROM booking_services WHERE id BETWEEN 9006801 AND 9006899;
+DELETE FROM transactions WHERE id BETWEEN 9007101 AND 9007199;
+DELETE FROM order_items WHERE id BETWEEN 9007001 AND 9007099;
+DELETE FROM orders WHERE id BETWEEN 9006901 AND 9006999;
+DELETE FROM bookings WHERE id BETWEEN 9006701 AND 9006799;
+DELETE FROM wallets WHERE id BETWEEN 9006601 AND 9006699;
+DELETE FROM price_policies WHERE id BETWEEN 9006501 AND 9006599;
+DELETE FROM services WHERE id BETWEEN 9006401 AND 9006499;
+DELETE FROM courts WHERE id BETWEEN 9006301 AND 9006399;
+DELETE FROM branches WHERE id BETWEEN 9006201 AND 9006299;
+DELETE FROM categories WHERE id BETWEEN 9006101 AND 9006199;
+DELETE FROM `user` WHERE id BETWEEN 9006001 AND 9006099;
+
+-- -----------------------------------------------------------------------------
+-- User (OWNER + 2 MANAGER + 12 CUSTOMER)
+-- Cột boolean: is_active, is_verified. gender: ORDINAL (0=MALE, 1=FEMALE).
+-- -----------------------------------------------------------------------------
+INSERT INTO `user` (id, user_name, phone, first_name, gender, last_name, birth_date, avatar, is_active, is_verified, email, password, role, created_at, updated_at) VALUES
+(9006001, 'seed2026_owner', '0900010001', 'Seed', 0, 'Owner', NULL, NULL, 1, 1, 'seed2026.owner@demo.pickaboo.local', '!SEED2026_TMP!', 'OWNER', '2026-01-10 08:00:00', '2026-01-10 08:00:00'),
+(9006002, 'seed2026_mgr_hn', '0900010002', 'Manager', 0, 'HN', NULL, NULL, 1, 1, 'seed2026.mgr.hn@demo.pickaboo.local', '!SEED2026_TMP!', 'MANAGER', '2026-01-10 08:05:00', '2026-01-10 08:05:00'),
+(9006003, 'seed2026_mgr_hcm', '0900010003', 'Manager', 0, 'HCM', NULL, NULL, 1, 1, 'seed2026.mgr.hcm@demo.pickaboo.local', '!SEED2026_TMP!', 'MANAGER', '2026-01-10 08:05:00', '2026-01-10 08:05:00'),
+(9006004, 'seed2026_c01', '0900020001', 'Cust', 0, '01', NULL, NULL, 1, 1, 'seed2026.c01@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-02-01 10:00:00', '2026-02-01 10:00:00'),
+(9006005, 'seed2026_c02', '0900020002', 'Cust', 1, '02', NULL, NULL, 1, 1, 'seed2026.c02@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-02-15 11:00:00', '2026-02-15 11:00:00'),
+(9006006, 'seed2026_c03', '0900020003', 'Cust', 0, '03', NULL, NULL, 1, 1, 'seed2026.c03@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-03-01 09:00:00', '2026-03-01 09:00:00'),
+(9006007, 'seed2026_c04', '0900020004', 'Cust', 0, '04', NULL, NULL, 1, 1, 'seed2026.c04@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-03-10 14:00:00', '2026-03-10 14:00:00'),
+(9006008, 'seed2026_c05', '0900020005', 'Cust', 1, '05', NULL, NULL, 1, 1, 'seed2026.c05@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-03-20 16:00:00', '2026-03-20 16:00:00'),
+(9006009, 'seed2026_c06', '0900020006', 'Cust', 0, '06', NULL, NULL, 1, 1, 'seed2026.c06@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-03-25 10:00:00', '2026-03-25 10:00:00'),
+(9006010, 'seed2026_c07', '0900020007', 'Cust', 0, '07', NULL, NULL, 1, 1, 'seed2026.c07@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-03-28 12:00:00', '2026-03-28 12:00:00'),
+(9006011, 'seed2026_c08', '0900020008', 'Cust', 0, '08', NULL, NULL, 1, 1, 'seed2026.c08@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-04-05 09:00:00', '2026-04-05 09:00:00'),
+(9006012, 'seed2026_c09', '0900020009', 'Cust', 1, '09', NULL, NULL, 1, 1, 'seed2026.c09@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-04-08 10:30:00', '2026-04-08 10:30:00'),
+(9006013, 'seed2026_c10', '0900020010', 'Cust', 0, '10', NULL, NULL, 1, 1, 'seed2026.c10@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-04-12 15:00:00', '2026-04-12 15:00:00'),
+(9006014, 'seed2026_c11', '0900020011', 'Cust', 0, '11', NULL, NULL, 1, 1, 'seed2026.c11@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-04-18 11:00:00', '2026-04-18 11:00:00'),
+(9006015, 'seed2026_c12', '0900020012', 'Cust', 1, '12', NULL, NULL, 1, 1, 'seed2026.c12@demo.pickaboo.local', '!SEED2026_TMP!', 'CUSTOMER', '2026-04-22 08:00:00', '2026-04-22 08:00:00');
+
+-- BCrypt (plain: password) — một dòng, tránh biến @ gây popup tham số trên DBeaver
+UPDATE `user` SET password = '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'
+WHERE id BETWEEN 9006001 AND 9006015;
+
+INSERT INTO categories (id, name, icon_url, is_active, created_at, updated_at)
+VALUES (9006101, 'SEED2026 Category', NULL, 1, '2026-01-10 08:00:00', '2026-01-10 08:00:00');
+
+INSERT INTO branches (id, name, address, hotline, image_urls, description, manager_id, created_at, updated_at) VALUES
+(9006201, 'SEED2026 | Chi nhánh Hà Nội', '1 Seed Street, Hà Nội', '0240000001', NULL, 'Dữ liệu seed Owner demo 2026', 9006002, '2026-01-10 09:00:00', '2026-01-10 09:00:00'),
+(9006202, 'SEED2026 | Chi nhánh HCM', '2 Seed Ave, TP.HCM', '0280000002', NULL, 'Dữ liệu seed Owner demo 2026', 9006003, '2026-01-10 09:00:00', '2026-01-10 09:00:00');
+
+INSERT INTO courts (id, branch_id, name, court_type, images, features, status, created_at, updated_at) VALUES
+(9006301, 9006201, 'Sân HN A', 'INDOOR', NULL, 'SEED2026', 'AVAILABLE', '2026-01-10 09:30:00', '2026-01-10 09:30:00'),
+(9006302, 9006201, 'Sân HN B', 'OUTDOOR', NULL, 'SEED2026', 'AVAILABLE', '2026-01-10 09:30:00', '2026-01-10 09:30:00'),
+(9006303, 9006202, 'Sân HCM 1', 'INDOOR', NULL, 'SEED2026', 'AVAILABLE', '2026-01-10 09:30:00', '2026-01-10 09:30:00'),
+(9006304, 9006202, 'Sân HCM 2', 'INDOOR', NULL, 'SEED2026', 'MAINTENANCE', '2026-01-10 09:30:00', '2026-01-10 09:30:00');
+
+INSERT INTO services (id, branch_id, category_id, name, unit_price, stock, image_url, is_for_rent, description, is_active, created_at, updated_at) VALUES
+(9006401, 9006201, 9006101, 'Nước suối seed', 15000, 200, NULL, 0, 'SEED2026', 1, '2026-01-10 10:00:00', '2026-01-10 10:00:00'),
+(9006402, 9006201, 9006101, 'Thuê vợt seed', 50000, 30, NULL, 1, 'SEED2026', 1, '2026-01-10 10:00:00', '2026-01-10 10:00:00'),
+(9006403, 9006202, 9006101, 'Nước suối seed HCM', 15000, 150, NULL, 0, 'SEED2026', 1, '2026-01-10 10:00:00', '2026-01-10 10:00:00'),
+(9006404, 9006202, 9006101, 'Khăn lạnh seed', 10000, 100, NULL, 0, 'SEED2026', 1, '2026-01-10 10:00:00', '2026-01-10 10:00:00');
+
+INSERT INTO price_policies (id, name, branch_id, court_id, day_of_week, start_time, end_time, price_per_hour, is_active, created_at, updated_at) VALUES
+(9006501, 'SEED2026 HN-A weekday', 9006201, 9006301, 3, '06:00:00', '22:00:00', 200000, 1, '2026-01-10 10:00:00', '2026-01-10 10:00:00'),
+(9006502, 'SEED2026 HN-A weekend', 9006201, 9006301, 6, '06:00:00', '23:00:00', 280000, 1, '2026-01-10 10:00:00', '2026-01-10 10:00:00');
+
+INSERT INTO wallets (id, user_id, balance, is_active, created_at, updated_at) VALUES
+(9006601, 9006004, 500000, 1, '2026-02-01 10:00:00', '2026-04-01 10:00:00'),
+(9006602, 9006005, 300000, 1, '2026-02-15 11:00:00', '2026-04-01 10:00:00'),
+(9006603, 9006006, 1200000, 1, '2026-03-01 09:00:00', '2026-04-01 10:00:00'),
+(9006604, 9006007, 0, 1, '2026-03-10 14:00:00', '2026-04-01 10:00:00'),
+(9006605, 9006008, 800000, 1, '2026-03-20 16:00:00', '2026-04-01 10:00:00'),
+(9006606, 9006009, 200000, 1, '2026-03-25 10:00:00', '2026-04-01 10:00:00'),
+(9006607, 9006010, 450000, 1, '2026-03-28 12:00:00', '2026-04-01 10:00:00'),
+(9006608, 9006011, 100000, 1, '2026-04-05 09:00:00', '2026-04-05 09:00:00'),
+(9006609, 9006012, 50000, 1, '2026-04-08 10:30:00', '2026-04-08 10:30:00'),
+(9006610, 9006013, 0, 1, '2026-04-12 15:00:00', '2026-04-12 15:00:00'),
+(9006611, 9006014, 300000, 1, '2026-04-18 11:00:00', '2026-04-18 11:00:00'),
+(9006612, 9006015, 150000, 1, '2026-04-22 08:00:00', '2026-04-22 08:00:00');
+
+-- Bookings: 9006701 = trước kỳ 4/2026 (returning); 9006702–9006716 HN; 9006717–9006726 HCM
+INSERT INTO bookings (id, user_id, court_id, booking_date, start_time, end_time, total_amount, deposit_amount,
+                      deposit_paid_at, final_paid_at, guest_phone, booking_type, created_by_user_id,
+                      payment_status, booking_status, notes, cancellation_reason, cancelled_at, checked_in_at,
+                      created_at, updated_at) VALUES
+(9006701, 9006004, 9006301, '2026-03-15', '18:00:00', '20:00:00', 400000, 120000,
+ '2026-03-15 09:00:00', '2026-03-15 21:00:00', NULL, 'MEMBER', NULL,
+ 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, '2026-03-15 17:50:00',
+ '2026-03-10 10:00:00', '2026-03-15 21:00:00'),
+(9006702, 9006004, 9006301, '2026-04-02', '07:00:00', '09:00:00', 360000, 108000, '2026-04-01 10:00:00', '2026-04-02 09:30:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-01 08:00:00', '2026-04-02 09:30:00'),
+(9006703, 9006005, 9006301, '2026-04-03', '08:00:00', '10:00:00', 400000, 120000, '2026-04-02 11:00:00', '2026-04-03 10:15:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-02 09:00:00', '2026-04-03 10:15:00'),
+(9006704, 9006006, 9006302, '2026-04-05', '17:00:00', '19:00:00', 520000, 156000, '2026-04-04 20:00:00', '2026-04-05 19:10:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-04 12:00:00', '2026-04-05 19:10:00'),
+(9006705, 9006007, 9006302, '2026-04-06', '18:00:00', '20:00:00', 400000, 120000, '2026-04-05 08:00:00', '2026-04-06 20:05:00', NULL, 'WALK_IN', 9006002, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-05 09:00:00', '2026-04-06 20:05:00'),
+(9006706, 9006008, 9006301, '2026-04-10', '06:00:00', '08:00:00', 300000, 90000, '2026-04-09 15:00:00', '2026-04-10 08:20:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-09 10:00:00', '2026-04-10 08:20:00'),
+(9006707, 9006009, 9006301, '2026-04-12', '19:00:00', '21:00:00', 560000, 168000, '2026-04-11 12:00:00', '2026-04-12 21:05:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-11 08:00:00', '2026-04-12 21:05:00'),
+(9006708, 9006010, 9006302, '2026-04-15', '20:00:00', '22:00:00', 480000, 144000, '2026-04-14 18:00:00', '2026-04-15 22:10:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-14 10:00:00', '2026-04-15 22:10:00'),
+(9006709, 9006011, 9006301, '2026-04-20', '16:00:00', '18:00:00', 320000, 96000, '2026-04-19 09:00:00', '2026-04-20 18:00:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-19 08:00:00', '2026-04-20 18:00:00'),
+(9006710, 9006012, 9006301, '2026-04-08', '10:00:00', '12:00:00', 280000, 84000, '2026-04-07 14:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-08 09:55:00', '2026-04-07 12:00:00', '2026-04-08 09:55:00'),
+(9006711, 9006013, 9006302, '2026-04-09', '14:00:00', '16:00:00', 300000, 90000, '2026-04-08 16:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-09 13:58:00', '2026-04-08 10:00:00', '2026-04-09 13:58:00'),
+(9006712, 9006014, 9006301, '2026-04-11', '15:00:00', '17:00:00', 340000, 102000, '2026-04-10 11:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-11 14:50:00', '2026-04-10 09:00:00', '2026-04-11 14:50:00'),
+(9006713, 9006015, 9006302, '2026-04-14', '09:00:00', '11:00:00', 260000, 78000, '2026-04-13 20:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-14 08:52:00', '2026-04-13 12:00:00', '2026-04-14 08:52:00'),
+(9006714, 9006004, 9006302, '2026-04-18', '20:00:00', '22:00:00', 500000, 150000, NULL, NULL, NULL, 'MEMBER', NULL, 'UNPAID', 'PENDING', 'SEED2026', NULL, NULL, NULL, '2026-04-17 18:00:00', '2026-04-17 18:00:00'),
+(9006715, 9006005, 9006301, '2026-04-25', '07:00:00', '09:00:00', 300000, 90000, NULL, NULL, NULL, 'MEMBER', NULL, 'UNPAID', 'PENDING', 'SEED2026', NULL, NULL, NULL, '2026-04-24 10:00:00', '2026-04-24 10:00:00'),
+(9006716, 9006006, 9006301, '2026-04-22', '12:00:00', '14:00:00', 280000, 84000, '2026-04-21 10:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CANCELLED', 'SEED2026', 'Khách đổi lịch', '2026-04-21 16:00:00', NULL, '2026-04-20 09:00:00', '2026-04-21 16:00:00'),
+(9006717, 9006007, 9006303, '2026-04-04', '18:00:00', '20:00:00', 420000, 126000, '2026-04-03 10:00:00', '2026-04-04 20:10:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-03 08:00:00', '2026-04-04 20:10:00'),
+(9006718, 9006008, 9006303, '2026-04-07', '19:00:00', '21:00:00', 440000, 132000, '2026-04-06 12:00:00', '2026-04-07 21:05:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-06 09:00:00', '2026-04-07 21:05:00'),
+(9006719, 9006009, 9006303, '2026-04-13', '06:00:00', '08:00:00', 300000, 90000, '2026-04-12 14:00:00', '2026-04-13 08:15:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-12 10:00:00', '2026-04-13 08:15:00'),
+(9006720, 9006010, 9006303, '2026-04-16', '17:00:00', '19:00:00', 380000, 114000, '2026-04-15 09:00:00', '2026-04-16 19:20:00', NULL, 'WALK_IN', 9006003, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-15 08:00:00', '2026-04-16 19:20:00'),
+(9006721, 9006011, 9006303, '2026-04-21', '20:00:00', '22:00:00', 460000, 138000, '2026-04-20 11:00:00', '2026-04-21 22:00:00', NULL, 'MEMBER', NULL, 'PAID', 'COMPLETED', 'SEED2026', NULL, NULL, NULL, '2026-04-20 09:00:00', '2026-04-21 22:00:00'),
+(9006722, 9006012, 9006303, '2026-04-05', '08:00:00', '10:00:00', 290000, 87000, '2026-04-04 16:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-05 07:58:00', '2026-04-04 10:00:00', '2026-04-05 07:58:00'),
+(9006723, 9006013, 9006303, '2026-04-11', '14:00:00', '16:00:00', 310000, 93000, '2026-04-10 18:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-11 13:55:00', '2026-04-10 12:00:00', '2026-04-11 13:55:00'),
+(9006724, 9006014, 9006303, '2026-04-19', '09:00:00', '11:00:00', 270000, 81000, '2026-04-18 10:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'CHECKED_IN', 'SEED2026', NULL, NULL, '2026-04-19 08:50:00', '2026-04-18 11:00:00', '2026-04-19 08:50:00'),
+(9006725, 9006015, 9006303, '2026-04-02', '12:00:00', '14:00:00', 300000, 90000, '2026-04-01 09:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'NO_SHOW', 'SEED2026', NULL, NULL, NULL, '2026-04-01 08:00:00', '2026-04-02 14:01:00'),
+(9006726, 9006004, 9006303, '2026-04-17', '15:00:00', '17:00:00', 320000, 96000, '2026-04-16 12:00:00', NULL, NULL, 'MEMBER', NULL, 'DEPOSIT_PAID', 'NO_SHOW', 'SEED2026', NULL, NULL, NULL, '2026-04-16 10:00:00', '2026-04-17 17:05:00');
+
+INSERT INTO booking_services (id, booking_id, service_id, quantity, price_at_order, added_type, created_at, updated_at) VALUES
+(9006801, 9006702, 9006401, 2, 15000, 'PREBOOK', '2026-04-01 08:05:00', '2026-04-02 09:30:00'),
+(9006802, 9006702, 9006402, 1, 50000, 'ONSITE', '2026-04-02 09:00:00', '2026-04-02 09:30:00');
+
+INSERT INTO orders (id, user_id, branch_id, total_amount, order_status, notes, order_code, created_at, updated_at) VALUES
+(9006901, 9006006, 9006201, 180000, 'PAID', 'SEED2026', 2026040001, '2026-04-03 11:30:00', '2026-04-03 11:35:00'),
+(9006902, 9006007, 9006201, 95000, 'PAID', 'SEED2026', 2026040002, '2026-04-07 16:00:00', '2026-04-07 16:10:00'),
+(9006903, 9006008, 9006201, 220000, 'PAID', 'SEED2026', 2026040003, '2026-04-10 18:20:00', '2026-04-10 18:25:00'),
+(9006904, 9006009, 9006202, 310000, 'PAID', 'SEED2026', 2026040004, '2026-04-08 10:00:00', '2026-04-08 10:15:00'),
+(9006905, 9006010, 9006202, 145000, 'PAID', 'SEED2026', 2026040005, '2026-04-14 12:40:00', '2026-04-14 12:45:00');
+
+INSERT INTO order_items (id, order_id, service_id, quantity, price_at_order, created_at, updated_at) VALUES
+(9007001, 9006901, 9006401, 4, 15000, '2026-04-03 11:30:00', '2026-04-03 11:35:00'),
+(9007002, 9006901, 9006402, 2, 50000, '2026-04-03 11:30:00', '2026-04-03 11:35:00'),
+(9007003, 9006904, 9006403, 10, 15000, '2026-04-08 10:00:00', '2026-04-08 10:15:00'),
+(9007004, 9006904, 9006404, 16, 10000, '2026-04-08 10:00:00', '2026-04-08 10:15:00');
+
+INSERT INTO transactions (id, wallet_id, booking_id, order_id, amount, type, status, description, reference_id, payment_link, order_code, created_at, updated_at) VALUES
+(9007101, 9006601, 9006702, NULL, 108000, 'BOOKING_DEPOSIT', 'SUCCESS', 'SEED2026 cọc booking', 'REF-SEED-BK-1', NULL, NULL, '2026-04-01 10:00:05', '2026-04-01 10:00:05'),
+(9007102, 9006601, 9006702, NULL, 252000, 'BOOKING_FINAL', 'SUCCESS', 'SEED2026 nốt booking', 'REF-SEED-BK-2', NULL, NULL, '2026-04-02 09:30:10', '2026-04-02 09:30:10'),
+(9007103, 9006602, NULL, 9006901, 180000, 'ORDER_PAYMENT', 'SUCCESS', 'SEED2026 thanh toán order', 'REF-SEED-ORD-1', NULL, 2026040001, '2026-04-03 11:35:00', '2026-04-03 11:35:00');
+
+COMMIT;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- Test API (tháng 4/2026):
+-- GET /api/owner/analytics/overview?fromDate=2026-04-01&toDate=2026-04-30
+-- GET /api/owner/analytics/growth?fromDate=2026-04-01&toDate=2026-04-30

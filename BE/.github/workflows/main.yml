@@ -1,0 +1,22 @@
+name: chainstore-api
+
+on:
+    push:
+        branches: ["main"]
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - name: deploy api
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.HOST }}
+                  username: ${{ secrets.USER_NAME }}
+                  password: ${{ secrets.PASS_WORD }}
+                  port: 22
+                  script: |
+                      cd /root/back-end/pickleboo-dev
+                      git pull
+                      docker compose down || true
+                      docker compose up -d --build

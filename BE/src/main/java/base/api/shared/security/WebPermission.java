@@ -1,0 +1,38 @@
+package base.api.shared.security;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
+/**
+ * Màn hình / module trên Web System (theo ma trận phân quyền).
+ */
+@Getter
+@RequiredArgsConstructor
+public enum WebPermission {
+    ADMIN_DASHBOARD("Admin Dashboard"),
+    SYSTEM_SETTINGS_MASTER_DATA("System Settings Master Data"),
+    USER_MANAGEMENT_LIST("User Management List"),
+    USER_DETAILS_EDIT("User Details / Edit"),
+    BRANCH_LIST_ADMIN("Branch List Screen (Admin)"),
+    MANAGE_BRANCH_INFORMATION("Manage Branch Information Screen"),
+    DIRECTOR_DASHBOARD("Director Dashboard"),
+    BRANCH_LIST_DIRECTOR("Branch List Screen (Director)"),
+    PROMOTION_LIST("Promotion List Screen"),
+    PROMOTION_DETAILS("Promotion Details Screen"),
+    BUSINESS_PERFORMANCE_REPORTS("Business Performance Reports"),
+    STRATEGIC_PLANNING_OVERVIEW("Strategic Planning Overview"),
+    BRANCH_DASHBOARD("Branch Dashboard"),
+    MANAGE_BRANCH_STAFF_INFO("Manage Branch/Staff Info"),
+    APPROVE_CASH_DISCREPANCY("Approve Cash Discrepancy"),
+    BRANCH_REVENUE_PROMOS("Branch Revenue/Promos"),
+    SUPPLY_IMPORT_RECEIPT_APPROVE("Supply Import Receipt: Approve"),
+    SHIFT_MANAGEMENT("Shift Management: Create/Assign"),
+    CREATE_IMPORT_REQUEST("Create Import Request"),
+    WAREHOUSE_DASHBOARD("Warehouse Dashboard"),
+    VIEW_CENTRAL_INVENTORY("View Central Inventory"),
+    MANAGE_BRANCH_IMPORT_REQUESTS("Manage Branch Import Requests"),
+    CHOOSE_EXTERNAL_SUPPLIER("Choose External Supplier"),
+    MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders");
+
+    private final String label;
+}
