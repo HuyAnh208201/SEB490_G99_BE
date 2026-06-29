@@ -1,0 +1,14 @@
+services:
+  todo-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pickle-api
+    restart: unless-stopped
+    ports:
+      - "1328:1328"
+    environment:
+      APP_UPLOAD_DIR: /app/uploads
+    volumes:
+      # Mount thư mục uploads ra host để file không mất khi rebuild container
+      - ./uploads:/app/uploads
