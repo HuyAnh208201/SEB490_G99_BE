@@ -134,46 +134,46 @@ public class UserService implements IUserService {
         emailVerificationTokenRepository.save(tokenModel);
         try {
             String subject = "Chúc mừng đăng ký và xác thực tài khoản";
-            String fullName = (dto.getFirstName() != null ? dto.getFirstName() : "") + 
-                            (dto.getLastName() != null ? " " + dto.getLastName() : "");
+            String fullName = (dto.getFirstName() != null ? dto.getFirstName() : "") +
+                    (dto.getLastName() != null ? " " + dto.getLastName() : "");
             if(fullName.trim().isEmpty()) {
                 fullName = dto.getUserName();
             }
 
             String verifyUrl = apiBaseUrl + "/api/auth/verify-email?token=" + verificationToken;
-            
+
             String body = String.format(
-                "<html>" +
-                "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
-                "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
-                "<div style='text-align: center; margin-bottom: 30px;'>" +
-                "<h1 style='color: #0f172a; margin: 0;'>Chúc mừng bạn đã đăng ký!</h1>" +
-                "</div>" +
-                "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                "<p>Cảm ơn bạn đã đăng ký tài khoản. Để hoàn tất và có thể đăng nhập, vui lòng xác thực email bằng cách click nút bên dưới.</p>" +
-                "<div style='text-align: center; margin: 30px 0;'>" +
-                "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Xác nhận tài khoản</a>" +
-                "</div>" +
-                "<p style='color: #666; font-size: 14px;'>Link xác thực sẽ hết hạn sau 48 giờ.</p>" +
-                "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                "<h3 style='color: #0f172a; margin-top: 0;'>Thông tin tài khoản:</h3>" +
-                "<p><strong>Tên đăng nhập:</strong> %s</p>" +
-                "<p><strong>Email:</strong> %s</p>" +
-                "</div>" +
-                "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Bạn cần xác thực email để có thể đăng nhập vào hệ thống.</p>" +
-                "</div>" +
-                "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
-                "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
-                "</div>" +
-                "</body>" +
-                "</html>",
-                fullName,
-                verifyUrl,
-                savedUser.getUserName(),
-                savedUser.getEmail()
+                    "<html>" +
+                            "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                            "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                            "<div style='text-align: center; margin-bottom: 30px;'>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Chúc mừng bạn đã đăng ký!</h1>" +
+                            "</div>" +
+                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                            "<p>Cảm ơn bạn đã đăng ký tài khoản. Để hoàn tất và có thể đăng nhập, vui lòng xác thực email bằng cách click nút bên dưới.</p>" +
+                            "<div style='text-align: center; margin: 30px 0;'>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Xác nhận tài khoản</a>" +
+                            "</div>" +
+                            "<p style='color: #666; font-size: 14px;'>Link xác thực sẽ hết hạn sau 48 giờ.</p>" +
+                            "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
+                            "<h3 style='color: #0f172a; margin-top: 0;'>Thông tin tài khoản:</h3>" +
+                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<p><strong>Email:</strong> %s</p>" +
+                            "</div>" +
+                            "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Bạn cần xác thực email để có thể đăng nhập vào hệ thống.</p>" +
+                            "</div>" +
+                            "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                            "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
+                            "</div>" +
+                            "</body>" +
+                            "</html>",
+                    fullName,
+                    verifyUrl,
+                    savedUser.getUserName(),
+                    savedUser.getEmail()
             );
-            
+
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send verification email to {}: {}", savedUser.getEmail(), e.getMessage(), e);
@@ -206,7 +206,7 @@ public class UserService implements IUserService {
             throw new Exception("Không tìm thấy tài khoản với thông tin này");
         }
 
-        passwordResetTokenRepository.deleteByEmail(user.getEmail());
+        passwordResetTokenRepository.deleteByUserId(user.getId());
 
         String resetToken = java.util.UUID.randomUUID().toString();
 
@@ -218,39 +218,39 @@ public class UserService implements IUserService {
         passwordResetTokenRepository.save(tokenModel);
         try {
             String subject = "Đặt lại mật khẩu";
-            String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
-                            (user.getLastName() != null ? " " + user.getLastName() : "");
+            String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
+                    (user.getLastName() != null ? " " + user.getLastName() : "");
             if(fullName.trim().isEmpty()) {
                 fullName = user.getUserName();
             }
 
             String resetUrl = "https://chainstore.site/reset-password?token=" + resetToken;
-            
+
             String body = String.format(
-                "<html>" +
-                "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
-                "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
-                "<div style='text-align: center; margin-bottom: 30px;'>" +
-                "<h1 style='color: #0f172a; margin: 0;'>Đặt lại mật khẩu</h1>" +
-                "</div>" +
-                "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                "<p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>" +
-                "<p>Bạn có thể click vào nút bên dưới để đặt lại mật khẩu. Link này sẽ hết hạn sau 1 giờ.</p>" +
-                "<div style='text-align: center; margin: 30px 0;'>" +
-                "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Đặt lại mật khẩu</a>" +
-                "</div>" +
-                "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.</p>" +
-                "</div>" +
-                "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
-                "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
-                "</div>" +
-                "</body>" +
-                "</html>",
-                fullName,
-                resetUrl
+                    "<html>" +
+                            "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                            "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                            "<div style='text-align: center; margin-bottom: 30px;'>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Đặt lại mật khẩu</h1>" +
+                            "</div>" +
+                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                            "<p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>" +
+                            "<p>Bạn có thể click vào nút bên dưới để đặt lại mật khẩu. Link này sẽ hết hạn sau 1 giờ.</p>" +
+                            "<div style='text-align: center; margin: 30px 0;'>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Đặt lại mật khẩu</a>" +
+                            "</div>" +
+                            "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.</p>" +
+                            "</div>" +
+                            "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                            "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
+                            "</div>" +
+                            "</body>" +
+                            "</html>",
+                    fullName,
+                    resetUrl
             );
-            
+
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send reset password email to {}: {}", user.getEmail(), e.getMessage(), e);
@@ -297,33 +297,33 @@ public class UserService implements IUserService {
         try {
             String subject = "Mật khẩu đã được thay đổi thành công";
             String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
-                            (user.getLastName() != null ? " " + user.getLastName() : "");
+                    (user.getLastName() != null ? " " + user.getLastName() : "");
             if (fullName.trim().isEmpty()) {
                 fullName = user.getUserName();
             }
 
             String body = String.format(
-                "<html>" +
-                "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
-                "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
-                "<div style='text-align: center; margin-bottom: 30px;'>" +
-                "<h1 style='color: #4caf50; margin: 0;'>Mật khẩu đã được thay đổi</h1>" +
-                "</div>" +
-                "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                "<p>Mật khẩu tài khoản của bạn đã được thay đổi thành công.</p>" +
-                "<p>Nếu bạn không thực hiện thay đổi này, vui lòng liên hệ hỗ trợ ngay lập tức.</p>" +
-                "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                "<p><strong>Tên đăng nhập:</strong> %s</p>" +
-                "<p><strong>Email:</strong> %s</p>" +
-                "</div>" +
-                "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
-                "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
-                "</div>" +
-                "</body>" +
-                "</html>",
-                fullName,
-                user.getUserName(),
-                user.getEmail()
+                    "<html>" +
+                            "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                            "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                            "<div style='text-align: center; margin-bottom: 30px;'>" +
+                            "<h1 style='color: #4caf50; margin: 0;'>Mật khẩu đã được thay đổi</h1>" +
+                            "</div>" +
+                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                            "<p>Mật khẩu tài khoản của bạn đã được thay đổi thành công.</p>" +
+                            "<p>Nếu bạn không thực hiện thay đổi này, vui lòng liên hệ hỗ trợ ngay lập tức.</p>" +
+                            "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
+                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<p><strong>Email:</strong> %s</p>" +
+                            "</div>" +
+                            "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                            "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
+                            "</div>" +
+                            "</body>" +
+                            "</html>",
+                    fullName,
+                    user.getUserName(),
+                    user.getEmail()
             );
 
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
@@ -357,43 +357,43 @@ public class UserService implements IUserService {
         emailVerificationTokenRepository.save(tokenModel);
         try {
             String subject = "Chào mừng bạn!";
-            String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
-                            (user.getLastName() != null ? " " + user.getLastName() : "");
+            String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
+                    (user.getLastName() != null ? " " + user.getLastName() : "");
             if(fullName.trim().isEmpty()) {
                 fullName = user.getUserName();
             }
-            
+
             String body = String.format(
-                "<html>" +
-                "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
-                "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
-                "<div style='text-align: center; margin-bottom: 30px;'>" +
-                "<h1 style='color: #0f172a; margin: 0;'>Chào mừng bạn!</h1>" +
-                "</div>" +
-                "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                "<p>Email của bạn đã được xác thực thành công! 🎉</p>" +
-                "<p>Cảm ơn bạn đã đăng ký tài khoản!</p>" +
-                "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                "<h3 style='color: #0f172a; margin-top: 0;'>Thông tin tài khoản:</h3>" +
-                "<p><strong>Tên đăng nhập:</strong> %s</p>" +
-                "<p><strong>Email:</strong> %s</p>" +
-                "<p><strong>Trạng thái:</strong> <span style='color: #4caf50; font-weight: bold;'>✓ Đã xác thực</span></p>" +
-                "</div>" +
-                "<p>Bạn có thể bắt đầu sử dụng hệ thống ngay bây giờ!</p>" +
-                "<div style='text-align: center; margin: 30px 0;'>" +
-                "<a href='https://chainstore.site/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
-                "</div>" +
-                "<p style='color: #666; font-size: 14px;'>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>" +
-                "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
-                "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
-                "</div>" +
-                "</body>" +
-                "</html>",
-                fullName,
-                user.getUserName(),
-                user.getEmail()
+                    "<html>" +
+                            "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                            "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                            "<div style='text-align: center; margin-bottom: 30px;'>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Chào mừng bạn!</h1>" +
+                            "</div>" +
+                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                            "<p>Email của bạn đã được xác thực thành công! 🎉</p>" +
+                            "<p>Cảm ơn bạn đã đăng ký tài khoản!</p>" +
+                            "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
+                            "<h3 style='color: #0f172a; margin-top: 0;'>Thông tin tài khoản:</h3>" +
+                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<p><strong>Email:</strong> %s</p>" +
+                            "<p><strong>Trạng thái:</strong> <span style='color: #4caf50; font-weight: bold;'>✓ Đã xác thực</span></p>" +
+                            "</div>" +
+                            "<p>Bạn có thể bắt đầu sử dụng hệ thống ngay bây giờ!</p>" +
+                            "<div style='text-align: center; margin: 30px 0;'>" +
+                            "<a href='https://chainstore.site/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
+                            "</div>" +
+                            "<p style='color: #666; font-size: 14px;'>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>" +
+                            "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                            "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
+                            "</div>" +
+                            "</body>" +
+                            "</html>",
+                    fullName,
+                    user.getUserName(),
+                    user.getEmail()
             );
-            
+
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
         } catch (Exception e) {
             log.warn("Failed to send welcome email to {}: {}", user.getEmail(), e.getMessage());
@@ -443,25 +443,25 @@ public class UserService implements IUserService {
 
         String body = String.format(
                 "<html>" +
-                "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
-                "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
-                "<div style='text-align: center; margin-bottom: 30px;'>" +
-                "<h1 style='color: #0f172a; margin: 0;'>Xác thực email tài khoản</h1>" +
-                "</div>" +
-                "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                "<p>Bạn vừa yêu cầu gửi lại email xác thực. Vui lòng click nút bên dưới để xác thực tài khoản.</p>" +
-                "<div style='text-align: center; margin: 30px 0;'>" +
-                "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Xác nhận tài khoản</a>" +
-                "</div>" +
-                "<p style='color: #666; font-size: 14px;'>Link xác thực sẽ hết hạn sau 48 giờ.</p>" +
-                "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Nếu bạn không yêu cầu gửi lại email này, vui lòng bỏ qua.</p>" +
-                "</div>" +
-                "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
-                "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
-                "</div>" +
-                "</body>" +
-                "</html>",
+                        "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                        "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                        "<div style='text-align: center; margin-bottom: 30px;'>" +
+                        "<h1 style='color: #0f172a; margin: 0;'>Xác thực email tài khoản</h1>" +
+                        "</div>" +
+                        "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                        "<p>Bạn vừa yêu cầu gửi lại email xác thực. Vui lòng click nút bên dưới để xác thực tài khoản.</p>" +
+                        "<div style='text-align: center; margin: 30px 0;'>" +
+                        "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Xác nhận tài khoản</a>" +
+                        "</div>" +
+                        "<p style='color: #666; font-size: 14px;'>Link xác thực sẽ hết hạn sau 48 giờ.</p>" +
+                        "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
+                        "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Nếu bạn không yêu cầu gửi lại email này, vui lòng bỏ qua.</p>" +
+                        "</div>" +
+                        "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                        "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
+                        "</div>" +
+                        "</body>" +
+                        "</html>",
                 fullName,
                 verifyUrl
         );
@@ -567,39 +567,39 @@ public class UserService implements IUserService {
 
             String subject = "Tài khoản ChainStore của bạn đã được tạo";
             String body = String.format(
-                "<html>" +
-                "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
-                "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
-                "<div style='text-align: center; margin-bottom: 30px;'>" +
-                "<h1 style='color: #0f172a; margin: 0;'>Chào mừng đến với ChainStore</h1>" +
-                "</div>" +
-                "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                "<p>Quản trị viên đã tạo tài khoản cho bạn với vai trò <strong>%s</strong>. " +
-                "Dưới đây là thông tin đăng nhập tạm thời:</p>" +
-                "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                "<p><strong>Tên đăng nhập:</strong> %s</p>" +
-                "<p><strong>Email:</strong> %s</p>" +
-                "<p><strong>Mật khẩu tạm:</strong> <span style='font-family: monospace; background:#fff3cd; padding:4px 8px; border-radius:4px;'>%s</span></p>" +
-                "<p><strong>Vai trò:</strong> %s</p>" +
-                "</div>" +
-                "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                "<p style='margin: 0; color: #856404;'><strong>Quan trọng:</strong> Vì lý do bảo mật, vui lòng đăng nhập và đổi mật khẩu ngay sau lần đăng nhập đầu tiên.</p>" +
-                "</div>" +
-                "<div style='text-align: center; margin: 30px 0;'>" +
-                "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Đăng nhập ngay</a>" +
-                "</div>" +
-                "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
-                "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
-                "</div>" +
-                "</body>" +
-                "</html>",
-                fullName,
-                dto.getRole().name(),
-                dto.getUserName(),
-                dto.getEmail(),
-                tempPassword,
-                dto.getRole().name(),
-                "https://chainstore.site/login"
+                    "<html>" +
+                            "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                            "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                            "<div style='text-align: center; margin-bottom: 30px;'>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Chào mừng đến với ChainStore</h1>" +
+                            "</div>" +
+                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                            "<p>Quản trị viên đã tạo tài khoản cho bạn với vai trò <strong>%s</strong>. " +
+                            "Dưới đây là thông tin đăng nhập tạm thời:</p>" +
+                            "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
+                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<p><strong>Email:</strong> %s</p>" +
+                            "<p><strong>Mật khẩu tạm:</strong> <span style='font-family: monospace; background:#fff3cd; padding:4px 8px; border-radius:4px;'>%s</span></p>" +
+                            "<p><strong>Vai trò:</strong> %s</p>" +
+                            "</div>" +
+                            "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Quan trọng:</strong> Vì lý do bảo mật, vui lòng đăng nhập và đổi mật khẩu ngay sau lần đăng nhập đầu tiên.</p>" +
+                            "</div>" +
+                            "<div style='text-align: center; margin: 30px 0;'>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Đăng nhập ngay</a>" +
+                            "</div>" +
+                            "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                            "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
+                            "</div>" +
+                            "</body>" +
+                            "</html>",
+                    fullName,
+                    dto.getRole().name(),
+                    dto.getUserName(),
+                    dto.getEmail(),
+                    tempPassword,
+                    dto.getRole().name(),
+                    "https://chainstore.site/login"
             );
 
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
