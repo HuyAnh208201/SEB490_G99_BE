@@ -9,6 +9,8 @@ import java.util.Optional;
 @Repository
 public interface IPasswordResetTokenRepository extends JpaRepository<PasswordResetTokenModel, Long> {
     Optional<PasswordResetTokenModel> findByResetToken(String resetToken);
-    Optional<PasswordResetTokenModel> findByEmail(String email);
-    void deleteByEmail(String email);
+    void deleteByUserId(Long userId);
+    // email không còn là cột trong bảng password_reset_tokens — tra/xoá theo userId
+    // Optional<PasswordResetTokenModel> findByEmail(String email);
+    // void deleteByEmail(String email);
 }
