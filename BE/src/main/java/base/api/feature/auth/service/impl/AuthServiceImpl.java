@@ -2,22 +2,14 @@ package base.api.feature.auth.service.impl;
 
 import base.api.feature.auth.dto.request.AuthRequest;
 import base.api.feature.auth.dto.response.AuthResponse;
-import base.api.feature.auth.repository.IRevokedTokenRepository;
 import base.api.feature.auth.service.IAuthService;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.config.JwtUtil;
-import base.api.shared.entity.RevokedTokenModel;
 import base.api.shared.entity.UserModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.Date;
 
 @Service
 public class AuthServiceImpl implements IAuthService {
@@ -30,9 +22,6 @@ public class AuthServiceImpl implements IAuthService {
 
     @Autowired
     private JwtUtil jwtUtil;
-
-    @Autowired
-    private IRevokedTokenRepository revokedTokenRepository;
 
     @Override
     public AuthResponse login(AuthRequest dto) {
@@ -66,23 +55,12 @@ public class AuthServiceImpl implements IAuthService {
     }
 
     @Override
-    @Transactional
     public void logout(String token) {
         if (token == null || token.isBlank()) {
             throw new IllegalArgumentException("Token không hợp lệ");
         }
 
-        revokedTokenRepository.deleteByExpiresAtBefore(LocalDateTime.now());
-
-        if (revokedTokenRepository.existsByToken(token)) {
-            return;
-        }
-
-        Date expiration = jwtUtil.extractExpiration(token);
-        RevokedTokenModel revokedToken = new RevokedTokenModel();
-        revokedToken.setToken(token);
-        revokedToken.setExpiresAt(toLocalDateTime(expiration));
-        revokedTokenRepository.save(revokedToken);
+        jwtUtil.extractExpiration(token);
     }
 
     private String normalizeLogin(String value) {
@@ -92,7 +70,4 @@ public class AuthServiceImpl implements IAuthService {
         return value.trim().toLowerCase();
     }
 
-    private LocalDateTime toLocalDateTime(Date date) {
-        return Instant.ofEpochMilli(date.getTime()).atZone(ZoneId.systemDefault()).toLocalDateTime();
-    }
 }

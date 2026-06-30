@@ -1,6 +1,5 @@
 package base.api.shared.config;
 
-import base.api.feature.auth.repository.IRevokedTokenRepository;
 import base.api.feature.auth.service.impl.CustomUserDetailsService;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
@@ -27,9 +26,6 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
     @Autowired
     private CustomUserDetailsService userDetailsService;
-
-    @Autowired
-    private IRevokedTokenRepository revokedTokenRepository;
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -58,13 +54,6 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
         String token = header.substring(7);
         try {
-            if (revokedTokenRepository.existsByToken(token)) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.setContentType("application/json");
-                response.getWriter().write("{\"message\":\"Token đã bị thu hồi\"}");
-                return;
-            }
-
             String username = jwtUtil.extractUsername(token);
 
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
