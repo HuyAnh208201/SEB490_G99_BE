@@ -2,6 +2,7 @@ package base.api.shared.exception;
 
 import base.api.shared.dto.TFUResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -40,15 +41,39 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<TFUResponse<Void>> handleBadRequest(BadRequestException ex, WebRequest req) {
+        return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<TFUResponse<Void>> handleNotFound(NotFoundException ex, WebRequest req) {
+        return buildErrorResponse(ex, req, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<TFUResponse<Void>> handleConflict(ConflictException ex, WebRequest req) {
+        return buildErrorResponse(ex, req, HttpStatus.CONFLICT);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<TFUResponse<Void>> handleAny(Exception ex, WebRequest req) {
-        log.error("[{}] {}", req.getDescription(false), ex.getMessage(), ex);
+        return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
+    }
+
+    private ResponseEntity<TFUResponse<Void>> buildErrorResponse(Exception ex, WebRequest req, HttpStatus status) {
+        if (status.is5xxServerError()) {
+            log.error("[{}] {}", req.getDescription(false), ex.getMessage(), ex);
+        } else {
+            log.warn("[{}] {}", req.getDescription(false), ex.getMessage());
+        }
+
         TFUResponse<Void> body = TFUResponse.<Void>builder()
                 .success(false)
-                .statusCode(400)
+                .statusCode(status.value())
                 .message(ex.getMessage())
                 .build();
 
-        return ResponseEntity.badRequest().body(body);
+        return ResponseEntity.status(status).body(body);
     }
 }

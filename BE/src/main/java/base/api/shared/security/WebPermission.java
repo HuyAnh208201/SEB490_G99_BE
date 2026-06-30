@@ -32,7 +32,8 @@ public enum WebPermission {
     VIEW_CENTRAL_INVENTORY("View Central Inventory"),
     MANAGE_BRANCH_IMPORT_REQUESTS("Manage Branch Import Requests"),
     CHOOSE_EXTERNAL_SUPPLIER("Choose External Supplier"),
-    MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders");
+    MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
+    CATEGORY_MANAGEMENT("Category Management");
 
     private final String label;
 }
