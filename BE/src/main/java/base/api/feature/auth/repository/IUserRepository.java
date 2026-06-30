@@ -17,9 +17,8 @@ import java.util.Optional;
 @Repository
 public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpecificationExecutor<UserModel> {
 
-    default UserModel findByUserNameAndEmail(String userName, String email) {
-        return findByEmail(email).orElse(null);
-    }
+    @Query("SELECT u FROM UserModel u WHERE u.email = :email")
+    UserModel findByUserNameAndEmail(String userName, @Param("email") String email);
 
     Optional<UserModel> findByEmail(String email);
 
@@ -61,9 +60,8 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     @Query("SELECT u FROM UserModel u WHERE LOWER(u.email) LIKE LOWER(CONCAT('%', :userName, '%'))")
     List<UserModel> findByUserNameContaining(@Param("userName") String userName);
 
-    default List<UserModel> getUserEntityBy(String userName, String email) {
-        return findByEmail(email).map(List::of).orElseGet(List::of);
-    }
+    @Query("SELECT u FROM UserModel u WHERE u.email = :email")
+    List<UserModel> getUserEntityBy(@Param("userName") String userName, @Param("email") String email);
 
     int countByCreatedAtAfter(LocalDateTime after);
 
