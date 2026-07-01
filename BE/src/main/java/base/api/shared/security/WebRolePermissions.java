@@ -30,7 +30,8 @@ public final class WebRolePermissions {
                 WebPermission.MANAGE_BRANCH_INFORMATION,
                 WebPermission.PROMOTION_LIST,
                 WebPermission.CATEGORY_MANAGEMENT,
-                WebPermission.PRODUCT_MANAGEMENT
+                WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.SUPPLIER_MANAGEMENT
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(
