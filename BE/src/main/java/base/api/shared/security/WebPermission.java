@@ -33,7 +33,8 @@ public enum WebPermission {
     MANAGE_BRANCH_IMPORT_REQUESTS("Manage Branch Import Requests"),
     CHOOSE_EXTERNAL_SUPPLIER("Choose External Supplier"),
     MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
-    CATEGORY_MANAGEMENT("Category Management");
+    CATEGORY_MANAGEMENT("Category Management"),
+    PRODUCT_MANAGEMENT("Product Management");
 
     private final String label;
 }

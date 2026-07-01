@@ -29,7 +29,8 @@ public final class WebRolePermissions {
                 WebPermission.BRANCH_LIST_ADMIN,
                 WebPermission.MANAGE_BRANCH_INFORMATION,
                 WebPermission.PROMOTION_LIST,
-                WebPermission.CATEGORY_MANAGEMENT
+                WebPermission.CATEGORY_MANAGEMENT,
+                WebPermission.PRODUCT_MANAGEMENT
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(
@@ -65,7 +66,8 @@ public final class WebRolePermissions {
                 WebPermission.MANAGE_BRANCH_IMPORT_REQUESTS,
                 WebPermission.CHOOSE_EXTERNAL_SUPPLIER,
                 WebPermission.MANAGE_DISPATCH_ORDERS,
-                WebPermission.CATEGORY_MANAGEMENT
+                WebPermission.CATEGORY_MANAGEMENT,
+                WebPermission.PRODUCT_MANAGEMENT
         ));
 
         return Collections.unmodifiableMap(map);
