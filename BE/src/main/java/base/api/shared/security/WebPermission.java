@@ -34,7 +34,8 @@ public enum WebPermission {
     CHOOSE_EXTERNAL_SUPPLIER("Choose External Supplier"),
     MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
     CATEGORY_MANAGEMENT("Category Management"),
-    PRODUCT_MANAGEMENT("Product Management");
+    PRODUCT_MANAGEMENT("Product Management"),
+    SUPPLIER_MANAGEMENT("Supplier Management");
 
     private final String label;
 }
