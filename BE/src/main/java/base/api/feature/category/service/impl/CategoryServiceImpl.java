@@ -5,7 +5,7 @@ import base.api.feature.category.dto.request.UpdateCategoryRequest;
 import base.api.feature.category.dto.response.CategoryResponse;
 import base.api.feature.category.mapper.CategoryMapper;
 import base.api.feature.category.repository.ICategoryRepository;
-import base.api.feature.category.repository.IProductRepository;
+import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.category.service.ICategoryService;
 import base.api.shared.entity.CategoryModel;
 import base.api.shared.exception.BadRequestException;
@@ -64,7 +64,7 @@ public class CategoryServiceImpl implements ICategoryService {
     public void delete(Integer id) {
         CategoryModel category = findCategoryOrThrow(id);
 
-        if (productRepository.existsByCategoryId(id)) {
+        if (productRepository.existsByCategory_Id(id)) {
             throw new ConflictException("Category is being used by existing products.");
         }
 
