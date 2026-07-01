@@ -4,6 +4,7 @@ import base.api.shared.dto.TFUResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -54,6 +55,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<TFUResponse<Void>> handleConflict(ConflictException ex, WebRequest req) {
         return buildErrorResponse(ex, req, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<TFUResponse<Void>> handleForbidden(ForbiddenException ex, WebRequest req) {
+        return buildErrorResponse(ex, req, HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<TFUResponse<Void>> handleAccessDenied(AccessDeniedException ex, WebRequest req) {
+        return buildErrorResponse(
+                new ForbiddenException("Access denied."),
+                req,
+                HttpStatus.FORBIDDEN
+        );
     }
 
     @ExceptionHandler(Exception.class)
