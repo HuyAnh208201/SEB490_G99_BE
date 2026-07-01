@@ -33,6 +33,8 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
 
     boolean existsByEmail(String email);
 
+    boolean existsByPhone(String phone);
+
     default Page<UserModel> findAllByRole(UserRole role, Pageable pageable) {
         return findAllByRoleName(role.name(), pageable);
     }
