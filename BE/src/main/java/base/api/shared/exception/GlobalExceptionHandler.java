@@ -4,6 +4,7 @@ import base.api.shared.dto.TFUResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -45,6 +46,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<TFUResponse<Void>> handleBadRequest(BadRequestException ex, WebRequest req) {
         return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<TFUResponse<Void>> handleUnreadableRequest(HttpMessageNotReadableException ex, WebRequest req) {
+        return buildErrorResponse(
+                new BadRequestException("Invalid request body."),
+                req,
+                HttpStatus.BAD_REQUEST
+        );
     }
 
     @ExceptionHandler(NotFoundException.class)
