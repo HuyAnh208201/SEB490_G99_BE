@@ -7,6 +7,7 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum UserRole {
     ADMIN,
+    PROMOTION_DIRECTOR,
     DIRECTOR,
     BRANCH_MANAGER,
     WAREHOUSE_MANAGER,
@@ -25,7 +26,7 @@ public enum UserRole {
     public UserRole toWebRole() {
         return switch (this) {
             case MANAGER -> BRANCH_MANAGER;
-            case OWNER -> DIRECTOR;
+            case OWNER, PROMOTION_DIRECTOR -> DIRECTOR;
             default -> this;
         };
     }
