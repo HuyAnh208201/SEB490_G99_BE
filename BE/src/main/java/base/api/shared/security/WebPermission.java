@@ -19,6 +19,7 @@ public enum WebPermission {
     BRANCH_LIST_DIRECTOR("Branch List Screen (Director)"),
     PROMOTION_LIST("Promotion List Screen"),
     PROMOTION_DETAILS("Promotion Details Screen"),
+    PROMOTION_MANAGEMENT("Promotion Management"),
     BUSINESS_PERFORMANCE_REPORTS("Business Performance Reports"),
     STRATEGIC_PLANNING_OVERVIEW("Strategic Planning Overview"),
     BRANCH_DASHBOARD("Branch Dashboard"),
