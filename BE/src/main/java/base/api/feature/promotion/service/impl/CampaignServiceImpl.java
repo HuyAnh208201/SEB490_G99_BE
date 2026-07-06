@@ -80,13 +80,13 @@ public class CampaignServiceImpl implements ICampaignService {
         campaign.setPriority(request.getPriority() == null ? 0 : request.getPriority());
         campaign.setStartAt(request.getStartAt());
         campaign.setEndAt(request.getEndAt());
-        campaign.setStatus(CampaignStatus.DRAFT);
+        campaign.setStatus(CampaignStatus.DEACTIVATED);
         campaign.setCreatedBy(currentUser.getId());
 
         List<Long> branchIds;
-        if (isPromotionDirector(currentRole)) {
+        if (canManageChainPromotions(currentRole)) {
             if (requestedScope != CampaignScope.CHAIN) {
-                throw new BadRequestException("Promotion director can only create chain promotions.");
+                throw new BadRequestException("Administrator and promotion director can only create chain promotions.");
             }
             campaign.setScope(CampaignScope.CHAIN);
             branchIds = normalizeBranchIds(request.getBranchIds());
@@ -142,13 +142,15 @@ public class CampaignServiceImpl implements ICampaignService {
     @Override
     @Transactional
     public CampaignResponse activateCampaign(Long id) {
-        assertPromotionDirector();
         CampaignModel campaign = findCampaignOrThrow(id);
+        assertCanChangeCampaignStatus(campaign);
 
         if (campaign.getStatus() == CampaignStatus.ACTIVE) {
             throw new BadRequestException("Promotion is already active.");
         }
-        if (campaign.getStatus() != CampaignStatus.DRAFT && campaign.getStatus() != CampaignStatus.SUSPENDED) {
+        if (campaign.getStatus() != CampaignStatus.DRAFT
+                && campaign.getStatus() != CampaignStatus.SUSPENDED
+                && campaign.getStatus() != CampaignStatus.DEACTIVATED) {
             throw new BadRequestException("Invalid promotion status flow.");
         }
 
@@ -159,17 +161,17 @@ public class CampaignServiceImpl implements ICampaignService {
     @Override
     @Transactional
     public CampaignResponse suspendCampaign(Long id) {
-        assertPromotionDirector();
         CampaignModel campaign = findCampaignOrThrow(id);
+        assertCanChangeCampaignStatus(campaign);
 
-        if (campaign.getStatus() == CampaignStatus.SUSPENDED) {
-            throw new BadRequestException("Promotion is already suspended.");
+        if (campaign.getStatus() == CampaignStatus.DEACTIVATED) {
+            throw new BadRequestException("Promotion is already deactivated.");
         }
         if (campaign.getStatus() != CampaignStatus.ACTIVE) {
-            throw new BadRequestException("Only active promotions can be suspended.");
+            throw new BadRequestException("Only active promotions can be deactivated.");
         }
 
-        campaign.setStatus(CampaignStatus.SUSPENDED);
+        campaign.setStatus(CampaignStatus.DEACTIVATED);
         return campaignMapper.toResponse(campaignRepository.save(campaign), getBranchIds(id));
     }
 
@@ -204,6 +206,37 @@ public class CampaignServiceImpl implements ICampaignService {
     }
 
     @Override
+    @Transactional
+    public CampaignResponse activateCampaignForBranch(Long id) {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        UserRole currentRole = currentUserProvider.getCurrentUserRole();
+        if (currentRole != UserRole.BRANCH_MANAGER) {
+            throw new ForbiddenException("Access denied.");
+        }
+
+        Long branchId = resolveCurrentBranchId(currentUser);
+        CampaignModel campaign = findCampaignOrThrow(id);
+        if (campaign.getScope() != CampaignScope.CHAIN) {
+            throw new ForbiddenException("Cannot activate branch promotions with this action.");
+        }
+
+        List<Long> branchIds = getBranchIds(id);
+        if (branchIds.isEmpty()) {
+            // TODO: Add a branch-level campaign exclusion/status table to support reactivation
+            // for entire-chain promotions without changing the global campaign status.
+            throw new BadRequestException("Branch-level activation for entire-chain promotions is not supported by current schema.");
+        }
+
+        if (!campaignBranchRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+            // TODO: Add a branch-level campaign status table. With only campaign_branches,
+            // a missing row means the branch is not currently applied to this campaign.
+            throw new ForbiddenException("Promotion is not applied to this branch.");
+        }
+
+        return campaignMapper.toResponse(campaign, getBranchIds(id));
+    }
+
+    @Override
     public CampaignResponse getCampaign(Long id) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanViewCampaign(campaign);
@@ -216,7 +249,7 @@ public class CampaignServiceImpl implements ICampaignService {
         UserRole currentRole = currentUserProvider.getCurrentUserRole();
 
         List<CampaignModel> campaigns;
-        if (isPromotionDirector(currentRole)) {
+        if (canManageChainPromotions(currentRole)) {
             campaigns = campaignRepository.findAll(Sort.by(Sort.Direction.ASC, "id"));
         } else if (currentRole == UserRole.BRANCH_MANAGER) {
             Long branchId = resolveCurrentBranchId(currentUser);
@@ -253,7 +286,7 @@ public class CampaignServiceImpl implements ICampaignService {
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         UserRole currentRole = currentUserProvider.getCurrentUserRole();
 
-        if (isPromotionDirector(currentRole)) {
+        if (canManageChainPromotions(currentRole)) {
             return;
         }
 
@@ -274,11 +307,15 @@ public class CampaignServiceImpl implements ICampaignService {
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         UserRole currentRole = currentUserProvider.getCurrentUserRole();
 
+        if (currentRole == UserRole.ADMIN) {
+            return;
+        }
+
         if (!currentUser.getId().equals(campaign.getCreatedBy())) {
             throw new ForbiddenException("Cannot modify promotions created by others.");
         }
 
-        if (isPromotionDirector(currentRole) && campaign.getScope() == CampaignScope.CHAIN) {
+        if (currentRole == UserRole.DIRECTOR && campaign.getScope() == CampaignScope.CHAIN) {
             return;
         }
 
@@ -292,14 +329,30 @@ public class CampaignServiceImpl implements ICampaignService {
         throw new ForbiddenException("Access denied.");
     }
 
-    private void assertPromotionDirector() {
-        if (!isPromotionDirector(currentUserProvider.getCurrentUserRole())) {
-            throw new ForbiddenException("Access denied.");
+    private void assertCanChangeCampaignStatus(CampaignModel campaign) {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        UserRole currentRole = currentUserProvider.getCurrentUserRole();
+
+        if (canManageChainPromotions(currentRole)) {
+            return;
         }
+
+        if (currentRole == UserRole.BRANCH_MANAGER && campaign.getScope() == CampaignScope.BRANCH) {
+            if (!currentUser.getId().equals(campaign.getCreatedBy())) {
+                throw new ForbiddenException("Cannot modify promotions created by others.");
+            }
+
+            Long branchId = resolveCurrentBranchId(currentUser);
+            if (campaignBranchRepository.existsByCampaignIdAndBranchId(campaign.getId(), branchId)) {
+                return;
+            }
+        }
+
+        throw new ForbiddenException("Access denied.");
     }
 
-    private boolean isPromotionDirector(UserRole role) {
-        return role == UserRole.DIRECTOR;
+    private boolean canManageChainPromotions(UserRole role) {
+        return role == UserRole.ADMIN || role == UserRole.DIRECTOR;
     }
 
     private Long resolveCurrentBranchId(UserModel currentUser) {
