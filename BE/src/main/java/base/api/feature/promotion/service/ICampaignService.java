@@ -21,6 +21,8 @@ public interface ICampaignService {
 
     CampaignResponse deactivateCampaignForBranch(Long id);
 
+    CampaignResponse activateCampaignForBranch(Long id);
+
     CampaignResponse getCampaign(Long id);
 
     List<CampaignSummaryResponse> getAllCampaigns();

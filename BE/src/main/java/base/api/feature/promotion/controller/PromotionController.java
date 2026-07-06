@@ -98,4 +98,13 @@ public class PromotionController extends BaseAPIController {
                 campaignService.deactivateCampaignForBranch(id),
                 "Promotion deactivated for branch successfully.");
     }
+
+    @Operation(summary = "Activate campaign for current branch")
+    @PreAuthorize("@permissionChecker.has('PROMOTION_MANAGEMENT')")
+    @PatchMapping("/{id}/activate-for-branch")
+    public ResponseEntity<TFUResponse<CampaignResponse>> activateForBranch(@PathVariable Long id) {
+        return success(
+                campaignService.activateCampaignForBranch(id),
+                "Promotion activated for branch successfully.");
+    }
 }

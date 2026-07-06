@@ -1,12 +1,14 @@
 package base.api.shared.entity;
 
+import base.api.shared.converter.CampaignScopeConverter;
+import base.api.shared.converter.CampaignStatusConverter;
+import base.api.shared.converter.CampaignTypeConverter;
 import base.api.shared.enums.CampaignScope;
 import base.api.shared.enums.CampaignStatus;
 import base.api.shared.enums.CampaignType;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -31,7 +33,7 @@ public class CampaignModel {
     @Column(nullable = false, length = 255)
     private String name;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = CampaignTypeConverter.class)
     @Column(nullable = false, length = 50)
     private CampaignType type;
 
@@ -41,7 +43,7 @@ public class CampaignModel {
     @Column(columnDefinition = "json")
     private String conditions;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = CampaignScopeConverter.class)
     @Column(nullable = false, length = 50)
     private CampaignScope scope;
 
@@ -54,9 +56,9 @@ public class CampaignModel {
     @Column(name = "end_at", nullable = false)
     private LocalDateTime endAt;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = CampaignStatusConverter.class)
     @Column(nullable = false, length = 50)
-    private CampaignStatus status = CampaignStatus.DRAFT;
+    private CampaignStatus status = CampaignStatus.DEACTIVATED;
 
     @Column(name = "created_by", nullable = false)
     private Long createdBy;
