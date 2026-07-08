@@ -27,4 +27,6 @@ public class CreateUserByAdminDto {
 
     @NotNull(message = "Role không được để trống")
     private UserRole role;
+
+    private Long branchId;
 }

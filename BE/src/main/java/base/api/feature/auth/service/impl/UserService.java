@@ -6,8 +6,12 @@ import base.api.feature.auth.dto.request.CreateUserByAdminDto;
 import base.api.feature.auth.dto.request.RegisterDto;
 import base.api.feature.auth.dto.request.UpdateProfileDto;
 import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
+import base.api.feature.auth.repository.IRoleRepository;
+import base.api.feature.branch.repository.IBranchRepository;
+import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.EmailVerificationTokenModel;
 import base.api.shared.entity.PasswordResetTokenModel;
+import base.api.shared.entity.RoleModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserGender;
 import base.api.shared.enums.UserRole;
@@ -16,6 +20,10 @@ import base.api.feature.auth.repository.IPasswordResetTokenRepository;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.config.EmailService;
+import base.api.shared.exception.BadRequestException;
+import base.api.shared.exception.ConflictException;
+import base.api.shared.exception.ForbiddenException;
+import base.api.shared.exception.NotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +39,12 @@ public class UserService implements IUserService {
 
     @Autowired
     private IUserRepository userRepository;
+
+    @Autowired
+    private IRoleRepository roleRepository;
+
+    @Autowired
+    private IBranchRepository branchRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -530,16 +544,40 @@ public class UserService implements IUserService {
 
     @Override
     @Transactional
-    public UserModel createUserByAdmin(CreateUserByAdminDto dto) throws Exception {
+    public UserModel createUserByAdmin(CreateUserByAdminDto dto, UserModel creator) throws Exception {
         String normalizedUserName = normalizeLogin(dto.getUserName());
         String normalizedEmail = normalizeEmail(dto.getEmail());
         String normalizedPhone = dto.getPhone() == null ? null : dto.getPhone().trim().replaceAll("\\s+", "");
 
-        if (userRepository.existsByUserName(normalizedUserName)) {
+        if (creator == null) {
+            throw new BadRequestException("Không xác định được người tạo tài khoản");
+        }
+
+        if (normalizedUserName != null
+                && !normalizedUserName.equals(normalizedEmail)
+                && userRepository.existsByUserName(normalizedUserName)) {
             throw new IllegalArgumentException("Username đã tồn tại");
         }
         if (userRepository.existsByEmail(normalizedEmail)) {
             throw new IllegalArgumentException("Email đã được sử dụng");
+        }
+        if (normalizedPhone != null && userRepository.existsByPhone(normalizedPhone)) {
+            throw new ConflictException("Số điện thoại đã được sử dụng");
+        }
+
+        UserRole targetRole = dto.getRole();
+        UserRole persistedRole = targetRole.toWebRole();
+        RoleModel roleEntity = roleRepository.findByName(persistedRole.name())
+                .orElseThrow(() -> new BadRequestException("Role không tồn tại"));
+
+        Long targetBranchId = resolveTargetBranchId(targetRole, dto.getBranchId(), creator);
+        BranchModel targetBranch = null;
+        if (targetBranchId != null) {
+            targetBranch = branchRepository.findById(targetBranchId)
+                    .orElseThrow(() -> new NotFoundException("Không tìm thấy chi nhánh"));
+        }
+        if (persistedRole == UserRole.BRANCH_MANAGER && targetBranch != null && targetBranch.getManagerId() != null) {
+            throw new ConflictException("Chi nhánh đã có quản lý");
         }
 
         String tempPassword = generateTempPassword(12);
@@ -550,13 +588,18 @@ public class UserService implements IUserService {
         newUser.setFirstName(dto.getFirstName());
         newUser.setLastName(dto.getLastName());
         newUser.setPhone(normalizedPhone);
-        newUser.setRole(dto.getRole());
+        newUser.setRoleEntity(roleEntity);
+        newUser.setBranchId(targetBranchId);
         newUser.setGender(UserGender.MALE);
         newUser.setPassword(passwordEncoder.encode(tempPassword));
         newUser.setVerified(true);
         newUser.setActive(true);
 
         UserModel savedUser = userRepository.save(newUser);
+        if (persistedRole == UserRole.BRANCH_MANAGER && targetBranch != null) {
+            targetBranch.setManagerId(savedUser.getId());
+            branchRepository.save(targetBranch);
+        }
 
         try {
             String fullName = (dto.getFirstName() != null ? dto.getFirstName() : "") +
@@ -609,6 +652,41 @@ public class UserService implements IUserService {
         }
 
         return savedUser;
+    }
+
+    private Long resolveTargetBranchId(UserRole targetRole, Long requestedBranchId, UserModel creator) {
+        if (targetRole == null) {
+            throw new BadRequestException("Role không được để trống");
+        }
+
+        if (!targetRole.requiresBranch()) {
+            if (requestedBranchId != null) {
+                throw new BadRequestException("Role này không cần gán chi nhánh");
+            }
+            return null;
+        }
+
+        if (requestedBranchId == null) {
+            throw new BadRequestException("Vui lòng chọn chi nhánh");
+        }
+
+        UserRole creatorRole = creator.getRole();
+        if (creatorRole == null) {
+            throw new ForbiddenException("Không xác định được quyền của người tạo");
+        }
+
+        if (creatorRole.toWebRole() != UserRole.BRANCH_MANAGER) {
+            return requestedBranchId;
+        }
+
+        Long creatorBranchId = creator.getBranchId();
+        if (creatorBranchId == null) {
+            throw new BadRequestException("Branch manager chưa được gán chi nhánh");
+        }
+        if (!creatorBranchId.equals(requestedBranchId)) {
+            throw new ForbiddenException("Chỉ được tạo nhân viên cho chi nhánh của mình");
+        }
+        return creatorBranchId;
     }
 
     private String normalizeLogin(String value) {
