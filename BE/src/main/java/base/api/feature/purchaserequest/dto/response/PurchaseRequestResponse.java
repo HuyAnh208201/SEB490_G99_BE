@@ -18,6 +18,10 @@ public class PurchaseRequestResponse {
     private Long createdBy;
     private String createdByName;
     private String status;
+    private Long approvedBy;
+    private String approvedByName;
+    private LocalDateTime approvedAt;
+    private String rejectReason;
     private LocalDate requestDate;
     private LocalDateTime createdAt;
     private String notes;

@@ -34,7 +34,8 @@ public final class WebRolePermissions {
                 WebPermission.PROMOTION_MANAGEMENT,
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT,
-                WebPermission.SUPPLIER_MANAGEMENT
+                WebPermission.SUPPLIER_MANAGEMENT,
+                WebPermission.APPROVE_IMPORT_REQUEST
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(
@@ -50,7 +51,8 @@ public final class WebRolePermissions {
                 WebPermission.PROMOTION_MANAGEMENT,
                 WebPermission.BUSINESS_PERFORMANCE_REPORTS,
                 WebPermission.STRATEGIC_PLANNING_OVERVIEW,
-                WebPermission.BRANCH_REVENUE_PROMOS
+                WebPermission.BRANCH_REVENUE_PROMOS,
+                WebPermission.APPROVE_IMPORT_REQUEST
         ));
 
         map.put(UserRole.BRANCH_MANAGER, EnumSet.of(

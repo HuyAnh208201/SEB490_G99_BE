@@ -29,6 +29,7 @@ public enum WebPermission {
     SUPPLY_IMPORT_RECEIPT_APPROVE("Supply Import Receipt: Approve"),
     SHIFT_MANAGEMENT("Shift Management: Create/Assign"),
     CREATE_IMPORT_REQUEST("Create Import Request"),
+    APPROVE_IMPORT_REQUEST("Approve Import Request"),
     WAREHOUSE_DASHBOARD("Warehouse Dashboard"),
     VIEW_CENTRAL_INVENTORY("View Central Inventory"),
     MANAGE_BRANCH_IMPORT_REQUESTS("Manage Branch Import Requests"),

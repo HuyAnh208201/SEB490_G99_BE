@@ -45,6 +45,7 @@ public class PurchaseRequestMapper {
             PurchaseRequestModel request,
             BranchModel branch,
             UserModel createdBy,
+            UserModel approvedBy,
             List<PurchaseRequestDetailModel> items,
             Map<Integer, ProductModel> productsById
     ) {
@@ -56,6 +57,10 @@ public class PurchaseRequestMapper {
         response.setCreatedBy(request.getCreatedBy());
         response.setCreatedByName(createdBy == null ? null : createdBy.getFullName());
         response.setStatus(request.getStatus() == null ? null : request.getStatus().name());
+        response.setApprovedBy(request.getApprovedBy());
+        response.setApprovedByName(approvedBy == null ? null : approvedBy.getFullName());
+        response.setApprovedAt(request.getApprovedAt());
+        response.setRejectReason(request.getRejectReason());
         response.setRequestDate(toRequestDate(request));
         response.setCreatedAt(request.getCreatedAt());
         response.setNotes(request.getReason());
@@ -74,6 +79,8 @@ public class PurchaseRequestMapper {
         response.setCategoryName(product == null || product.getCategory() == null ? null : product.getCategory().getName());
         response.setUnit(product == null ? null : product.getUnit());
         response.setRequestedQty(detail.getRequestedQty());
+        response.setApprovedQuantity(detail.getApprovedQuantity());
+        response.setSupplierId(detail.getSupplierId());
         return response;
     }
 

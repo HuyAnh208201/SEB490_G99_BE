@@ -13,4 +13,6 @@ public class PurchaseRequestDetailResponse {
     private String categoryName;
     private String unit;
     private Integer requestedQty;
+    private Integer approvedQuantity;
+    private Integer supplierId;
 }
