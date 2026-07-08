@@ -20,7 +20,10 @@ public enum UserRole {
 
     public boolean isWebRole() {
         UserRole web = toWebRole();
-        return web == ADMIN || web == DIRECTOR || web == BRANCH_MANAGER || web == WAREHOUSE_MANAGER;
+        return switch (web) {
+            case ADMIN, DIRECTOR, BRANCH_MANAGER, WAREHOUSE_MANAGER, INVENTORY_STAFF, CASHIER -> true;
+            default -> false;
+        };
     }
 
     public UserRole toWebRole() {
@@ -34,6 +37,11 @@ public enum UserRole {
     public boolean canManageUsers() {
         UserRole web = toWebRole();
         return web == ADMIN || web == DIRECTOR || web == BRANCH_MANAGER;
+    }
+
+    public boolean requiresBranch() {
+        UserRole web = toWebRole();
+        return web == BRANCH_MANAGER || this == INVENTORY_STAFF || this == CASHIER;
     }
 
     public boolean canAssignRole(UserRole targetRole) {

@@ -23,7 +23,7 @@ public interface IUserService {
     UserModel getOrCreateGuestByPhone(String phone);
 
     UserModel registerUser(RegisterDto dto);
-    UserModel createUserByAdmin(CreateUserByAdminDto dto) throws Exception;
+    UserModel createUserByAdmin(CreateUserByAdminDto dto, UserModel creator) throws Exception;
     List<UserModel> getAllUsers();
     InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception;
     void completeForgotPassword(CompleteForgotPasswordDto dto) throws Exception;
