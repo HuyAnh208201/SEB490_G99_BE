@@ -19,6 +19,7 @@ public enum WebPermission {
     BRANCH_LIST_DIRECTOR("Branch List Screen (Director)"),
     PROMOTION_LIST("Promotion List Screen"),
     PROMOTION_DETAILS("Promotion Details Screen"),
+    PROMOTION_MANAGEMENT("Promotion Management"),
     BUSINESS_PERFORMANCE_REPORTS("Business Performance Reports"),
     STRATEGIC_PLANNING_OVERVIEW("Strategic Planning Overview"),
     BRANCH_DASHBOARD("Branch Dashboard"),
@@ -28,12 +29,15 @@ public enum WebPermission {
     SUPPLY_IMPORT_RECEIPT_APPROVE("Supply Import Receipt: Approve"),
     SHIFT_MANAGEMENT("Shift Management: Create/Assign"),
     CREATE_IMPORT_REQUEST("Create Import Request"),
+    APPROVE_IMPORT_REQUEST("Approve Import Request"),
     WAREHOUSE_DASHBOARD("Warehouse Dashboard"),
     VIEW_CENTRAL_INVENTORY("View Central Inventory"),
     MANAGE_BRANCH_IMPORT_REQUESTS("Manage Branch Import Requests"),
     CHOOSE_EXTERNAL_SUPPLIER("Choose External Supplier"),
     MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
-    CATEGORY_MANAGEMENT("Category Management");
+    CATEGORY_MANAGEMENT("Category Management"),
+    PRODUCT_MANAGEMENT("Product Management"),
+    SUPPLIER_MANAGEMENT("Supplier Management");
 
     private final String label;
 }
