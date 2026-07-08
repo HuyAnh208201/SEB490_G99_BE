@@ -725,4 +725,78 @@ public class UserService implements IUserService {
         }
         return new String(chars);
     }
+
+    @Override
+    @Transactional
+    public UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor) {
+        assertCanManageTargetUser(actor, targetUserId);
+        UserModel target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+        target.setActive(active);
+        return userRepository.save(target);
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(Long targetUserId, UserModel actor) {
+        assertCanManageTargetUser(actor, targetUserId);
+        if (actor.getId().equals(targetUserId)) {
+            throw new BadRequestException("Không thể xóa tài khoản của chính mình.");
+        }
+        UserModel target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+
+        UserRole targetRole = target.getRole();
+        if (targetRole == UserRole.ADMIN) {
+            throw new ForbiddenException("Không thể xóa tài khoản Admin.");
+        }
+
+        if (targetRole == UserRole.BRANCH_MANAGER && target.getBranchId() != null) {
+            branchRepository.findById(target.getBranchId()).ifPresent(branch -> {
+                if (targetUserId.equals(branch.getManagerId())) {
+                    branch.setManagerId(null);
+                    branchRepository.save(branch);
+                }
+            });
+        }
+
+        userRepository.delete(target);
+    }
+
+    private void assertCanManageTargetUser(UserModel actor, Long targetUserId) {
+        if (actor == null || actor.getRole() == null) {
+            throw new ForbiddenException("Không xác định được quyền của người thực hiện.");
+        }
+        if (!actor.getRole().canManageUsers()) {
+            throw new ForbiddenException("Không có quyền quản lý user");
+        }
+        if (actor.getId().equals(targetUserId)) {
+            throw new BadRequestException("Không thể thao tác trên tài khoản của chính mình.");
+        }
+
+        UserModel target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+        UserRole actorRole = actor.getRole().toWebRole();
+        UserRole targetRole = target.getRole() != null ? target.getRole().toWebRole() : null;
+
+        if (actorRole == UserRole.ADMIN || actorRole == UserRole.DIRECTOR) {
+            if (targetRole == UserRole.ADMIN && actorRole != UserRole.ADMIN) {
+                throw new ForbiddenException("Director không thể quản lý tài khoản Admin.");
+            }
+            return;
+        }
+
+        if (actorRole == UserRole.BRANCH_MANAGER) {
+            if (targetRole != UserRole.CASHIER && targetRole != UserRole.INVENTORY_STAFF) {
+                throw new ForbiddenException("Branch manager chỉ được quản lý Cashier và Inventory staff.");
+            }
+            if (actor.getBranchId() == null || target.getBranchId() == null
+                    || !actor.getBranchId().equals(target.getBranchId())) {
+                throw new ForbiddenException("Chỉ được quản lý nhân viên tại chi nhánh của mình.");
+            }
+            return;
+        }
+
+        throw new ForbiddenException("Không có quyền quản lý user");
+    }
 }

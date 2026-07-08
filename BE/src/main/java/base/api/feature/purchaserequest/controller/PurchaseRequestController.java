@@ -118,7 +118,7 @@ public class PurchaseRequestController extends BaseAPIController {
     }
 
     @Operation(summary = "Get purchase request history")
-    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST')")
+    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping
     public ResponseEntity<TFUResponse<base.api.shared.dto.PageResponseDTO<PurchaseRequestSummaryResponse>>> getRequestHistory(
             @ModelAttribute PageRequestDTO pageRequest
@@ -128,7 +128,7 @@ public class PurchaseRequestController extends BaseAPIController {
     }
 
     @Operation(summary = "Get purchase request detail")
-    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST')")
+    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<PurchaseRequestResponse>> getRequest(@PathVariable Long id) {
         return success(purchaseRequestService.getRequest(id));
@@ -153,7 +153,7 @@ public class PurchaseRequestController extends BaseAPIController {
     }
 
     @Operation(summary = "Get consolidated purchase requests (gom đơn theo địa chỉ chi nhánh & category)")
-    @PreAuthorize("@permissionChecker.has('APPROVE_IMPORT_REQUEST')")
+    @PreAuthorize("@permissionChecker.hasAny('APPROVE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS')")
     @GetMapping("/consolidated")
     public ResponseEntity<TFUResponse<List<ConsolidatedBranchResponse>>> getConsolidatedRequests() {
         return success(purchaseRequestService.getConsolidatedRequests());

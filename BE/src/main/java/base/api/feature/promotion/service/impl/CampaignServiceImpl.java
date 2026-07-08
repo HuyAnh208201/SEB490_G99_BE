@@ -9,6 +9,8 @@ import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchRepository;
 import base.api.feature.promotion.repository.CampaignRepository;
 import base.api.feature.promotion.service.ICampaignService;
+import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
+import base.api.shared.entity.CampaignBranchExclusionModel;
 import base.api.shared.entity.CampaignBranchModel;
 import base.api.shared.entity.CampaignModel;
 import base.api.shared.entity.UserModel;
@@ -49,6 +51,9 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Autowired
     private CampaignBranchRepository campaignBranchRepository;
+
+    @Autowired
+    private CampaignBranchExclusionRepository campaignBranchExclusionRepository;
 
     @Autowired
     private IBranchRepository branchRepository;
@@ -136,6 +141,7 @@ public class CampaignServiceImpl implements ICampaignService {
         assertCanModifyCampaign(campaign);
 
         campaignBranchRepository.deleteByCampaignId(id);
+        campaignBranchExclusionRepository.deleteByCampaignId(id);
         campaignRepository.delete(campaign);
     }
 
@@ -192,15 +198,29 @@ public class CampaignServiceImpl implements ICampaignService {
 
         List<Long> branchIds = getBranchIds(id);
         if (branchIds.isEmpty()) {
-            // TODO: Add a branch-level campaign exclusion/status table to support deactivation
-            // for entire-chain promotions without changing the global campaign status.
-            throw new BadRequestException("Branch-level deactivation for entire-chain promotions is not supported by current schema.");
+            if (campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+                throw new ConflictException("Promotion already deactivated for this branch.");
+            }
+            CampaignBranchExclusionModel exclusion = new CampaignBranchExclusionModel();
+            exclusion.setCampaignId(id);
+            exclusion.setBranchId(branchId);
+            campaignBranchExclusionRepository.save(exclusion);
+            return campaignMapper.toResponse(campaign, branchIds);
         }
 
         CampaignBranchModel branchMapping = campaignBranchRepository.findByCampaignIdAndBranchId(id, branchId)
-                .orElseThrow(() -> new ConflictException("Promotion already deactivated for this branch."));
-
-        campaignBranchRepository.delete(branchMapping);
+                .orElse(null);
+        if (branchMapping != null) {
+            campaignBranchRepository.delete(branchMapping);
+        } else {
+            if (campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+                throw new ConflictException("Promotion already deactivated for this branch.");
+            }
+            CampaignBranchExclusionModel exclusion = new CampaignBranchExclusionModel();
+            exclusion.setCampaignId(id);
+            exclusion.setBranchId(branchId);
+            campaignBranchExclusionRepository.save(exclusion);
+        }
         List<Long> remainingBranchIds = getBranchIds(id);
         return campaignMapper.toResponse(campaign, remainingBranchIds);
     }
@@ -222,14 +242,14 @@ public class CampaignServiceImpl implements ICampaignService {
 
         List<Long> branchIds = getBranchIds(id);
         if (branchIds.isEmpty()) {
-            // TODO: Add a branch-level campaign exclusion/status table to support reactivation
-            // for entire-chain promotions without changing the global campaign status.
-            throw new BadRequestException("Branch-level activation for entire-chain promotions is not supported by current schema.");
+            if (!campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+                throw new BadRequestException("Promotion is not deactivated for this branch.");
+            }
+            campaignBranchExclusionRepository.deleteByCampaignIdAndBranchId(id, branchId);
+            return campaignMapper.toResponse(campaign, branchIds);
         }
 
         if (!campaignBranchRepository.existsByCampaignIdAndBranchId(id, branchId)) {
-            // TODO: Add a branch-level campaign status table. With only campaign_branches,
-            // a missing row means the branch is not currently applied to this campaign.
             throw new ForbiddenException("Promotion is not applied to this branch.");
         }
 
@@ -254,6 +274,18 @@ public class CampaignServiceImpl implements ICampaignService {
         } else if (currentRole == UserRole.BRANCH_MANAGER) {
             Long branchId = resolveCurrentBranchId(currentUser);
             campaigns = findCampaignsVisibleToBranch(branchId);
+            Set<Long> excludedCampaignIds = campaignBranchExclusionRepository.findByBranchId(branchId).stream()
+                    .map(CampaignBranchExclusionModel::getCampaignId)
+                    .collect(java.util.stream.Collectors.toSet());
+            Map<Long, List<Long>> branchIdsByCampaign = loadBranchIdsByCampaign(campaigns);
+            return campaigns.stream()
+                    .map(campaign -> {
+                        List<Long> branchIds = branchIdsByCampaign.getOrDefault(campaign.getId(), List.of());
+                        boolean deactivatedForBranch = isDeactivatedForBranch(
+                                campaign, branchId, branchIds, excludedCampaignIds);
+                        return campaignMapper.toSummaryResponse(campaign, branchIds, deactivatedForBranch);
+                    })
+                    .toList();
         } else {
             throw new ForbiddenException("Access denied.");
         }
@@ -280,6 +312,20 @@ public class CampaignServiceImpl implements ICampaignService {
         return visibleCampaigns.values().stream()
                 .sorted(Comparator.comparing(CampaignModel::getId))
                 .toList();
+    }
+
+    private boolean isDeactivatedForBranch(
+            CampaignModel campaign,
+            Long branchId,
+            List<Long> branchIds,
+            Set<Long> excludedCampaignIds) {
+        if (excludedCampaignIds.contains(campaign.getId())) {
+            return true;
+        }
+        if (campaign.getScope() == CampaignScope.CHAIN && !branchIds.isEmpty()) {
+            return !branchIds.contains(branchId);
+        }
+        return false;
     }
 
     private void assertCanViewCampaign(CampaignModel campaign) {
@@ -311,12 +357,12 @@ public class CampaignServiceImpl implements ICampaignService {
             return;
         }
 
-        if (!currentUser.getId().equals(campaign.getCreatedBy())) {
-            throw new ForbiddenException("Cannot modify promotions created by others.");
+        if (canManageChainPromotions(currentRole) && campaign.getScope() == CampaignScope.CHAIN) {
+            return;
         }
 
-        if (currentRole == UserRole.DIRECTOR && campaign.getScope() == CampaignScope.CHAIN) {
-            return;
+        if (!currentUser.getId().equals(campaign.getCreatedBy())) {
+            throw new ForbiddenException("Cannot modify promotions created by others.");
         }
 
         if (currentRole == UserRole.BRANCH_MANAGER && campaign.getScope() == CampaignScope.BRANCH) {

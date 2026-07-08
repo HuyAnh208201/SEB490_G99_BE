@@ -1,5 +1,7 @@
 package base.api.feature.branch.service;
 
+import base.api.feature.branch.dto.request.AssignStaffRequest;
+import base.api.feature.branch.dto.request.SendBranchSuspendCodeRequest;
 import base.api.feature.branch.dto.request.CreateBranchManagerRequest;
 import base.api.feature.branch.dto.request.CreateBranchRequest;
 import base.api.feature.branch.dto.request.CreateCashierRequest;
@@ -28,4 +30,8 @@ public interface IBranchService {
     UserResponse createInventoryStaff(CreateInventoryStaffRequest request);
 
     UserResponse createCashier(CreateCashierRequest request);
+
+    UserResponse assignStaffToBranch(Long branchId, AssignStaffRequest request);
+
+    void sendBranchSuspendCode(Long branchId, SendBranchSuspendCodeRequest request);
 }

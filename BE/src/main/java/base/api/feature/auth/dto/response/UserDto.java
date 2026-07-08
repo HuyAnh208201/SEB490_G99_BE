@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserDto {
+    private Long id;
+
     public String userName;
 
     public String phone;
@@ -32,6 +34,8 @@ public class UserDto {
 
 
     private UserRole role;
+
+    private Long branchId;
 
     private Long points;
 

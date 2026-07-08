@@ -216,4 +216,30 @@ public class AuthController extends BaseAPIController {
             return badRequest(e.getMessage());
         }
     }
+
+    @Operation(summary = "Cập nhật trạng thái user", description = "**USER_DETAILS_EDIT** — Admin/Director/BM theo quyền.")
+    @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
+    @PatchMapping("admin/users/{id}/status")
+    public ResponseEntity<TFUResponse<UserModel>> updateUserStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateUserStatusDto dto) {
+        UserModel actor = userService.findById(getCurrentUserId());
+        if (actor == null) {
+            return unauthorized("Chưa đăng nhập");
+        }
+        UserModel updated = userService.updateUserStatus(id, Boolean.TRUE.equals(dto.getActive()), actor);
+        return success(updated, "Cập nhật trạng thái thành công.");
+    }
+
+    @Operation(summary = "Xóa user", description = "**USER_DETAILS_EDIT** — Admin/Director/BM theo quyền.")
+    @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
+    @DeleteMapping("admin/users/{id}")
+    public ResponseEntity<TFUResponse<String>> deleteUser(@PathVariable Long id) {
+        UserModel actor = userService.findById(getCurrentUserId());
+        if (actor == null) {
+            return unauthorized("Chưa đăng nhập");
+        }
+        userService.deleteUser(id, actor);
+        return success("Xóa tài khoản thành công.");
+    }
 }

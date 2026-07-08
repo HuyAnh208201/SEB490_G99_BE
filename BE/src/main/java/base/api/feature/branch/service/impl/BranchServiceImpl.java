@@ -2,6 +2,7 @@ package base.api.feature.branch.service.impl;
 
 import base.api.feature.auth.repository.IRoleRepository;
 import base.api.feature.auth.repository.IUserRepository;
+import base.api.feature.branch.dto.request.AssignStaffRequest;
 import base.api.feature.branch.dto.request.CreateBranchManagerRequest;
 import base.api.feature.branch.dto.request.CreateBranchRequest;
 import base.api.feature.branch.dto.request.CreateCashierRequest;
@@ -13,7 +14,11 @@ import base.api.feature.branch.dto.response.UserResponse;
 import base.api.feature.branch.mapper.BranchMapper;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.branch.service.IBranchService;
+import base.api.feature.branch.dto.request.SendBranchSuspendCodeRequest;
+import base.api.feature.branch.repository.BranchSuspendTokenRepository;
+import base.api.shared.config.EmailService;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.BranchSuspendTokenModel;
 import base.api.shared.entity.RoleModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
@@ -28,6 +33,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -56,10 +62,16 @@ public class BranchServiceImpl implements IBranchService {
     @Autowired
     private CurrentUserProvider currentUserProvider;
 
+    @Autowired
+    private BranchSuspendTokenRepository branchSuspendTokenRepository;
+
+    @Autowired
+    private EmailService emailService;
+
     @Override
     @Transactional
     public BranchResponse createBranch(CreateBranchRequest request) {
-        assertAdmin();
+        assertAdminOrDirector();
 
         String normalizedName = normalizeBranchName(request.getName());
         String normalizedAddress = normalizeRequiredText(request.getAddress(), "Address is required.");
@@ -83,7 +95,7 @@ public class BranchServiceImpl implements IBranchService {
     @Override
     @Transactional
     public BranchResponse updateBranch(Long id, UpdateBranchRequest request) {
-        assertAdmin();
+        assertAdminOrDirector();
 
         BranchModel branch = findBranchOrThrow(id);
 
@@ -126,10 +138,14 @@ public class BranchServiceImpl implements IBranchService {
     @Override
     @Transactional
     public BranchResponse suspendBranch(Long id, UpdateBranchStatusRequest request) {
-        assertAdmin();
+        assertAdminOrDirector();
 
         BranchModel branch = findBranchOrThrow(id);
         String normalizedStatus = normalizeBranchStatus(request.getStatus());
+
+        if ("SUSPENDED".equals(normalizedStatus)) {
+            verifyBranchSuspendCode(id, request.getEmail(), request.getVerificationCode());
+        }
 
         branch.setStatus(normalizedStatus);
 
@@ -140,8 +156,98 @@ public class BranchServiceImpl implements IBranchService {
 
     @Override
     @Transactional
+    public void sendBranchSuspendCode(Long branchId, SendBranchSuspendCodeRequest request) {
+        assertAdminOrDirector();
+
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        BranchModel branch = findBranchOrThrow(branchId);
+
+        String normalizedEmail = normalizeEmail(request.getEmail());
+        if (!normalizedEmail.equalsIgnoreCase(currentUser.getEmail())) {
+            throw new BadRequestException("Email does not match your account.");
+        }
+
+        String code = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+
+        BranchSuspendTokenModel token = new BranchSuspendTokenModel();
+        token.setBranchId(branchId);
+        token.setUserId(currentUser.getId());
+        token.setVerificationCode(code);
+        token.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+        branchSuspendTokenRepository.save(token);
+
+        String fullName = currentUser.getFullName();
+        if (fullName == null || fullName.isBlank()) {
+            fullName = currentUser.getUserName() != null ? currentUser.getUserName() : normalizedEmail;
+        }
+
+        try {
+            String subject = "ChainStore — Mã xác nhận vô hiệu hóa chi nhánh";
+            String body = String.format(
+                    "<html>" +
+                            "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
+                            "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
+                            "<div style='text-align: center; margin-bottom: 30px;'>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>ChainStore</h1>" +
+                            "</div>" +
+                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
+                            "<p>Bạn đã yêu cầu <strong>vô hiệu hóa chi nhánh</strong> " +
+                            "<strong>%s</strong>. Đây là hành động quan trọng — vui lòng nhập mã bên dưới để xác nhận:</p>" +
+                            "<div style='background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;'>" +
+                            "<p style='margin: 0 0 8px; color: #666; font-size: 14px;'>Mã xác nhận</p>" +
+                            "<p style='margin: 0; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #0058be; font-family: monospace;'>%s</p>" +
+                            "</div>" +
+                            "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Mã có hiệu lực trong 15 phút. " +
+                            "Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email.</p>" +
+                            "</div>" +
+                            "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
+                            "<p style='color: #999; font-size: 12px; text-align: center;'>© ChainStore. All rights reserved.</p>" +
+                            "</div>" +
+                            "</body>" +
+                            "</html>",
+                    fullName,
+                    branch.getName(),
+                    code);
+
+            emailService.sendHtmlEmail(normalizedEmail, subject, body);
+        } catch (Exception ex) {
+            throw new BadRequestException("Unable to send verification email. Please try again.");
+        }
+    }
+
+    private void verifyBranchSuspendCode(Long branchId, String email, String verificationCode) {
+        if (email == null || email.isBlank()) {
+            throw new BadRequestException("Email confirmation is required to deactivate a branch.");
+        }
+        if (verificationCode == null || verificationCode.isBlank()) {
+            throw new BadRequestException("Verification code is required to deactivate a branch.");
+        }
+
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        if (!normalizeEmail(email).equalsIgnoreCase(currentUser.getEmail())) {
+            throw new BadRequestException("Email does not match your account.");
+        }
+
+        BranchSuspendTokenModel token = branchSuspendTokenRepository
+                .findTopByBranchIdAndUserIdAndUsedFalseOrderByCreatedAtDesc(branchId, currentUser.getId())
+                .orElseThrow(() -> new BadRequestException("No verification code found. Please send a new code."));
+
+        if (token.isExpired()) {
+            throw new BadRequestException("Verification code has expired. Please send a new code.");
+        }
+        if (!token.getVerificationCode().equals(verificationCode.trim())) {
+            throw new BadRequestException("Invalid verification code.");
+        }
+
+        token.setUsed(true);
+        branchSuspendTokenRepository.save(token);
+    }
+
+    @Override
+    @Transactional
     public UserResponse createBranchManager(Long branchId, CreateBranchManagerRequest request) {
-        assertAdmin();
+        assertAdminOrDirector();
 
         if (!branchId.equals(request.getBranchId())) {
             throw new BadRequestException("Branch ID mismatch.");
@@ -203,6 +309,67 @@ public class BranchServiceImpl implements IBranchService {
                 request.getConfirmPassword(),
                 request.getBranchId(),
                 UserRole.CASHIER);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse assignStaffToBranch(Long branchId, AssignStaffRequest request) {
+        assertAdminOrDirector();
+
+        BranchModel branch = findBranchOrThrow(branchId);
+        UserModel user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new NotFoundException("User not found."));
+
+        UserRole targetRole = parseStaffRole(request.getRole());
+        UserRole userRole = user.getRole();
+        if (userRole == null || userRole.toWebRole() != targetRole.toWebRole()) {
+            throw new BadRequestException("User role does not match the requested assignment.");
+        }
+
+        if (targetRole == UserRole.BRANCH_MANAGER) {
+            boolean replaceExisting = Boolean.TRUE.equals(request.getReplaceExisting());
+            if (branch.getManagerId() != null && !branch.getManagerId().equals(user.getId())) {
+                if (!replaceExisting) {
+                    throw new ConflictException("Branch already has a manager. Confirm replacement to continue.");
+                }
+                clearBranchManagerLink(branchId, branch.getManagerId());
+            }
+            if (user.getBranchId() != null && !user.getBranchId().equals(branchId)) {
+                clearBranchManagerLink(user.getBranchId(), user.getId());
+            }
+            user.setBranchId(branchId);
+            branch.setManagerId(user.getId());
+            branchRepository.save(branch);
+        } else {
+            if (user.getBranchId() != null && !user.getBranchId().equals(branchId)) {
+                if (userRole == UserRole.BRANCH_MANAGER) {
+                    clearBranchManagerLink(user.getBranchId(), user.getId());
+                }
+            }
+            user.setBranchId(branchId);
+        }
+
+        return branchMapper.toUserResponse(userRepository.save(user));
+    }
+
+    private UserRole parseStaffRole(String role) {
+        if (role == null || role.isBlank()) {
+            throw new BadRequestException("Role is required.");
+        }
+        try {
+            return UserRole.valueOf(role.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Invalid role.");
+        }
+    }
+
+    private void clearBranchManagerLink(Long branchId, Long managerId) {
+        branchRepository.findById(branchId).ifPresent(oldBranch -> {
+            if (managerId.equals(oldBranch.getManagerId())) {
+                oldBranch.setManagerId(null);
+                branchRepository.save(oldBranch);
+            }
+        });
     }
 
     private UserResponse createStaff(
