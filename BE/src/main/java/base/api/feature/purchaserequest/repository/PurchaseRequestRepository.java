@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
+import java.util.List;
 
 @Repository
 public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequestModel, Long> {
@@ -15,4 +16,6 @@ public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest
     Page<PurchaseRequestModel> findByBranchId(Long branchId, Pageable pageable);
 
     Page<PurchaseRequestModel> findByStatusIn(Collection<PurchaseRequestStatus> statuses, Pageable pageable);
+
+    List<PurchaseRequestModel> findByStatus(PurchaseRequestStatus status);
 }

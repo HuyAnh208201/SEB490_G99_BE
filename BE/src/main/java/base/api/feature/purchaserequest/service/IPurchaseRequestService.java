@@ -6,6 +6,7 @@ import base.api.feature.purchaserequest.dto.request.ReceiveGoodsRequest;
 import base.api.feature.purchaserequest.dto.request.RejectPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
+import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
@@ -37,4 +38,6 @@ public interface IPurchaseRequestService {
     List<RecommendedProductResponse> getRecommendedProducts();
 
     Page<ProductSearchResponse> searchProducts(String keyword, PageRequestDTO pageRequest);
+
+    List<ConsolidatedBranchResponse> getConsolidatedRequests();
 }

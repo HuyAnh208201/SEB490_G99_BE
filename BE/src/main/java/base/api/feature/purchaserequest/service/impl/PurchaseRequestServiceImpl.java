@@ -10,6 +10,7 @@ import base.api.feature.purchaserequest.dto.request.ReceiveGoodsRequest;
 import base.api.feature.purchaserequest.dto.request.RejectPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
+import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
@@ -48,12 +49,15 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
@@ -203,6 +207,104 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     public Page<ProductSearchResponse> searchProducts(String keyword, PageRequestDTO pageRequest) {
         return productRepository.searchActiveProducts(normalizeNullableText(keyword), productSearchPage(pageRequest))
                 .map(purchaseRequestMapper::toProductSearchResponse);
+    }
+
+    @Override
+    public List<ConsolidatedBranchResponse> getConsolidatedRequests() {
+        List<PurchaseRequestModel> approvedRequests = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED);
+        if (approvedRequests.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Long> branchIdByRequestId = new HashMap<>();
+        for (PurchaseRequestModel request : approvedRequests) {
+            branchIdByRequestId.put(request.getId(), request.getBranchId());
+        }
+
+        List<PurchaseRequestDetailModel> details =
+                detailRepository.findByPurchaseRequestIdIn(branchIdByRequestId.keySet());
+
+        // branchId -> productId -> tổng approved_quantity
+        Map<Long, Map<Integer, Integer>> quantityByBranchProduct = new LinkedHashMap<>();
+        for (PurchaseRequestDetailModel detail : details) {
+            Integer approvedQty = detail.getApprovedQuantity();
+            if (approvedQty == null || approvedQty <= 0 || detail.getProductId() == null) {
+                continue;
+            }
+            Long branchId = branchIdByRequestId.get(detail.getPurchaseRequestId());
+            if (branchId == null) {
+                continue;
+            }
+            quantityByBranchProduct
+                    .computeIfAbsent(branchId, key -> new HashMap<>())
+                    .merge(detail.getProductId(), approvedQty, Integer::sum);
+        }
+        if (quantityByBranchProduct.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Integer> productIds = quantityByBranchProduct.values().stream()
+                .flatMap(map -> map.keySet().stream())
+                .collect(Collectors.toSet());
+        Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(productIds).stream()
+                .collect(Collectors.toMap(ProductModel::getId, product -> product, (a, b) -> a));
+
+        Set<Long> branchIds = new HashSet<>(quantityByBranchProduct.keySet());
+        Map<Long, BranchModel> branchesById = branchRepository.findAllById(branchIds).stream()
+                .collect(Collectors.toMap(BranchModel::getId, branch -> branch, (a, b) -> a));
+
+        List<ConsolidatedBranchResponse> result = new ArrayList<>();
+        for (Map.Entry<Long, Map<Integer, Integer>> branchEntry : quantityByBranchProduct.entrySet()) {
+            BranchModel branch = branchesById.get(branchEntry.getKey());
+            ConsolidatedBranchResponse branchResponse = new ConsolidatedBranchResponse();
+            branchResponse.setBranchId(branchEntry.getKey());
+            branchResponse.setBranchName(branch == null ? null : branch.getName());
+            branchResponse.setBranchAddress(branch == null ? null : branch.getAddress());
+            branchResponse.setCategories(buildCategoryGroups(branchEntry.getValue(), productsById));
+            result.add(branchResponse);
+        }
+
+        result.sort(Comparator.comparing(
+                ConsolidatedBranchResponse::getBranchAddress, Comparator.nullsLast(String::compareTo)));
+        return result;
+    }
+
+    private List<ConsolidatedBranchResponse.CategoryGroup> buildCategoryGroups(
+            Map<Integer, Integer> quantityByProduct,
+            Map<Integer, ProductModel> productsById
+    ) {
+        Map<Integer, ConsolidatedBranchResponse.CategoryGroup> groupByCategory = new HashMap<>();
+        for (Map.Entry<Integer, Integer> productEntry : quantityByProduct.entrySet()) {
+            ProductModel product = productsById.get(productEntry.getKey());
+            Integer categoryId = product == null || product.getCategory() == null ? null : product.getCategory().getId();
+            String categoryName = product == null || product.getCategory() == null ? null : product.getCategory().getName();
+
+            ConsolidatedBranchResponse.CategoryGroup group = groupByCategory.computeIfAbsent(
+                    categoryId == null ? -1 : categoryId,
+                    key -> {
+                        ConsolidatedBranchResponse.CategoryGroup created = new ConsolidatedBranchResponse.CategoryGroup();
+                        created.setCategoryId(categoryId);
+                        created.setCategoryName(categoryName);
+                        return created;
+                    });
+
+            ConsolidatedBranchResponse.ConsolidatedItem item = new ConsolidatedBranchResponse.ConsolidatedItem();
+            item.setProductId(productEntry.getKey());
+            item.setProductCode(product == null ? null : product.getCode());
+            item.setProductName(product == null ? null : product.getName());
+            item.setUnit(product == null ? null : product.getUnit());
+            item.setTotalQuantity(productEntry.getValue());
+            group.getItems().add(item);
+        }
+
+        List<ConsolidatedBranchResponse.CategoryGroup> categories = new ArrayList<>(groupByCategory.values());
+        for (ConsolidatedBranchResponse.CategoryGroup group : categories) {
+            group.getItems().sort(Comparator.comparing(
+                    ConsolidatedBranchResponse.ConsolidatedItem::getProductName, Comparator.nullsLast(String::compareTo)));
+        }
+        categories.sort(Comparator.comparing(
+                ConsolidatedBranchResponse.CategoryGroup::getCategoryName, Comparator.nullsLast(String::compareTo)));
+        return categories;
     }
 
     @Override
