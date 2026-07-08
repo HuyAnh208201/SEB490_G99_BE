@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Ma trận phân quyền Web System: Admin, Director, Branch Manager, Warehouse Manager.
+ * Ma trận phân quyền Web System.
  */
 public final class WebRolePermissions {
 
@@ -79,6 +79,9 @@ public final class WebRolePermissions {
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT
         ));
+
+        map.put(UserRole.INVENTORY_STAFF, EnumSet.noneOf(WebPermission.class));
+        map.put(UserRole.CASHIER, EnumSet.noneOf(WebPermission.class));
 
         return Collections.unmodifiableMap(map);
     }
