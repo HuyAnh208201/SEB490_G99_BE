@@ -74,6 +74,12 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     @Query("SELECT u FROM UserModel u WHERE u.roleEntity.name = :roleName")
     List<UserModel> findByRoleName(@Param("roleName") String roleName);
 
+    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name = :roleName")
+    List<UserModel> findByBranchIdAndRoleName(
+            @Param("branchId") Long branchId,
+            @Param("roleName") String roleName
+    );
+
     /**
      * Trừ điểm atomic — chỉ thành công nếu user còn đủ điểm. Tránh race giữa các
      * request đồng thời cùng chi tiêu điểm. Trả về số row được update (0 = không đủ điểm).
