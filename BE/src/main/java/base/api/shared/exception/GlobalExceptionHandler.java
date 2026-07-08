@@ -48,6 +48,11 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<TFUResponse<Void>> handleBusiness(BusinessException ex, WebRequest req) {
+        return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<TFUResponse<Void>> handleUnreadableRequest(HttpMessageNotReadableException ex, WebRequest req) {
         return buildErrorResponse(
