@@ -3,8 +3,9 @@ package base.api.shared.enums;
 public enum PurchaseRequestStatus {
     DRAFT,
     PENDING,
-    PREPARING,
-    SENT,
+    APPROVED,
+    REJECTED,
+    RECEIVED,
     CANCELLED;
 
     public boolean isEditable() {
@@ -15,7 +16,15 @@ public enum PurchaseRequestStatus {
         return this == DRAFT;
     }
 
+    public boolean isApprovable() {
+        return this == PENDING;
+    }
+
+    public boolean isReceivable() {
+        return this == APPROVED;
+    }
+
     public boolean isWarehouseVisible() {
-        return this == PENDING || this == PREPARING || this == SENT;
+        return this == PENDING || this == APPROVED || this == RECEIVED;
     }
 }

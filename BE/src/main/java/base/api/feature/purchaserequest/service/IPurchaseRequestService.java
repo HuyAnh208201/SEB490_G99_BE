@@ -1,6 +1,9 @@
 package base.api.feature.purchaserequest.service;
 
+import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
+import base.api.feature.purchaserequest.dto.request.ReceiveGoodsRequest;
+import base.api.feature.purchaserequest.dto.request.RejectPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
@@ -18,6 +21,12 @@ public interface IPurchaseRequestService {
     PurchaseRequestResponse saveDraft(Long id, SaveDraftRequest request);
 
     PurchaseRequestResponse submitRequest(Long id, SubmitPurchaseRequestRequest request);
+
+    PurchaseRequestResponse approveRequest(Long id, ApprovePurchaseRequestRequest request);
+
+    PurchaseRequestResponse rejectRequest(Long id, RejectPurchaseRequestRequest request);
+
+    PurchaseRequestResponse receiveGoods(Long id, ReceiveGoodsRequest request);
 
     PurchaseRequestResponse cancelRequest(Long id);
 

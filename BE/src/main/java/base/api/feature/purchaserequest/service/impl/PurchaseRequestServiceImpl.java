@@ -3,8 +3,11 @@ package base.api.feature.purchaserequest.service.impl;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.PurchaseRequestItemRequest;
+import base.api.feature.purchaserequest.dto.request.ReceiveGoodsRequest;
+import base.api.feature.purchaserequest.dto.request.RejectPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
@@ -13,12 +16,16 @@ import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryRespo
 import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
 import base.api.feature.purchaserequest.mapper.PurchaseRequestMapper;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
+import base.api.feature.purchaserequest.repository.GoodsReceiptItemRepository;
+import base.api.feature.purchaserequest.repository.GoodsReceiptRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.service.IPurchaseRequestService;
 import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.entity.BranchInventoryModel;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.GoodsReceiptItemModel;
+import base.api.shared.entity.GoodsReceiptModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
@@ -39,6 +46,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -51,8 +60,8 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private static final Set<PurchaseRequestStatus> WAREHOUSE_VISIBLE_STATUSES = EnumSet.of(
             PurchaseRequestStatus.PENDING,
-            PurchaseRequestStatus.PREPARING,
-            PurchaseRequestStatus.SENT
+            PurchaseRequestStatus.APPROVED,
+            PurchaseRequestStatus.RECEIVED
     );
 
     @Autowired
@@ -63,6 +72,12 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Autowired
     private BranchInventoryRepository branchInventoryRepository;
+
+    @Autowired
+    private GoodsReceiptRepository goodsReceiptRepository;
+
+    @Autowired
+    private GoodsReceiptItemRepository goodsReceiptItemRepository;
 
     @Autowired
     private IProductRepository productRepository;
@@ -163,7 +178,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         Pageable pageable = newestFirst(pageRequest);
 
         Page<PurchaseRequestModel> requests;
-        if (role == UserRole.ADMIN) {
+        if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
             requests = purchaseRequestRepository.findAll(pageable);
         } else if (role == UserRole.WAREHOUSE_MANAGER) {
             requests = purchaseRequestRepository.findByStatusIn(WAREHOUSE_VISIBLE_STATUSES, pageable);
@@ -190,6 +205,130 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                 .map(purchaseRequestMapper::toProductSearchResponse);
     }
 
+    @Override
+    @Transactional
+    public PurchaseRequestResponse approveRequest(Long id, ApprovePurchaseRequestRequest request) {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        assertCanApproveOrReject();
+        PurchaseRequestModel purchaseRequest = findRequestOrThrow(id);
+        if (purchaseRequest.getStatus() == null || !purchaseRequest.getStatus().isApprovable()) {
+            throw new BadRequestException("Only pending requests can be approved.");
+        }
+
+        List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(id);
+        if (details.isEmpty()) {
+            throw new BadRequestException("Request has no items to approve.");
+        }
+
+        Map<Integer, Integer> approvedByProduct = new HashMap<>();
+        if (request != null && request.getItems() != null) {
+            for (ApprovePurchaseRequestRequest.ApproveItem item : request.getItems()) {
+                if (item == null || item.getProductId() == null) {
+                    continue;
+                }
+                approvedByProduct.put(item.getProductId(), item.getApprovedQuantity());
+            }
+        }
+
+        for (PurchaseRequestDetailModel detail : details) {
+            Integer approved = approvedByProduct.getOrDefault(detail.getProductId(), detail.getRequestedQty());
+            if (approved == null || approved < 0) {
+                throw new BadRequestException("Approved quantity must be zero or greater.");
+            }
+            if (approved > safeStock(detail.getRequestedQty())) {
+                throw new BadRequestException("Approved quantity cannot exceed requested quantity.");
+            }
+            detail.setApprovedQuantity(approved);
+        }
+        detailRepository.saveAll(details);
+
+        purchaseRequest.setStatus(PurchaseRequestStatus.APPROVED);
+        purchaseRequest.setApprovedBy(currentUser.getId());
+        purchaseRequest.setApprovedAt(LocalDateTime.now());
+        purchaseRequest.setRejectReason(null);
+        return buildResponse(purchaseRequestRepository.save(purchaseRequest));
+    }
+
+    @Override
+    @Transactional
+    public PurchaseRequestResponse rejectRequest(Long id, RejectPurchaseRequestRequest request) {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        assertCanApproveOrReject();
+        PurchaseRequestModel purchaseRequest = findRequestOrThrow(id);
+        if (purchaseRequest.getStatus() == null || !purchaseRequest.getStatus().isApprovable()) {
+            throw new BadRequestException("Only pending requests can be rejected.");
+        }
+
+        String reason = request == null ? null : normalizeNullableText(request.getReason());
+        if (reason == null) {
+            throw new BadRequestException("Reject reason is required.");
+        }
+
+        purchaseRequest.setStatus(PurchaseRequestStatus.REJECTED);
+        purchaseRequest.setRejectReason(reason);
+        purchaseRequest.setApprovedBy(currentUser.getId());
+        purchaseRequest.setApprovedAt(LocalDateTime.now());
+        return buildResponse(purchaseRequestRepository.save(purchaseRequest));
+    }
+
+    @Override
+    @Transactional
+    public PurchaseRequestResponse receiveGoods(Long id, ReceiveGoodsRequest request) {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        PurchaseRequestModel purchaseRequest = findRequestOrThrow(id);
+        assertCanReceive(purchaseRequest, currentUser);
+        if (purchaseRequest.getStatus() == null || !purchaseRequest.getStatus().isReceivable()) {
+            throw new BadRequestException("Only approved requests can be received.");
+        }
+
+        List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(id);
+        if (details.isEmpty()) {
+            throw new BadRequestException("Request has no items to receive.");
+        }
+
+        Map<Integer, Integer> receivedByProduct = new HashMap<>();
+        if (request != null && request.getItems() != null) {
+            for (ReceiveGoodsRequest.ReceiveItem item : request.getItems()) {
+                if (item == null || item.getProductId() == null) {
+                    continue;
+                }
+                receivedByProduct.put(item.getProductId(), item.getReceivedQuantity());
+            }
+        }
+
+        GoodsReceiptModel receipt = new GoodsReceiptModel();
+        receipt.setPurchaseRequestId(purchaseRequest.getId());
+        receipt.setBranchId(purchaseRequest.getBranchId());
+        receipt.setStockStaffId(currentUser.getId());
+        receipt.setStatus("completed");
+        GoodsReceiptModel savedReceipt = goodsReceiptRepository.save(receipt);
+
+        List<GoodsReceiptItemModel> receiptItems = new ArrayList<>();
+        for (PurchaseRequestDetailModel detail : details) {
+            int ordered = detail.getApprovedQuantity() != null
+                    ? detail.getApprovedQuantity()
+                    : safeStock(detail.getRequestedQty());
+            Integer receivedInput = receivedByProduct.getOrDefault(detail.getProductId(), ordered);
+            if (receivedInput == null || receivedInput < 0) {
+                throw new BadRequestException("Received quantity must be zero or greater.");
+            }
+            int received = receivedInput;
+
+            GoodsReceiptItemModel receiptItem = new GoodsReceiptItemModel();
+            receiptItem.setGoodsReceiptId(savedReceipt.getId());
+            receiptItem.setProductId(detail.getProductId());
+            receiptItem.setOrderedQuantity(ordered);
+            receiptItem.setReceivedQuantity(received);
+            receiptItems.add(receiptItem);
+
+            increaseBranchStock(purchaseRequest.getBranchId(), detail.getProductId(), received);
+        }
+        goodsReceiptItemRepository.saveAll(receiptItems);
+
+        purchaseRequest.setStatus(PurchaseRequestStatus.RECEIVED);
+        return buildResponse(purchaseRequestRepository.save(purchaseRequest));
+    }
+
     private PurchaseRequestModel findRequestOrThrow(Long id) {
         return purchaseRequestRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Request not found."));
@@ -205,7 +344,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private void assertCanViewRequest(PurchaseRequestModel request, UserModel currentUser) {
         UserRole role = currentUserProvider.getCurrentUserRole();
-        if (role == UserRole.ADMIN) {
+        if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
             return;
         }
         if (role == UserRole.WAREHOUSE_MANAGER
@@ -228,6 +367,41 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         if (request.getStatus() == null || !request.getStatus().isEditable()) {
             throw new ForbiddenException("Cannot edit submitted request.");
         }
+    }
+
+    private void assertCanApproveOrReject() {
+        UserRole role = currentUserProvider.getCurrentUserRole();
+        if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
+            return;
+        }
+        throw new ForbiddenException("Access denied.");
+    }
+
+    private void assertCanReceive(PurchaseRequestModel request, UserModel currentUser) {
+        UserRole role = currentUserProvider.getCurrentUserRole();
+        if (role == UserRole.BRANCH_MANAGER
+                && currentUser.getBranchId() != null
+                && currentUser.getBranchId().equals(request.getBranchId())) {
+            return;
+        }
+        throw new ForbiddenException("Access denied.");
+    }
+
+    private void increaseBranchStock(Long branchId, Integer productId, int quantity) {
+        if (quantity <= 0) {
+            return;
+        }
+        BranchInventoryModel inventory = branchInventoryRepository
+                .findByBranchIdAndProductId(branchId, productId)
+                .orElseGet(() -> {
+                    BranchInventoryModel created = new BranchInventoryModel();
+                    created.setBranchId(branchId);
+                    created.setProductId(productId);
+                    created.setCurrentStock(0);
+                    return created;
+                });
+        inventory.setCurrentStock(safeStock(inventory.getCurrentStock()) + quantity);
+        branchInventoryRepository.save(inventory);
     }
 
     private Map<Integer, Integer> buildRequestedQuantities(
@@ -336,9 +510,12 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private PurchaseRequestResponse buildResponse(PurchaseRequestModel request) {
         BranchModel branch = branchRepository.findById(request.getBranchId()).orElse(null);
         UserModel createdBy = userRepository.findById(request.getCreatedBy()).orElse(null);
+        UserModel approvedBy = request.getApprovedBy() == null
+                ? null
+                : userRepository.findById(request.getApprovedBy()).orElse(null);
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(request.getId());
         Map<Integer, ProductModel> productsById = loadProductsById(details);
-        return purchaseRequestMapper.toResponse(request, branch, createdBy, details, productsById);
+        return purchaseRequestMapper.toResponse(request, branch, createdBy, approvedBy, details, productsById);
     }
 
     private PurchaseRequestSummaryResponse buildSummaryResponse(PurchaseRequestModel request) {
