@@ -13,6 +13,10 @@ import base.api.feature.auth.service.IAuthService;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.exception.BadRequestException;
+import base.api.shared.exception.ConflictException;
+import base.api.shared.exception.ForbiddenException;
+import base.api.shared.exception.NotFoundException;
 import jakarta.validation.Valid;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -193,8 +197,10 @@ public class AuthController extends BaseAPIController {
             if (!creator.getRole().canAssignRole(dto.getRole())) {
                 return forbidden("Không được phép gán role này");
             }
-            UserModel user = userService.createUserByAdmin(dto);
+            UserModel user = userService.createUserByAdmin(dto, creator);
             return success(user, "Tạo tài khoản thành công. Mật khẩu tạm đã được gửi qua email.");
+        } catch (BadRequestException | ConflictException | ForbiddenException | NotFoundException e) {
+            throw e;
         } catch (Exception e) {
             return badRequest(e.getMessage());
         }
