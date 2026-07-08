@@ -224,7 +224,7 @@ public class UserService implements IUserService {
                 fullName = user.getUserName();
             }
 
-            String resetUrl = "https://chainstore.site/reset-password?token=" + resetToken;
+            String resetUrl = "https://localhost:5173/reset-password?token=" + resetToken;
 
             String body = String.format(
                     "<html>" +
@@ -381,7 +381,7 @@ public class UserService implements IUserService {
                             "</div>" +
                             "<p>Bạn có thể bắt đầu sử dụng hệ thống ngay bây giờ!</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='https://chainstore.site/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
+                            "<a href='https://localhost:5173/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
                             "</div>" +
                             "<p style='color: #666; font-size: 14px;'>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
@@ -599,7 +599,7 @@ public class UserService implements IUserService {
                     dto.getEmail(),
                     tempPassword,
                     dto.getRole().name(),
-                    "https://chainstore.site/login"
+                    "https://localhost:5173/login"
             );
 
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
