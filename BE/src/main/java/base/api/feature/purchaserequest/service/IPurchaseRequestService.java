@@ -1,8 +1,12 @@
 package base.api.feature.purchaserequest.service;
 
+import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
+import base.api.feature.purchaserequest.dto.request.ReceiveGoodsRequest;
+import base.api.feature.purchaserequest.dto.request.RejectPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
+import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
@@ -19,6 +23,12 @@ public interface IPurchaseRequestService {
 
     PurchaseRequestResponse submitRequest(Long id, SubmitPurchaseRequestRequest request);
 
+    PurchaseRequestResponse approveRequest(Long id, ApprovePurchaseRequestRequest request);
+
+    PurchaseRequestResponse rejectRequest(Long id, RejectPurchaseRequestRequest request);
+
+    PurchaseRequestResponse receiveGoods(Long id, ReceiveGoodsRequest request);
+
     PurchaseRequestResponse cancelRequest(Long id);
 
     PurchaseRequestResponse getRequest(Long id);
@@ -28,4 +38,6 @@ public interface IPurchaseRequestService {
     List<RecommendedProductResponse> getRecommendedProducts();
 
     Page<ProductSearchResponse> searchProducts(String keyword, PageRequestDTO pageRequest);
+
+    List<ConsolidatedBranchResponse> getConsolidatedRequests();
 }
