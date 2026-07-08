@@ -23,4 +23,6 @@ public class CampaignSummaryResponse {
     private Long createdBy;
     private LocalDateTime createdAt;
     private List<Long> branchIds;
+    /** True when this promotion is turned off for the BM's branch (chain-wide opt-out). */
+    private Boolean deactivatedForBranch;
 }

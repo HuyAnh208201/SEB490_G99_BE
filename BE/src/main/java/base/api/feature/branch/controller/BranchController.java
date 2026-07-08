@@ -1,5 +1,7 @@
 package base.api.feature.branch.controller;
 
+import base.api.feature.branch.dto.request.AssignStaffRequest;
+import base.api.feature.branch.dto.request.SendBranchSuspendCodeRequest;
 import base.api.feature.branch.dto.request.CreateBranchManagerRequest;
 import base.api.feature.branch.dto.request.CreateBranchRequest;
 import base.api.feature.branch.dto.request.CreateCashierRequest;
@@ -71,6 +73,16 @@ public class BranchController extends BaseAPIController {
         return success(branchService.updateBranch(id, request), "Branch updated successfully.");
     }
 
+    @Operation(summary = "Send branch deactivation verification code")
+    @PreAuthorize("@permissionChecker.has('MANAGE_BRANCH_INFORMATION')")
+    @PostMapping("/{id}/suspend/send-code")
+    public ResponseEntity<TFUResponse<String>> sendSuspendCode(
+            @PathVariable Long id,
+            @Valid @RequestBody SendBranchSuspendCodeRequest request) {
+        branchService.sendBranchSuspendCode(id, request);
+        return success("Verification code sent to your email.");
+    }
+
     @Operation(summary = "Update branch status")
     @PreAuthorize("@permissionChecker.has('MANAGE_BRANCH_INFORMATION')")
     @PatchMapping("/{id}/status")
@@ -103,6 +115,16 @@ public class BranchController extends BaseAPIController {
                 true, data, "Inventory staff created successfully.", HttpStatus.CREATED.value(), null
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    @Operation(summary = "Assign existing staff to branch")
+    @PreAuthorize("@permissionChecker.has('MANAGE_BRANCH_INFORMATION')")
+    @PostMapping("/{branchId}/assign-staff")
+    public ResponseEntity<TFUResponse<UserResponse>> assignStaff(
+            @PathVariable Long branchId,
+            @Valid @RequestBody AssignStaffRequest request) {
+        UserResponse data = branchService.assignStaffToBranch(branchId, request);
+        return success(data, "Staff assigned successfully.");
     }
 
     @Operation(summary = "Create cashier")

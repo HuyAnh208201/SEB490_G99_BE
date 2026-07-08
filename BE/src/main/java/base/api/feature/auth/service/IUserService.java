@@ -31,4 +31,8 @@ public interface IUserService {
     void resendVerificationEmail(String contactInfo) throws Exception;
     UserModel updateProfile(Long userId, UpdateProfileDto dto);
     void changePassword(Long userId, ChangePasswordDto dto) throws Exception;
+
+    UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor);
+
+    void deleteUser(Long targetUserId, UserModel actor);
 }

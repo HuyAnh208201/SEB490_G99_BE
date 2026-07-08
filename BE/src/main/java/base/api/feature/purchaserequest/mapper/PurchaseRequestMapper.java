@@ -20,7 +20,7 @@ import java.util.Map;
 @Component
 public class PurchaseRequestMapper {
 
-    private static final DateTimeFormatter REQUEST_NUMBER_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-dd-MM");
+    private static final DateTimeFormatter REQUEST_NUMBER_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     public PurchaseRequestSummaryResponse toSummaryResponse(
             PurchaseRequestModel request,

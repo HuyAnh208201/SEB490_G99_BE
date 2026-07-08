@@ -65,7 +65,6 @@ public final class WebRolePermissions {
                 WebPermission.PROMOTION_MANAGEMENT,
                 WebPermission.APPROVE_CASH_DISCREPANCY,
                 WebPermission.BRANCH_REVENUE_PROMOS,
-                WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE,
                 WebPermission.SHIFT_MANAGEMENT,
                 WebPermission.CREATE_IMPORT_REQUEST
         ));
@@ -74,13 +73,16 @@ public final class WebRolePermissions {
                 WebPermission.WAREHOUSE_DASHBOARD,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
                 WebPermission.MANAGE_BRANCH_IMPORT_REQUESTS,
+                WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.CHOOSE_EXTERNAL_SUPPLIER,
                 WebPermission.MANAGE_DISPATCH_ORDERS,
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT
         ));
 
-        map.put(UserRole.INVENTORY_STAFF, EnumSet.noneOf(WebPermission.class));
+        map.put(UserRole.INVENTORY_STAFF, EnumSet.of(
+                WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE
+        ));
         map.put(UserRole.CASHIER, EnumSet.noneOf(WebPermission.class));
 
         return Collections.unmodifiableMap(map);

@@ -17,8 +17,16 @@ public class CampaignMapper {
     private ObjectMapper objectMapper;
 
     public CampaignSummaryResponse toSummaryResponse(CampaignModel campaign, List<Long> branchIds) {
+        return toSummaryResponse(campaign, branchIds, null);
+    }
+
+    public CampaignSummaryResponse toSummaryResponse(
+            CampaignModel campaign,
+            List<Long> branchIds,
+            Boolean deactivatedForBranch) {
         CampaignSummaryResponse response = new CampaignSummaryResponse();
         mapBaseFields(response, campaign, branchIds);
+        response.setDeactivatedForBranch(deactivatedForBranch);
         return response;
     }
 

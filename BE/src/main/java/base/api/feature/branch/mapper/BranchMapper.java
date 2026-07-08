@@ -17,6 +17,7 @@ public class BranchMapper {
         response.setPhone(branch.getPhone());
         response.setOperatingHours(branch.getOperatingHours());
         response.setManagerName(managerName);
+        response.setManagerId(branch.getManagerId());
         response.setStatus(branch.getStatus());
         return response;
     }

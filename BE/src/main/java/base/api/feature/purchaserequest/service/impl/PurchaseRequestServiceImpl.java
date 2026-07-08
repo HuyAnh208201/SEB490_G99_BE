@@ -189,6 +189,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         } else if (role == UserRole.BRANCH_MANAGER) {
             Long branchId = resolveBranchManagerBranchId(currentUser);
             requests = purchaseRequestRepository.findByBranchId(branchId, pageable);
+        } else if (role == UserRole.INVENTORY_STAFF) {
+            Long branchId = resolveBranchStaffBranchId(currentUser);
+            requests = purchaseRequestRepository.findByBranchId(branchId, pageable);
         } else {
             throw new ForbiddenException("Access denied.");
         }
@@ -444,6 +447,14 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         return currentUser.getBranchId();
     }
 
+    private Long resolveBranchStaffBranchId(UserModel currentUser) {
+        UserRole role = currentUserProvider.getCurrentUserRole();
+        if (role != UserRole.INVENTORY_STAFF || currentUser.getBranchId() == null) {
+            throw new ForbiddenException("Access denied.");
+        }
+        return currentUser.getBranchId();
+    }
+
     private void assertCanViewRequest(PurchaseRequestModel request, UserModel currentUser) {
         UserRole role = currentUserProvider.getCurrentUserRole();
         if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
@@ -455,6 +466,11 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             return;
         }
         if (role == UserRole.BRANCH_MANAGER
+                && currentUser.getBranchId() != null
+                && currentUser.getBranchId().equals(request.getBranchId())) {
+            return;
+        }
+        if (role == UserRole.INVENTORY_STAFF
                 && currentUser.getBranchId() != null
                 && currentUser.getBranchId().equals(request.getBranchId())) {
             return;
@@ -473,7 +489,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private void assertCanApproveOrReject() {
         UserRole role = currentUserProvider.getCurrentUserRole();
-        if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
+        if (role == UserRole.ADMIN
+                || role == UserRole.DIRECTOR
+                || role == UserRole.WAREHOUSE_MANAGER) {
             return;
         }
         throw new ForbiddenException("Access denied.");
@@ -481,7 +499,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private void assertCanReceive(PurchaseRequestModel request, UserModel currentUser) {
         UserRole role = currentUserProvider.getCurrentUserRole();
-        if (role == UserRole.BRANCH_MANAGER
+        if (role == UserRole.INVENTORY_STAFF
                 && currentUser.getBranchId() != null
                 && currentUser.getBranchId().equals(request.getBranchId())) {
             return;
