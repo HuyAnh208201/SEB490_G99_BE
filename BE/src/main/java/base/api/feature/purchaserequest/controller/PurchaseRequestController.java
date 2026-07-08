@@ -6,6 +6,7 @@ import base.api.feature.purchaserequest.dto.request.ReceiveGoodsRequest;
 import base.api.feature.purchaserequest.dto.request.RejectPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
+import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
@@ -149,5 +150,12 @@ public class PurchaseRequestController extends BaseAPIController {
     ) {
         Page<ProductSearchResponse> page = purchaseRequestService.searchProducts(keyword, pageRequest);
         return successPage(page);
+    }
+
+    @Operation(summary = "Get consolidated purchase requests (gom đơn theo địa chỉ chi nhánh & category)")
+    @PreAuthorize("@permissionChecker.has('APPROVE_IMPORT_REQUEST')")
+    @GetMapping("/consolidated")
+    public ResponseEntity<TFUResponse<List<ConsolidatedBranchResponse>>> getConsolidatedRequests() {
+        return success(purchaseRequestService.getConsolidatedRequests());
     }
 }

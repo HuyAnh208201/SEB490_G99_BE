@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,4 +42,8 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
     @EntityGraph(attributePaths = "category")
     @Query("SELECT p FROM ProductModel p WHERE LOWER(p.status) = 'active'")
     List<ProductModel> findAllActiveProducts();
+
+    @EntityGraph(attributePaths = "category")
+    @Query("SELECT p FROM ProductModel p WHERE p.id IN :ids")
+    List<ProductModel> findByIdInWithCategory(@Param("ids") Collection<Integer> ids);
 }
