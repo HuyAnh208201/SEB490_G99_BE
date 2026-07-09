@@ -1,6 +1,7 @@
 package base.api.feature.promotion.service.impl;
 
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.category.repository.ICategoryRepository;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
@@ -40,11 +41,30 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 @Service
 public class CampaignServiceImpl implements ICampaignService {
+
+    private static final Set<String> VALID_PROMOTION_UNITS = Set.of(
+            "cai",
+            "chai",
+            "lon",
+            "goi",
+            "hop",
+            "thung",
+            "kg",
+            "gram",
+            "lit",
+            "ml",
+            "bao",
+            "vi",
+            "tui",
+            "cuon",
+            "cai_doi"
+    );
 
     @Autowired
     private CampaignRepository campaignRepository;
@@ -57,6 +77,9 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Autowired
     private IBranchRepository branchRepository;
+
+    @Autowired
+    private ICategoryRepository categoryRepository;
 
     @Autowired
     private CampaignMapper campaignMapper;
@@ -76,12 +99,13 @@ public class CampaignServiceImpl implements ICampaignService {
 
         String normalizedName = normalizeRequiredText(request.getName(), "Promotion name is required.");
         validateDuplicateName(normalizedName, null);
+        CampaignType campaignType = parseType(request.getType());
 
         CampaignModel campaign = new CampaignModel();
         campaign.setName(normalizedName);
-        campaign.setType(parseType(request.getType()));
+        campaign.setType(campaignType);
         campaign.setDiscountValue(validateDiscountValue(request.getDiscountValue()));
-        campaign.setConditions(serializeConditions(request.getConditions()));
+        campaign.setConditions(serializeConditions(campaignType, request.getConditions()));
         campaign.setPriority(request.getPriority() == null ? 0 : request.getPriority());
         campaign.setStartAt(request.getStartAt());
         campaign.setEndAt(request.getEndAt());
@@ -122,11 +146,12 @@ public class CampaignServiceImpl implements ICampaignService {
 
         String normalizedName = normalizeRequiredText(request.getName(), "Promotion name is required.");
         validateDuplicateName(normalizedName, id);
+        CampaignType campaignType = parseType(request.getType());
 
         campaign.setName(normalizedName);
-        campaign.setType(parseType(request.getType()));
+        campaign.setType(campaignType);
         campaign.setDiscountValue(validateDiscountValue(request.getDiscountValue()));
-        campaign.setConditions(serializeConditions(request.getConditions()));
+        campaign.setConditions(serializeConditions(campaignType, request.getConditions()));
         campaign.setPriority(request.getPriority());
         campaign.setStartAt(request.getStartAt());
         campaign.setEndAt(request.getEndAt());
@@ -546,15 +571,68 @@ public class CampaignServiceImpl implements ICampaignService {
         return branchIdsByCampaign;
     }
 
-    private String serializeConditions(JsonNode conditions) {
-        if (conditions == null || conditions.isNull()) {
+    private String serializeConditions(CampaignType type, JsonNode conditions) {
+        JsonNode normalizedConditions = normalizeJsonStrings(conditions);
+        validateConditions(type, normalizedConditions);
+        if (normalizedConditions == null || normalizedConditions.isNull()) {
             return null;
         }
         try {
-            return objectMapper.writeValueAsString(normalizeJsonStrings(conditions));
+            return objectMapper.writeValueAsString(normalizedConditions);
         } catch (Exception ex) {
             throw new BadRequestException("Invalid promotion conditions.");
         }
+    }
+
+    private void validateConditions(CampaignType type, JsonNode conditions) {
+        if (type != CampaignType.BUY_X_GET_Y) {
+            return;
+        }
+
+        if (conditions == null || conditions.isNull() || !conditions.isObject()) {
+            throw new BadRequestException("Buy X get Y conditions are required.");
+        }
+
+        requirePositiveInteger(conditions, "buyQuantity", "Buy quantity must be greater than 0.");
+        requirePositiveInteger(conditions, "getQuantity", "Get quantity must be greater than 0.");
+        int categoryId = requirePositiveInteger(conditions, "categoryId", "Product category is required.");
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new NotFoundException("Category not found.");
+        }
+
+        String unit = normalizePromotionUnit(readRequiredText(conditions, "unit", "Unit is required."));
+        if (conditions instanceof ObjectNode objectNode) {
+            objectNode.set("unit", TextNode.valueOf(unit));
+        }
+    }
+
+    private int requirePositiveInteger(JsonNode node, String field, String message) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull() || !value.isIntegralNumber() || !value.canConvertToInt() || value.asInt() <= 0) {
+            throw new BadRequestException(message);
+        }
+        return value.asInt();
+    }
+
+    private String readRequiredText(JsonNode node, String field, String message) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull() || !value.isTextual()) {
+            throw new BadRequestException(message);
+        }
+
+        String normalized = normalizeWhitespace(value.asText());
+        if (normalized == null || normalized.isBlank()) {
+            throw new BadRequestException(message);
+        }
+        return normalized;
+    }
+
+    private String normalizePromotionUnit(String unit) {
+        String normalized = unit.toLowerCase(Locale.ROOT);
+        if (!VALID_PROMOTION_UNITS.contains(normalized)) {
+            throw new BadRequestException("Invalid promotion unit.");
+        }
+        return normalized;
     }
 
     private JsonNode normalizeJsonStrings(JsonNode node) {
