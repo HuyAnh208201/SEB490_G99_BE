@@ -58,7 +58,7 @@ public enum UserRole {
             return target != ADMIN;
         }
         if (creator == BRANCH_MANAGER) {
-            return target == INVENTORY_STAFF || target == CASHIER || target == BRANCH_MANAGER;
+            return target == INVENTORY_STAFF || target == CASHIER;
         }
         return false;
     }
