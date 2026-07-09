@@ -33,6 +33,8 @@ public class UserDto {
 
     private UserRole role;
 
+    private Long branchId;
+
     private Long points;
 
     private LocalDateTime createdAt;

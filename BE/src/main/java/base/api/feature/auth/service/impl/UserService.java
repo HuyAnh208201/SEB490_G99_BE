@@ -654,9 +654,31 @@ public class UserService implements IUserService {
         return savedUser;
     }
 
+    @Override
+    @Transactional
+    public UserModel deactivateUser(Long targetUserId, UserModel actor) {
+        UserModel target = findManagedTargetUser(targetUserId, actor);
+        target.setActive(false);
+        clearManagedBranchIfNeeded(target);
+        return userRepository.save(target);
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(Long targetUserId, UserModel actor) {
+        UserModel target = findManagedTargetUser(targetUserId, actor);
+        clearManagedBranchIfNeeded(target);
+        userRepository.delete(target);
+    }
+
     private Long resolveTargetBranchId(UserRole targetRole, Long requestedBranchId, UserModel creator) {
         if (targetRole == null) {
             throw new BadRequestException("Role không được để trống");
+        }
+
+        UserRole creatorRole = creator.getRole();
+        if (creatorRole == null) {
+            throw new ForbiddenException("Không xác định được quyền của người tạo");
         }
 
         if (!targetRole.requiresBranch()) {
@@ -666,27 +688,73 @@ public class UserService implements IUserService {
             return null;
         }
 
+        if (creatorRole.toWebRole() == UserRole.BRANCH_MANAGER) {
+            Long creatorBranchId = creator.getBranchId();
+            if (creatorBranchId == null) {
+                throw new BadRequestException("Branch manager chưa được gán chi nhánh");
+            }
+            return creatorBranchId;
+        }
+
         if (requestedBranchId == null) {
             throw new BadRequestException("Vui lòng chọn chi nhánh");
         }
 
-        UserRole creatorRole = creator.getRole();
-        if (creatorRole == null) {
-            throw new ForbiddenException("Không xác định được quyền của người tạo");
+        return requestedBranchId;
+    }
+
+    private UserModel findManagedTargetUser(Long targetUserId, UserModel actor) {
+        if (actor == null) {
+            throw new BadRequestException("Không xác định được người thực hiện");
         }
 
-        if (creatorRole.toWebRole() != UserRole.BRANCH_MANAGER) {
-            return requestedBranchId;
+        UserModel target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy tài khoản"));
+
+        if (actor.getId() != null && actor.getId().equals(target.getId())) {
+            throw new BadRequestException("Không thể thao tác trên chính tài khoản của mình");
         }
 
-        Long creatorBranchId = creator.getBranchId();
-        if (creatorBranchId == null) {
-            throw new BadRequestException("Branch manager chưa được gán chi nhánh");
+        assertCanManageTargetUser(actor, target);
+        return target;
+    }
+
+    private void assertCanManageTargetUser(UserModel actor, UserModel target) {
+        UserRole actorRole = actor.getRole();
+        UserRole targetRole = target.getRole();
+        if (actorRole == null || targetRole == null) {
+            throw new ForbiddenException("Không xác định được quyền tài khoản");
         }
-        if (!creatorBranchId.equals(requestedBranchId)) {
-            throw new ForbiddenException("Chỉ được tạo nhân viên cho chi nhánh của mình");
+
+        UserRole webActorRole = actorRole.toWebRole();
+        UserRole webTargetRole = targetRole.toWebRole();
+
+        if (webActorRole == UserRole.ADMIN || webActorRole == UserRole.DIRECTOR) {
+            return;
         }
-        return creatorBranchId;
+
+        if (webActorRole == UserRole.BRANCH_MANAGER) {
+            boolean manageableStaffRole = webTargetRole == UserRole.CASHIER
+                    || webTargetRole == UserRole.INVENTORY_STAFF;
+            boolean sameBranch = actor.getBranchId() != null
+                    && actor.getBranchId().equals(target.getBranchId());
+            if (manageableStaffRole && sameBranch) {
+                return;
+            }
+        }
+
+        throw new ForbiddenException("Không có quyền thao tác với tài khoản này");
+    }
+
+    private void clearManagedBranchIfNeeded(UserModel target) {
+        if (target.getRole() != UserRole.BRANCH_MANAGER || target.getId() == null) {
+            return;
+        }
+
+        branchRepository.findByManagerId(target.getId()).ifPresent(branch -> {
+            branch.setManagerId(null);
+            branchRepository.save(branch);
+        });
     }
 
     private String normalizeLogin(String value) {

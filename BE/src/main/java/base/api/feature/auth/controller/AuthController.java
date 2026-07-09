@@ -206,6 +206,30 @@ public class AuthController extends BaseAPIController {
         }
     }
 
+    @Operation(summary = "Vô hiệu hóa tài khoản", description = "**USER_DETAILS_EDIT** — Admin/Director mọi chi nhánh; Branch Manager chỉ Cashier/Inventory Staff thuộc chi nhánh của mình.")
+    @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
+    @PatchMapping("admin/users/{id}/deactivate")
+    public ResponseEntity<TFUResponse<UserModel>> deactivateUser(@PathVariable Long id) {
+        UserModel actor = userService.findById(getCurrentUserId());
+        if (actor == null) {
+            return unauthorized("Chưa đăng nhập");
+        }
+        UserModel user = userService.deactivateUser(id, actor);
+        return success(user, "Vô hiệu hóa tài khoản thành công.");
+    }
+
+    @Operation(summary = "Xóa tài khoản", description = "**USER_DETAILS_EDIT** — Admin/Director mọi chi nhánh; Branch Manager chỉ Cashier/Inventory Staff thuộc chi nhánh của mình.")
+    @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
+    @DeleteMapping("admin/users/{id}")
+    public ResponseEntity<TFUResponse<Void>> deleteUser(@PathVariable Long id) {
+        UserModel actor = userService.findById(getCurrentUserId());
+        if (actor == null) {
+            return unauthorized("Chưa đăng nhập");
+        }
+        userService.deleteUser(id, actor);
+        return success(null, "Xóa tài khoản thành công.");
+    }
+
     @Operation(summary = "Đổi mật khẩu", description = "**Cần đăng nhập.** Đổi mật khẩu khi đã biết mật khẩu cũ.")
     @PostMapping("change-password")
     public ResponseEntity<TFUResponse<String>> changePassword(@Valid @RequestBody ChangePasswordDto dto) {

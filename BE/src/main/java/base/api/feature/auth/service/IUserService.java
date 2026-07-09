@@ -24,6 +24,8 @@ public interface IUserService {
 
     UserModel registerUser(RegisterDto dto);
     UserModel createUserByAdmin(CreateUserByAdminDto dto, UserModel creator) throws Exception;
+    UserModel deactivateUser(Long targetUserId, UserModel actor);
+    void deleteUser(Long targetUserId, UserModel actor);
     List<UserModel> getAllUsers();
     InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception;
     void completeForgotPassword(CompleteForgotPasswordDto dto) throws Exception;
