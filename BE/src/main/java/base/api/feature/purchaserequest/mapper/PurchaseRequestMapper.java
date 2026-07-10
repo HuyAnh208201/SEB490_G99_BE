@@ -49,6 +49,18 @@ public class PurchaseRequestMapper {
             List<PurchaseRequestDetailModel> items,
             Map<Integer, ProductModel> productsById
     ) {
+        return toResponse(request, branch, createdBy, approvedBy, items, productsById, Map.of());
+    }
+
+    public PurchaseRequestResponse toResponse(
+            PurchaseRequestModel request,
+            BranchModel branch,
+            UserModel createdBy,
+            UserModel approvedBy,
+            List<PurchaseRequestDetailModel> items,
+            Map<Integer, ProductModel> productsById,
+            Map<Integer, Integer> warehouseStockByProduct
+    ) {
         PurchaseRequestResponse response = new PurchaseRequestResponse();
         response.setId(request.getId());
         response.setRequestNumber(toRequestNumber(request));
@@ -64,13 +76,25 @@ public class PurchaseRequestMapper {
         response.setRequestDate(toRequestDate(request));
         response.setCreatedAt(request.getCreatedAt());
         response.setNotes(request.getReason());
+        Map<Integer, Integer> warehouseStock = warehouseStockByProduct == null ? Map.of() : warehouseStockByProduct;
         response.setItems(items.stream()
-                .map(item -> toDetailResponse(item, productsById.get(item.getProductId())))
+                .map(item -> toDetailResponse(
+                        item,
+                        productsById.get(item.getProductId()),
+                        warehouseStock.get(item.getProductId())))
                 .toList());
         return response;
     }
 
     public PurchaseRequestDetailResponse toDetailResponse(PurchaseRequestDetailModel detail, ProductModel product) {
+        return toDetailResponse(detail, product, null);
+    }
+
+    public PurchaseRequestDetailResponse toDetailResponse(
+            PurchaseRequestDetailModel detail,
+            ProductModel product,
+            Integer warehouseStock
+    ) {
         PurchaseRequestDetailResponse response = new PurchaseRequestDetailResponse();
         response.setId(detail.getId());
         response.setProductId(detail.getProductId());
@@ -81,6 +105,7 @@ public class PurchaseRequestMapper {
         response.setRequestedQty(detail.getRequestedQty());
         response.setApprovedQuantity(detail.getApprovedQuantity());
         response.setSupplierId(detail.getSupplierId());
+        response.setWarehouseStock(warehouseStock);
         return response;
     }
 
