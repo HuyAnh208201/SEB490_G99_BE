@@ -15,4 +15,6 @@ public class PurchaseRequestDetailResponse {
     private Integer requestedQty;
     private Integer approvedQuantity;
     private Integer supplierId;
+    /** Tồn kho KHO TỔNG hiện có cho sản phẩm này (để kho tổng biết còn/hết hàng khi duyệt). */
+    private Integer warehouseStock;
 }
