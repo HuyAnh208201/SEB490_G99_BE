@@ -21,6 +21,7 @@ import base.api.feature.purchaserequest.repository.GoodsReceiptItemRepository;
 import base.api.feature.purchaserequest.repository.GoodsReceiptRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
+import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.feature.purchaserequest.service.IPurchaseRequestService;
 import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.entity.BranchInventoryModel;
@@ -31,6 +32,7 @@ import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.entity.WarehouseInventoryModel;
 import base.api.shared.enums.PurchaseRequestStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
@@ -65,6 +67,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private static final Set<PurchaseRequestStatus> WAREHOUSE_VISIBLE_STATUSES = EnumSet.of(
             PurchaseRequestStatus.PENDING,
             PurchaseRequestStatus.APPROVED,
+            PurchaseRequestStatus.AWAITING_STOCK,
             PurchaseRequestStatus.RECEIVED
     );
 
@@ -76,6 +79,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Autowired
     private BranchInventoryRepository branchInventoryRepository;
+
+    @Autowired
+    private WarehouseInventoryRepository warehouseInventoryRepository;
 
     @Autowired
     private GoodsReceiptRepository goodsReceiptRepository;
@@ -347,11 +353,51 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         }
         detailRepository.saveAll(details);
 
-        purchaseRequest.setStatus(PurchaseRequestStatus.APPROVED);
+        // So tổng SL duyệt của từng sản phẩm với tồn kho KHO TỔNG:
+        //  - Đủ tất cả  -> APPROVED (đi tiếp gom đơn / chờ vận chuyển)
+        //  - Thiếu bất kỳ -> AWAITING_STOCK (chờ kho tổng đặt nhà cung cấp bổ sung)
+        Map<Integer, Integer> warehouseStockByProduct = loadWarehouseStock(details);
+        boolean warehouseHasEnough = hasEnoughWarehouseStock(details, warehouseStockByProduct);
+
+        purchaseRequest.setStatus(warehouseHasEnough
+                ? PurchaseRequestStatus.APPROVED
+                : PurchaseRequestStatus.AWAITING_STOCK);
         purchaseRequest.setApprovedBy(currentUser.getId());
         purchaseRequest.setApprovedAt(LocalDateTime.now());
         purchaseRequest.setRejectReason(null);
         return buildResponse(purchaseRequestRepository.save(purchaseRequest));
+    }
+
+    private Map<Integer, Integer> loadWarehouseStock(List<PurchaseRequestDetailModel> details) {
+        Set<Integer> productIds = details.stream()
+                .map(PurchaseRequestDetailModel::getProductId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        Map<Integer, Integer> stockByProduct = new HashMap<>();
+        if (productIds.isEmpty()) {
+            return stockByProduct;
+        }
+        for (WarehouseInventoryModel inventory : warehouseInventoryRepository.findByProductIdIn(productIds)) {
+            stockByProduct.put(inventory.getProductId(), safeStock(inventory.getQuantity()));
+        }
+        return stockByProduct;
+    }
+
+    private boolean hasEnoughWarehouseStock(
+            List<PurchaseRequestDetailModel> details,
+            Map<Integer, Integer> warehouseStockByProduct
+    ) {
+        for (PurchaseRequestDetailModel detail : details) {
+            int approved = safeStock(detail.getApprovedQuantity());
+            if (approved <= 0) {
+                continue;
+            }
+            int available = warehouseStockByProduct.getOrDefault(detail.getProductId(), 0);
+            if (approved > available) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -635,7 +681,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                 : userRepository.findById(request.getApprovedBy()).orElse(null);
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(request.getId());
         Map<Integer, ProductModel> productsById = loadProductsById(details);
-        return purchaseRequestMapper.toResponse(request, branch, createdBy, approvedBy, details, productsById);
+        Map<Integer, Integer> warehouseStockByProduct = loadWarehouseStock(details);
+        return purchaseRequestMapper.toResponse(
+                request, branch, createdBy, approvedBy, details, productsById, warehouseStockByProduct);
     }
 
     private PurchaseRequestSummaryResponse buildSummaryResponse(PurchaseRequestModel request) {
