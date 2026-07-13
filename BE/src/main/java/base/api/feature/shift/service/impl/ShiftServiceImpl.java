@@ -71,6 +71,7 @@ public class ShiftServiceImpl implements IShiftService {
         assertOwnBranch(request.getBranchId(), currentUser);
         validateBranchExists(request.getBranchId());
         validateShiftTime(request.getStartTime(), request.getEndTime());
+        validateNoOverlappingShift(request.getBranchId(), request.getStartTime(), request.getEndTime(), null);
         validateNonNegativeMoney(request.getOpeningCash(), "Opening cash must be greater than or equal to 0.");
         validateNonNegativeMoney(request.getExpectedCash(), "Expected cash must be greater than or equal to 0.");
 
@@ -93,6 +94,7 @@ public class ShiftServiceImpl implements IShiftService {
         assertCanManageShift(shift);
         assertDraft(shift);
         validateShiftTime(request.getStartTime(), request.getEndTime());
+        validateNoOverlappingShift(shift.getBranchId(), request.getStartTime(), request.getEndTime(), shift.getId());
         validateNonNegativeMoney(request.getOpeningCash(), "Opening cash must be greater than or equal to 0.");
         validateNonNegativeMoney(request.getExpectedCash(), "Expected cash must be greater than or equal to 0.");
         validateNonNegativeMoney(request.getActualCash(), "Actual cash must be greater than or equal to 0.");
@@ -392,6 +394,24 @@ public class ShiftServiceImpl implements IShiftService {
         }
         if (!endTime.isAfter(startTime)) {
             throw new BusinessException("End time must be after start time.");
+        }
+    }
+
+    private void validateNoOverlappingShift(
+            Long branchId,
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            Long excludedShiftId) {
+
+        boolean hasOverlap = shiftRepository
+                .findByBranchIdAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                        branchId,
+                        endTime,
+                        startTime)
+                .stream()
+                .anyMatch(shift -> !Objects.equals(shift.getId(), excludedShiftId));
+        if (hasOverlap) {
+            throw new BusinessException("Shift already exists in this time range.");
         }
     }
 
