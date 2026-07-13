@@ -83,7 +83,9 @@ public final class WebRolePermissions {
         map.put(UserRole.INVENTORY_STAFF, EnumSet.of(
                 WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE
         ));
-        map.put(UserRole.CASHIER, EnumSet.noneOf(WebPermission.class));
+        map.put(UserRole.CASHIER, EnumSet.of(
+                WebPermission.CASHIER_ADD_POINTS
+        ));
 
         return Collections.unmodifiableMap(map);
     }

@@ -37,7 +37,8 @@ public enum WebPermission {
     MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
     CATEGORY_MANAGEMENT("Category Management"),
     PRODUCT_MANAGEMENT("Product Management"),
-    SUPPLIER_MANAGEMENT("Supplier Management");
+    SUPPLIER_MANAGEMENT("Supplier Management"),
+    CASHIER_ADD_POINTS("Cashier: Add loyalty points to customer");
 
     private final String label;
 }

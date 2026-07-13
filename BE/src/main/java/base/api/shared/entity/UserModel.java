@@ -61,7 +61,7 @@ public class UserModel extends BaseModel {
         @JoinColumn(name = "role_id", nullable = false)
         private RoleModel roleEntity;
 
-        @Transient
+        @Column(name = "points", nullable = false)
         private Long points = 0L;
 
         public String getUserName() {
