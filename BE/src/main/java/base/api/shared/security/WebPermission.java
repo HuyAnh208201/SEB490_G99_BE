@@ -37,7 +37,8 @@ public enum WebPermission {
     MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
     CATEGORY_MANAGEMENT("Category Management"),
     PRODUCT_MANAGEMENT("Product Management"),
-    SUPPLIER_MANAGEMENT("Supplier Management");
+    SUPPLIER_MANAGEMENT("Supplier Management"),
+    VIEW_BRANCH_INVENTORY("View Branch Inventory");
 
     private final String label;
 }
