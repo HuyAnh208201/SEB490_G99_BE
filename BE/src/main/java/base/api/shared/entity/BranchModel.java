@@ -31,4 +31,12 @@ public class BranchModel extends BaseModel {
 
     @Column(nullable = false, length = 50)
     private String status = "ACTIVE";
+
+    /** Khu vực giao hàng (dùng cho gom đơn vận chuyển). */
+    @Column(name = "area", length = 100)
+    private String area;
+
+    /** Tuyến giao hàng (dùng cho gom đơn vận chuyển). */
+    @Column(name = "route", length = 100)
+    private String route;
 }
