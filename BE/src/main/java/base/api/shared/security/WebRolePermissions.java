@@ -85,7 +85,8 @@ public final class WebRolePermissions {
 
         map.put(UserRole.INVENTORY_STAFF, EnumSet.of(
                 WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE,
-                WebPermission.VIEW_BRANCH_INVENTORY
+                WebPermission.VIEW_BRANCH_INVENTORY,
+                WebPermission.PRODUCT_MANAGEMENT
         ));
         map.put(UserRole.CASHIER, EnumSet.noneOf(WebPermission.class));
 
