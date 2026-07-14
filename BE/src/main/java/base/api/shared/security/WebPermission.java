@@ -38,7 +38,8 @@ public enum WebPermission {
     CATEGORY_MANAGEMENT("Category Management"),
     PRODUCT_MANAGEMENT("Product Management"),
     SUPPLIER_MANAGEMENT("Supplier Management"),
-    CASHIER_ADD_POINTS("Cashier: Add loyalty points to customer");
+    CASHIER_ADD_POINTS("Cashier: Add loyalty points to customer"),
+    CASHIER_CLOSE_SHIFT("Cashier/Staff: Close shift and submit actual cash");
 
     private final String label;
 }
