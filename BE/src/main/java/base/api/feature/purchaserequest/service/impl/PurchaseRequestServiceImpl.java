@@ -3,6 +3,7 @@ package base.api.feature.purchaserequest.service.impl;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.PurchaseRequestItemRequest;
@@ -82,6 +83,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Autowired
     private WarehouseInventoryRepository warehouseInventoryRepository;
+
+    @Autowired
+    private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
 
     @Autowired
     private GoodsReceiptRepository goodsReceiptRepository;
@@ -353,11 +357,10 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         }
         detailRepository.saveAll(details);
 
-        // So tổng SL duyệt của từng sản phẩm với tồn kho KHO TỔNG:
+        // So tổng SL duyệt với tồn kho KHO TỔNG (trừ nhu cầu các yêu cầu APPROVED khác):
         //  - Đủ tất cả  -> APPROVED (đi tiếp gom đơn / chờ vận chuyển)
         //  - Thiếu bất kỳ -> AWAITING_STOCK (chờ kho tổng đặt nhà cung cấp bổ sung)
-        Map<Integer, Integer> warehouseStockByProduct = loadWarehouseStock(details);
-        boolean warehouseHasEnough = hasEnoughWarehouseStock(details, warehouseStockByProduct);
+        boolean warehouseHasEnough = warehouseStockAllocationHelper.canApproveRequest(id, details);
 
         purchaseRequest.setStatus(warehouseHasEnough
                 ? PurchaseRequestStatus.APPROVED
