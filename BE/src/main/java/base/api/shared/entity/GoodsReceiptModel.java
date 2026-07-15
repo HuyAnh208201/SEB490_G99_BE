@@ -25,6 +25,9 @@ public class GoodsReceiptModel {
     @Column(name = "purchase_request_id")
     private Long purchaseRequestId;
 
+    @Column(name = "dispatch_order_id")
+    private Long dispatchOrderId;
+
     @Column(name = "branch_id", nullable = false)
     private Long branchId;
 
