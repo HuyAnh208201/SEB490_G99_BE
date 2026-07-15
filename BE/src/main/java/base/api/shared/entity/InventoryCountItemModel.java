@@ -9,27 +9,33 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Một dòng sản phẩm trong phiên kiểm kê: số hệ thống, số đếm thực tế và chênh lệch.
+ */
 @Getter
 @Setter
 @Entity
-@Table(name = "goods_receipt_items")
-public class GoodsReceiptItemModel {
+@Table(name = "inventory_count_items")
+public class InventoryCountItemModel {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "goods_receipt_id", nullable = false)
-    private Long goodsReceiptId;
+    @Column(name = "session_id", nullable = false)
+    private Long sessionId;
 
     @Column(name = "product_id", nullable = false)
     private Integer productId;
 
-    @Column(name = "ordered_quantity")
-    private Integer orderedQuantity;
+    @Column(name = "system_qty", nullable = false)
+    private Integer systemQty = 0;
 
-    @Column(name = "received_quantity")
-    private Integer receivedQuantity;
+    @Column(name = "counted_qty", nullable = false)
+    private Integer countedQty = 0;
+
+    @Column(name = "variance", nullable = false)
+    private Integer variance = 0;
 
     @Column(name = "note", length = 500)
     private String note;

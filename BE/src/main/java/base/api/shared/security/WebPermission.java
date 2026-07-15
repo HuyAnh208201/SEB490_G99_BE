@@ -38,7 +38,9 @@ public enum WebPermission {
     CATEGORY_MANAGEMENT("Category Management"),
     PRODUCT_MANAGEMENT("Product Management"),
     SUPPLIER_MANAGEMENT("Supplier Management"),
-    VIEW_BRANCH_INVENTORY("View Branch Inventory");
+    VIEW_BRANCH_INVENTORY("View Branch Inventory"),
+    RECEIVE_SHIPMENT("Receive Shipment"),
+    INVENTORY_COUNT("Inventory Count");
 
     private final String label;
 }
