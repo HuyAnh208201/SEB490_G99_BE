@@ -60,6 +60,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -206,7 +207,18 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             throw new ForbiddenException("Access denied.");
         }
 
-        return requests.map(this::buildSummaryResponse);
+        List<PurchaseRequestModel> content = requests.getContent();
+        Set<Long> branchIds = content.stream().map(PurchaseRequestModel::getBranchId).collect(Collectors.toSet());
+        Set<Long> userIds = content.stream().map(PurchaseRequestModel::getCreatedBy).collect(Collectors.toSet());
+        Map<Long, BranchModel> branchesById = branchRepository.findAllById(branchIds).stream()
+                .collect(Collectors.toMap(BranchModel::getId, Function.identity(), (a, b) -> a));
+        Map<Long, UserModel> usersById = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserModel::getId, Function.identity(), (a, b) -> a));
+
+        return requests.map(request -> buildSummaryResponse(
+                request,
+                branchesById.get(request.getBranchId()),
+                usersById.get(request.getCreatedBy())));
     }
 
     @Override
@@ -692,6 +704,13 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private PurchaseRequestSummaryResponse buildSummaryResponse(PurchaseRequestModel request) {
         BranchModel branch = branchRepository.findById(request.getBranchId()).orElse(null);
         UserModel createdBy = userRepository.findById(request.getCreatedBy()).orElse(null);
+        return buildSummaryResponse(request, branch, createdBy);
+    }
+
+    private PurchaseRequestSummaryResponse buildSummaryResponse(
+            PurchaseRequestModel request,
+            BranchModel branch,
+            UserModel createdBy) {
         int itemCount = (int) detailRepository.countByPurchaseRequestId(request.getId());
         return purchaseRequestMapper.toSummaryResponse(request, itemCount, branch, createdBy);
     }
