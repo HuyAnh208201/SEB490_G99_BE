@@ -79,7 +79,7 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
                         (a, b) -> a));
 
         List<InventoryCountProductResponse> products = new ArrayList<>();
-        for (ProductModel product : productRepository.findAllActiveProducts()) {
+        for (ProductModel product : productRepository.findVisibleActiveProducts(false, branchId)) {
             InventoryCountProductResponse row = new InventoryCountProductResponse();
             row.setProductId(product.getId());
             row.setProductCode(product.getCode());

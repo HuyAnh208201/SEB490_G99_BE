@@ -21,9 +21,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -64,8 +66,11 @@ public class InventoryServiceImpl implements IInventoryService {
         assertCanViewBranchInventory(branchId);
         BranchModel branch = branchRepository.findById(branchId)
                 .orElseThrow(() -> new NotFoundException("Branch not found."));
-        Map<Integer, ProductModel> productsById = productRepository.findAll().stream()
-                .collect(Collectors.toMap(ProductModel::getId, Function.identity(), (a, b) -> a));
+
+        Set<Integer> productIds = branchInventoryRepository.findByBranchId(branchId).stream()
+                .map(BranchInventoryModel::getProductId)
+                .collect(Collectors.toSet());
+        Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
 
         List<BranchInventoryItemResponse> rows = new ArrayList<>();
         for (BranchInventoryModel row : branchInventoryRepository.findByBranchId(branchId)) {
@@ -89,8 +94,10 @@ public class InventoryServiceImpl implements IInventoryService {
     }
 
     private List<WarehouseInventoryItemResponse> mapWarehouseRows(List<WarehouseInventoryModel> inventoryRows) {
-        Map<Integer, ProductModel> productsById = productRepository.findAll().stream()
-                .collect(Collectors.toMap(ProductModel::getId, Function.identity(), (a, b) -> a));
+        Set<Integer> productIds = inventoryRows.stream()
+                .map(WarehouseInventoryModel::getProductId)
+                .collect(Collectors.toSet());
+        Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
 
         List<WarehouseInventoryItemResponse> rows = new ArrayList<>();
         for (WarehouseInventoryModel row : inventoryRows) {
@@ -114,6 +121,14 @@ public class InventoryServiceImpl implements IInventoryService {
                 WarehouseInventoryItemResponse::getProductName,
                 Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         return rows;
+    }
+
+    private Map<Integer, ProductModel> loadProductsByIds(Set<Integer> productIds) {
+        if (productIds == null || productIds.isEmpty()) {
+            return Map.of();
+        }
+        return productRepository.findByIdInWithCategory(productIds).stream()
+                .collect(Collectors.toMap(ProductModel::getId, Function.identity(), (a, b) -> a, HashMap::new));
     }
 
     private void assertCanViewCentralInventory() {

@@ -10,4 +10,8 @@ public class UpdateUserStatusDto {
 
     @NotNull(message = "Active flag is required.")
     private Boolean active;
+
+    private String email;
+
+    private String verificationCode;
 }

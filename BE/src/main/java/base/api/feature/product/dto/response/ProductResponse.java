@@ -19,6 +19,14 @@ public class ProductResponse {
     private Integer categoryId;
     private String categoryName;
     private String unit;
+    private String importUnit;
+    private Integer unitsPerImportUnit;
+    private String scope;
+    private Long branchId;
+    private String branchName;
+    private Integer branchStock;
+    private Integer warehouseStock;
+    private Boolean lowStock;
     private BigDecimal referenceImportPrice;
     private BigDecimal defaultSalePrice;
     private String status;

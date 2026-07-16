@@ -80,6 +80,21 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
             @Param("roleName") String roleName
     );
 
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE u.roleEntity.name = :roleName AND LOWER(u.status) = 'active'
+            """)
+    long countActiveByRoleName(@Param("roleName") String roleName);
+
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE u.roleEntity.name = :roleName AND LOWER(u.status) = 'active' AND u.id <> :excludeUserId
+            """)
+    long countActiveByRoleNameExcluding(
+            @Param("roleName") String roleName,
+            @Param("excludeUserId") Long excludeUserId
+    );
+
     /**
      * Trừ điểm atomic — chỉ thành công nếu user còn đủ điểm. Tránh race giữa các
      * request đồng thời cùng chi tiêu điểm. Trả về số row được update (0 = không đủ điểm).
