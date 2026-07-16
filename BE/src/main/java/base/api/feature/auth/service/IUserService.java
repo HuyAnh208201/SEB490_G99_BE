@@ -35,6 +35,4 @@ public interface IUserService {
     void changePassword(Long userId, ChangePasswordDto dto) throws Exception;
 
     UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor);
-
-    void deleteUser(Long targetUserId, UserModel actor);
 }
