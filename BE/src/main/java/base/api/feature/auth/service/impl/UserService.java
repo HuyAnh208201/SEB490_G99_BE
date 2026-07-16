@@ -663,14 +663,6 @@ public class UserService implements IUserService {
         return userRepository.save(target);
     }
 
-    @Override
-    @Transactional
-    public void deleteUser(Long targetUserId, UserModel actor) {
-        UserModel target = findManagedTargetUser(targetUserId, actor);
-        clearManagedBranchIfNeeded(target);
-        userRepository.delete(target);
-    }
-
     private Long resolveTargetBranchId(UserRole targetRole, Long requestedBranchId, UserModel creator) {
         if (targetRole == null) {
             throw new BadRequestException("Role không được để trống");
