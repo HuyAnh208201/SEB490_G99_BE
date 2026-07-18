@@ -5,6 +5,7 @@ import base.api.feature.inventory.dto.response.BranchInventoryItemResponse;
 import base.api.feature.inventory.dto.response.WarehouseInventoryItemResponse;
 import base.api.feature.inventory.service.IInventoryService;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.shared.entity.BranchInventoryModel;
@@ -47,6 +48,9 @@ public class InventoryServiceImpl implements IInventoryService {
     @Autowired
     private CurrentUserProvider currentUserProvider;
 
+    @Autowired
+    private ProductPackagingService productPackagingService;
+
     @Override
     public List<WarehouseInventoryItemResponse> getWarehouseInventory() {
         assertCanViewCentralInventory();
@@ -84,6 +88,11 @@ public class InventoryServiceImpl implements IInventoryService {
             response.setProductName(product == null ? null : product.getName());
             response.setUnit(product == null ? null : product.getUnit());
             response.setQuantity(safeQty(row.getCurrentStock()));
+            if (product != null) {
+                var topPackaging = productPackagingService.getTopPackaging(product);
+                response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
+                response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
+            }
             rows.add(response);
         }
 

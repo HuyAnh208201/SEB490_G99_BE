@@ -3,6 +3,7 @@ package base.api.feature.purchaserequest.service.impl;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
@@ -96,6 +97,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Autowired
     private IProductRepository productRepository;
+
+    @Autowired
+    private ProductPackagingService productPackagingService;
 
     @Autowired
     private IBranchRepository branchRepository;
@@ -469,25 +473,34 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         receipt.setStatus("completed");
         GoodsReceiptModel savedReceipt = goodsReceiptRepository.save(receipt);
 
+        Map<Integer, ProductModel> productsById = loadProductsById(details);
+
+        // requestedQty / approvedQuantity / receivedQuantity are all expressed in TOP packaging
+        // units (e.g. cases). Stock ledgers (branch_inventory) are kept in BASE units, so every
+        // quantity is converted via ProductPackagingService before it touches branch stock.
         List<GoodsReceiptItemModel> receiptItems = new ArrayList<>();
         for (PurchaseRequestDetailModel detail : details) {
-            int ordered = detail.getApprovedQuantity() != null
+            ProductModel product = productsById.get(detail.getProductId());
+            int orderedTopUnits = detail.getApprovedQuantity() != null
                     ? detail.getApprovedQuantity()
                     : safeStock(detail.getRequestedQty());
-            Integer receivedInput = receivedByProduct.getOrDefault(detail.getProductId(), ordered);
-            if (receivedInput == null || receivedInput < 0) {
+            Integer receivedTopUnitsInput = receivedByProduct.getOrDefault(detail.getProductId(), orderedTopUnits);
+            if (receivedTopUnitsInput == null || receivedTopUnitsInput < 0) {
                 throw new BadRequestException("Received quantity must be zero or greater.");
             }
-            int received = receivedInput;
+            int receivedTopUnits = receivedTopUnitsInput;
+
+            int orderedBaseUnits = productPackagingService.toBaseQty(orderedTopUnits, product);
+            int receivedBaseUnits = productPackagingService.toBaseQty(receivedTopUnits, product);
 
             GoodsReceiptItemModel receiptItem = new GoodsReceiptItemModel();
             receiptItem.setGoodsReceiptId(savedReceipt.getId());
             receiptItem.setProductId(detail.getProductId());
-            receiptItem.setOrderedQuantity(ordered);
-            receiptItem.setReceivedQuantity(received);
+            receiptItem.setOrderedQuantity(orderedBaseUnits);
+            receiptItem.setReceivedQuantity(receivedBaseUnits);
             receiptItems.add(receiptItem);
 
-            increaseBranchStock(purchaseRequest.getBranchId(), detail.getProductId(), received);
+            increaseBranchStock(purchaseRequest.getBranchId(), detail.getProductId(), receivedBaseUnits);
         }
         goodsReceiptItemRepository.saveAll(receiptItems);
 
@@ -677,7 +690,8 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         return productRepository.findAllActiveProducts().stream()
                 .map(product -> {
                     int currentStock = currentStockByProductId.getOrDefault(product.getId(), 0);
-                    int suggestedQty = Math.max(reorderPoint - currentStock, 0);
+                    int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
+                    int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, product);
                     return purchaseRequestMapper.toRecommendedProductResponse(product, currentStock, reorderPoint, suggestedQty);
                 })
                 .filter(product -> product.getCurrentStock() <= product.getReorderPoint())
@@ -686,6 +700,15 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private int safeStock(Integer stock) {
         return stock == null ? 0 : stock;
+    }
+
+    /** Convert a BASE-unit shortfall into a TOP packaging quantity (rounded up), minimum 1 when > 0. */
+    private int toTopUnitsCeil(int shortfallBaseUnits, ProductModel product) {
+        if (shortfallBaseUnits <= 0) {
+            return 0;
+        }
+        int conversionQty = productPackagingService.topConversionQty(product);
+        return Math.max(1, (shortfallBaseUnits + conversionQty - 1) / conversionQty);
     }
 
     private PurchaseRequestResponse buildResponse(PurchaseRequestModel request) {

@@ -1,5 +1,6 @@
 package base.api.feature.promotion.controller;
 
+import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
@@ -79,8 +80,12 @@ public class PromotionController extends BaseAPIController {
     @Operation(summary = "Activate campaign")
     @PreAuthorize("@permissionChecker.has('PROMOTION_MANAGEMENT')")
     @PatchMapping("/{id}/activate")
-    public ResponseEntity<TFUResponse<CampaignResponse>> activate(@PathVariable Long id) {
-        return success(campaignService.activateCampaign(id), "Promotion activated successfully.");
+    public ResponseEntity<TFUResponse<CampaignResponse>> activate(
+            @PathVariable Long id,
+            @RequestBody(required = false) ActivateCampaignRequest request) {
+        return success(
+                campaignService.activateCampaign(id, request),
+                "Promotion activated successfully.");
     }
 
     @Operation(summary = "Suspend campaign")

@@ -21,6 +21,10 @@ public class ProductResponse {
     private String unit;
     private String importUnit;
     private Integer unitsPerImportUnit;
+    /** English label of the TOP packaging level, e.g. "Case of 24" (source: product_packagings). */
+    private String topPackagingLabel;
+    /** How many base units one TOP packaging unit contains. */
+    private Integer topPackagingConversionQty;
     private String scope;
     private Long branchId;
     private String branchName;

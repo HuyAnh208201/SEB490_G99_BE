@@ -46,7 +46,10 @@ public class ShiftMapper {
         response.setEmployeeId(staff.getId());
         response.setFullName(staff.getFullName());
         response.setEmail(staff.getEmail());
-        response.setRole(staff.getRole());
+        // Prefer the role the employee was assigned to fill; fall back to account role.
+        response.setRole(assignment.getAssignedRole() != null
+                ? assignment.getAssignedRole().toWebRole()
+                : (staff.getRole() == null ? null : staff.getRole().toWebRole()));
         response.setCheckInAt(assignment.getCheckInAt());
         response.setCheckOutAt(assignment.getCheckOutAt());
         return response;

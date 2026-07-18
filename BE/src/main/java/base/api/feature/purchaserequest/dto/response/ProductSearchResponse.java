@@ -12,4 +12,8 @@ public class ProductSearchResponse {
     private String productName;
     private String categoryName;
     private String unit;
+    /** English label of the TOP packaging level, e.g. "Case of 24". */
+    private String topPackagingLabel;
+    /** How many base units one TOP packaging unit contains. */
+    private Integer topPackagingConversionQty;
 }

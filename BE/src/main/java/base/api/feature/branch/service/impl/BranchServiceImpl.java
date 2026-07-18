@@ -128,11 +128,26 @@ public class BranchServiceImpl implements IBranchService {
 
     @Override
     public List<BranchResponse> getAllBranches() {
-        assertAdminOrDirector();
+        UserRole role = currentUserProvider.getCurrentUserRole();
+        UserRole webRole = role == null ? null : role.toWebRole();
 
-        return branchRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
-                .map(branch -> branchMapper.toListResponse(branch, resolveManagerName(branch.getManagerId())))
-                .toList();
+        if (webRole == UserRole.ADMIN || webRole == UserRole.DIRECTOR) {
+            return branchRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
+                    .map(branch -> branchMapper.toListResponse(branch, resolveManagerName(branch.getManagerId())))
+                    .toList();
+        }
+
+        if (webRole == UserRole.BRANCH_MANAGER) {
+            UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+            if (currentUser.getBranchId() == null) {
+                return List.of();
+            }
+            return branchRepository.findById(currentUser.getBranchId()).stream()
+                    .map(branch -> branchMapper.toListResponse(branch, resolveManagerName(branch.getManagerId())))
+                    .toList();
+        }
+
+        throw new ForbiddenException("You do not have permission to list branches.");
     }
 
     @Override

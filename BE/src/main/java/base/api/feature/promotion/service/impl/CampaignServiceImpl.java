@@ -1,6 +1,7 @@
 package base.api.feature.promotion.service.impl;
 
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
@@ -34,6 +35,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -148,6 +151,12 @@ public class CampaignServiceImpl implements ICampaignService {
     @Override
     @Transactional
     public CampaignResponse activateCampaign(Long id) {
+        return activateCampaign(id, null);
+    }
+
+    @Override
+    @Transactional
+    public CampaignResponse activateCampaign(Long id, ActivateCampaignRequest request) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanChangeCampaignStatus(campaign);
 
@@ -158,6 +167,39 @@ public class CampaignServiceImpl implements ICampaignService {
                 && campaign.getStatus() != CampaignStatus.SUSPENDED
                 && campaign.getStatus() != CampaignStatus.DEACTIVATED) {
             throw new BadRequestException("Invalid promotion status flow.");
+        }
+
+        LocalDateTime startAt = campaign.getStartAt();
+        LocalDateTime endAt = campaign.getEndAt();
+        if (request != null) {
+            if (request.getStartAt() != null) {
+                startAt = request.getStartAt();
+            }
+            if (request.getEndAt() != null) {
+                endAt = request.getEndAt();
+            }
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        boolean needsNewDates = startAt == null
+                || startAt.toLocalDate().isBefore(LocalDate.now())
+                || (endAt != null && !endAt.isAfter(now));
+
+        if (needsNewDates) {
+            if (request == null || request.getStartAt() == null || request.getEndAt() == null) {
+                throw new BadRequestException(
+                        "Promotion dates are in the past. Provide a new startAt and endAt to activate.");
+            }
+            startAt = request.getStartAt();
+            endAt = request.getEndAt();
+            if (startAt.toLocalDate().isBefore(LocalDate.now())) {
+                throw new BadRequestException("New start date must be today or later.");
+            }
+            if (!endAt.isAfter(startAt)) {
+                throw new BadRequestException("End date must be after start date.");
+            }
+            campaign.setStartAt(startAt);
+            campaign.setEndAt(endAt);
         }
 
         campaign.setStatus(CampaignStatus.ACTIVE);

@@ -8,12 +8,14 @@ import base.api.feature.product.dto.response.ProductResponse;
 import base.api.feature.product.mapper.ProductMapper;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.IProductService;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.shared.entity.BranchInventoryModel;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.CategoryModel;
 import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.entity.WarehouseInventoryModel;
 import base.api.shared.enums.ProductScope;
@@ -58,6 +60,9 @@ public class ProductServiceImpl implements IProductService {
     @Autowired
     private IBranchRepository branchRepository;
 
+    @Autowired
+    private ProductPackagingService productPackagingService;
+
     @Override
     @Transactional
     public ProductResponse create(CreateProductRequest request) {
@@ -97,6 +102,7 @@ public class ProductServiceImpl implements IProductService {
         applyDefaultImportPackaging(product);
         ProductModel saved = productRepository.save(product);
         ensureInventoryRow(saved, scope, branchId);
+        productPackagingService.ensureDefaultPackagings(saved);
         return productMapper.toResponse(saved);
     }
 
@@ -128,7 +134,9 @@ public class ProductServiceImpl implements IProductService {
         product.setStatus(normalizedStatus);
         applyDefaultImportPackaging(product);
 
-        return productMapper.toResponse(productRepository.save(product));
+        ProductModel saved = productRepository.save(product);
+        productPackagingService.ensureDefaultPackagings(saved);
+        return productMapper.toResponse(saved);
     }
 
     @Override
@@ -144,7 +152,9 @@ public class ProductServiceImpl implements IProductService {
     public ProductResponse getById(Integer id) {
         ProductModel product = findProductOrThrow(id);
         assertCanViewProduct(product);
-        return enrichSingle(productMapper.toResponse(product));
+        ProductResponse response = enrichSingle(productMapper.toResponse(product));
+        applyTopPackaging(response, productPackagingService.getTopPackaging(product));
+        return response;
     }
 
     @Override
@@ -156,10 +166,27 @@ public class ProductServiceImpl implements IProductService {
 
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
         Map<Integer, WarehouseInventoryModel> warehouseStock = loadWarehouseStockMap();
+        Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
+                products.stream().map(ProductModel::getId).toList());
 
         return products.stream()
-                .map(product -> enrichList(productMapper.toListResponse(product), branchStock, warehouseStock, visibility))
+                .map(product -> {
+                    ProductResponse response = enrichList(
+                            productMapper.toListResponse(product), branchStock, warehouseStock, visibility);
+                    ProductPackagingModel top = topPackagings.getOrDefault(
+                            product.getId(), productPackagingService.getTopPackaging(product));
+                    applyTopPackaging(response, top);
+                    return response;
+                })
                 .toList();
+    }
+
+    private void applyTopPackaging(ProductResponse response, ProductPackagingModel topPackaging) {
+        if (topPackaging == null) {
+            return;
+        }
+        response.setTopPackagingLabel(topPackaging.displayLabel());
+        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
     }
 
     @Override
