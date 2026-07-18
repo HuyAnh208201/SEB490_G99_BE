@@ -1,5 +1,6 @@
 package base.api.feature.promotion.service;
 
+import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
@@ -16,6 +17,8 @@ public interface ICampaignService {
     void deleteCampaign(Long id);
 
     CampaignResponse activateCampaign(Long id);
+
+    CampaignResponse activateCampaign(Long id, ActivateCampaignRequest request);
 
     CampaignResponse suspendCampaign(Long id);
 

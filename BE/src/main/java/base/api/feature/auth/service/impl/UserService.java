@@ -17,12 +17,14 @@ import base.api.shared.entity.PasswordResetTokenModel;
 import base.api.shared.entity.RoleModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserGender;
+import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.enums.UserRole;
 import base.api.feature.auth.repository.IEmailVerificationTokenRepository;
 import base.api.feature.auth.repository.IPasswordResetTokenRepository;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.config.EmailService;
+import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
@@ -64,6 +66,9 @@ public class UserService implements IUserService {
 
     @Autowired
     private CriticalUserActionTokenRepository criticalUserActionTokenRepository;
+
+    @Autowired
+    private CurrentUserProvider currentUserProvider;
 
     @Value("${url.api-url:http://localhost:1328}")
     private String apiBaseUrl;
@@ -206,7 +211,32 @@ public class UserService implements IUserService {
 
     @Override
     public List<UserModel> getAllUsers() {
-        return userRepository.findAll();
+        UserModel actor;
+        UserRole actorRole;
+        try {
+            actor = currentUserProvider.getCurrentUserOrThrow();
+            actorRole = actor.getRole() == null ? null : actor.getRole().toWebRole();
+        } catch (Exception ex) {
+            return userRepository.findAll();
+        }
+
+        List<UserModel> all = userRepository.findAll();
+        if (actorRole != UserRole.BRANCH_MANAGER) {
+            return all;
+        }
+
+        Long branchId = actor.getBranchId();
+        return all.stream()
+                .filter(u -> isVisibleToBranchManager(u, branchId))
+                .toList();
+    }
+
+    private boolean isVisibleToBranchManager(UserModel user, Long branchId) {
+        UserRole role = user.getRole() == null ? null : user.getRole().toWebRole();
+        if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
+            return true;
+        }
+        return branchId != null && branchId.equals(user.getBranchId());
     }
 
     @Override

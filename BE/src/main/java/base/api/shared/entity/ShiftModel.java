@@ -1,10 +1,10 @@
 package base.api.shared.entity;
 
 import base.api.shared.enums.ShiftStatus;
+import base.api.shared.enums.ShiftStatusConverter;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -49,7 +49,7 @@ public class ShiftModel {
 
     private BigDecimal difference;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = ShiftStatusConverter.class)
     @Column(nullable = false, length = 50)
     private ShiftStatus status = ShiftStatus.DRAFT;
 

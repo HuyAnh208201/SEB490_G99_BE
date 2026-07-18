@@ -10,6 +10,7 @@ import base.api.feature.dispatch.repository.DispatchOrderRepository;
 import base.api.feature.dispatch.repository.DispatchOrderRequestRepository;
 import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
@@ -73,6 +74,9 @@ public class DispatchServiceImpl implements IDispatchService {
     @Autowired
     private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
 
+    @Autowired
+    private ProductPackagingService productPackagingService;
+
     @Override
     public List<DispatchApprovedRequestResponse> getApprovedRequests() {
         List<PurchaseRequestModel> requests = warehouseStockAllocationHelper.filterDispatchableApproved(
@@ -130,14 +134,17 @@ public class DispatchServiceImpl implements IDispatchService {
         }
 
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
+        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
 
-        // Tổng SL cần xuất theo từng sản phẩm.
+        // Tổng SL cần xuất theo từng sản phẩm, quy đổi từ đơn vị TOP (thùng/kiện) sang đơn vị BASE
+        // (đơn vị tồn kho tổng đang lưu trữ) qua ProductPackagingService.
         Map<Integer, Integer> neededByProduct = new HashMap<>();
         for (List<PurchaseRequestDetailModel> details : detailsByRequest.values()) {
             for (PurchaseRequestDetailModel detail : details) {
-                int qty = dispatchQuantity(detail);
-                if (qty > 0 && detail.getProductId() != null) {
-                    neededByProduct.merge(detail.getProductId(), qty, Integer::sum);
+                int topUnitsQty = dispatchQuantity(detail);
+                if (topUnitsQty > 0 && detail.getProductId() != null) {
+                    int baseUnitsQty = productPackagingService.toBaseQty(topUnitsQty, productsById.get(detail.getProductId()));
+                    neededByProduct.merge(detail.getProductId(), baseUnitsQty, Integer::sum);
                 }
             }
         }
@@ -304,6 +311,7 @@ public class DispatchServiceImpl implements IDispatchService {
                 item.setProductName(product == null ? null : product.getName());
                 item.setUnit(product == null ? null : product.getUnit());
                 item.setQuantity(dispatchQuantity(detail));
+                item.setTopPackagingLabel(product == null ? null : productPackagingService.topLabel(product));
                 items.add(item);
             }
             line.setItems(items);

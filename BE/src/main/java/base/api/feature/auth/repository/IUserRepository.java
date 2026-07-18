@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -78,6 +79,12 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     List<UserModel> findByBranchIdAndRoleName(
             @Param("branchId") Long branchId,
             @Param("roleName") String roleName
+    );
+
+    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name IN :roleNames")
+    List<UserModel> findByBranchIdAndRoleNames(
+            @Param("branchId") Long branchId,
+            @Param("roleNames") Collection<String> roleNames
     );
 
     @Query("""

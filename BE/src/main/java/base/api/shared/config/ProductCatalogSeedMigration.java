@@ -52,15 +52,17 @@ public class ProductCatalogSeedMigration {
         };
 
         for (Object[] row : products) {
+            String code = String.valueOf(row[0]);
+            String barcode = String.valueOf(row[1]);
             String unit = String.valueOf(row[3]);
             if ("cup".equals(unit)) {
                 unit = "box";
             }
+            // Never force a barcode that another SKU already owns (unique constraint).
             jdbcTemplate.update(
                     """
                             UPDATE products
-                            SET barcode = ?,
-                                name = ?,
+                            SET name = ?,
                                 unit = ?,
                                 import_unit = ?,
                                 units_per_import_unit = ?,
@@ -68,7 +70,18 @@ public class ProductCatalogSeedMigration {
                                 branch_id = NULL
                             WHERE code = ?
                             """,
-                    row[1], row[2], unit, row[4], row[5], row[0]);
+                    row[2], unit, row[4], row[5], code);
+            Integer taken = jdbcTemplate.queryForObject(
+                    """
+                            SELECT COUNT(*) FROM products
+                            WHERE barcode = ? AND code <> ?
+                            """,
+                    Integer.class,
+                    barcode,
+                    code);
+            if (taken == null || taken == 0) {
+                jdbcTemplate.update("UPDATE products SET barcode = ? WHERE code = ?", barcode, code);
+            }
         }
     }
 }
