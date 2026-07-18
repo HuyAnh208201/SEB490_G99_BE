@@ -2,6 +2,7 @@ package base.api.feature.auth.controller;
 
 import base.api.feature.auth.dto.request.*;
 import base.api.feature.auth.dto.response.AuthResponse;
+import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -251,19 +252,51 @@ public class AuthController extends BaseAPIController {
         if (actor == null) {
             return unauthorized("Chưa đăng nhập");
         }
-        UserModel updated = userService.updateUserStatus(id, Boolean.TRUE.equals(dto.getActive()), actor);
+        UserModel updated = userService.updateUserStatus(
+                id,
+                Boolean.TRUE.equals(dto.getActive()),
+                actor,
+                dto.getEmail(),
+                dto.getVerificationCode());
         return success(updated, "Cập nhật trạng thái thành công.");
+    }
+
+    @Operation(summary = "Send critical user action verification code")
+    @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
+    @PostMapping("admin/users/{id}/critical-action/send-code")
+    public ResponseEntity<TFUResponse<String>> sendCriticalUserActionCode(
+            @PathVariable Long id,
+            @Valid @RequestBody SendCriticalUserActionCodeRequest request) {
+        UserModel actor = userService.findById(getCurrentUserId());
+        if (actor == null) {
+            return unauthorized("Chưa đăng nhập");
+        }
+        userService.sendCriticalUserActionCode(id, request.getEmail(), request.getActionType(), actor);
+        return success("Verification code sent to your email.");
+    }
+
+    @Operation(summary = "Get critical role slot availability")
+    @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
+    @GetMapping("admin/role-slots")
+    public ResponseEntity<TFUResponse<CriticalRoleSlotsResponse>> getCriticalRoleSlots() {
+        return success(userService.getCriticalRoleSlots());
     }
 
     @Operation(summary = "Xóa user", description = "**USER_DETAILS_EDIT** — Admin/Director/BM theo quyền.")
     @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
     @DeleteMapping("admin/users/{id}")
-    public ResponseEntity<TFUResponse<String>> deleteUser(@PathVariable Long id) {
+    public ResponseEntity<TFUResponse<String>> deleteUser(
+            @PathVariable Long id,
+            @RequestBody(required = false) CriticalUserActionRequest request) {
         UserModel actor = userService.findById(getCurrentUserId());
         if (actor == null) {
             return unauthorized("Chưa đăng nhập");
         }
-        userService.deleteUser(id, actor);
+        if (request == null) {
+            userService.deleteUser(id, actor);
+        } else {
+            userService.deleteUser(id, actor, request.getEmail(), request.getVerificationCode());
+        }
         return success("Xóa tài khoản thành công.");
     }
 }

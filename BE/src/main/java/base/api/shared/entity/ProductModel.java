@@ -49,6 +49,20 @@ public class ProductModel {
     @Column(length = 255)
     private String unit;
 
+    /** Retail/selling unit code (English). */
+    @Column(name = "import_unit", length = 64)
+    private String importUnit;
+
+    /** How many retail units are in one import unit (e.g. 24 cans per case). */
+    @Column(name = "units_per_import_unit")
+    private Integer unitsPerImportUnit;
+
+    @Column(nullable = false, length = 16)
+    private String scope = "GLOBAL";
+
+    @Column(name = "branch_id")
+    private Long branchId;
+
     @Column(name = "reference_import_price", precision = 15, scale = 2)
     private BigDecimal referenceImportPrice;
 

@@ -3,6 +3,7 @@ package base.api.feature.purchaserequest.service.impl;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.PurchaseRequestItemRequest;
@@ -59,6 +60,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -82,6 +84,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Autowired
     private WarehouseInventoryRepository warehouseInventoryRepository;
+
+    @Autowired
+    private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
 
     @Autowired
     private GoodsReceiptRepository goodsReceiptRepository;
@@ -202,7 +207,18 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             throw new ForbiddenException("Access denied.");
         }
 
-        return requests.map(this::buildSummaryResponse);
+        List<PurchaseRequestModel> content = requests.getContent();
+        Set<Long> branchIds = content.stream().map(PurchaseRequestModel::getBranchId).collect(Collectors.toSet());
+        Set<Long> userIds = content.stream().map(PurchaseRequestModel::getCreatedBy).collect(Collectors.toSet());
+        Map<Long, BranchModel> branchesById = branchRepository.findAllById(branchIds).stream()
+                .collect(Collectors.toMap(BranchModel::getId, Function.identity(), (a, b) -> a));
+        Map<Long, UserModel> usersById = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserModel::getId, Function.identity(), (a, b) -> a));
+
+        return requests.map(request -> buildSummaryResponse(
+                request,
+                branchesById.get(request.getBranchId()),
+                usersById.get(request.getCreatedBy())));
     }
 
     @Override
@@ -353,11 +369,10 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         }
         detailRepository.saveAll(details);
 
-        // So tổng SL duyệt của từng sản phẩm với tồn kho KHO TỔNG:
+        // So tổng SL duyệt với tồn kho KHO TỔNG (trừ nhu cầu các yêu cầu APPROVED khác):
         //  - Đủ tất cả  -> APPROVED (đi tiếp gom đơn / chờ vận chuyển)
         //  - Thiếu bất kỳ -> AWAITING_STOCK (chờ kho tổng đặt nhà cung cấp bổ sung)
-        Map<Integer, Integer> warehouseStockByProduct = loadWarehouseStock(details);
-        boolean warehouseHasEnough = hasEnoughWarehouseStock(details, warehouseStockByProduct);
+        boolean warehouseHasEnough = warehouseStockAllocationHelper.canApproveRequest(id, details);
 
         purchaseRequest.setStatus(warehouseHasEnough
                 ? PurchaseRequestStatus.APPROVED
@@ -689,6 +704,13 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private PurchaseRequestSummaryResponse buildSummaryResponse(PurchaseRequestModel request) {
         BranchModel branch = branchRepository.findById(request.getBranchId()).orElse(null);
         UserModel createdBy = userRepository.findById(request.getCreatedBy()).orElse(null);
+        return buildSummaryResponse(request, branch, createdBy);
+    }
+
+    private PurchaseRequestSummaryResponse buildSummaryResponse(
+            PurchaseRequestModel request,
+            BranchModel branch,
+            UserModel createdBy) {
         int itemCount = (int) detailRepository.countByPurchaseRequestId(request.getId());
         return purchaseRequestMapper.toSummaryResponse(request, itemCount, branch, createdBy);
     }

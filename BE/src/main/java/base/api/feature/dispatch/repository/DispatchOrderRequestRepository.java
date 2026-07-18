@@ -13,4 +13,8 @@ public interface DispatchOrderRequestRepository extends JpaRepository<DispatchOr
     List<DispatchOrderRequestModel> findByDispatchOrderId(Long dispatchOrderId);
 
     List<DispatchOrderRequestModel> findByDispatchOrderIdIn(Collection<Long> dispatchOrderIds);
+
+    List<DispatchOrderRequestModel> findByPurchaseRequestIdIn(Collection<Long> purchaseRequestIds);
+
+    java.util.Optional<DispatchOrderRequestModel> findFirstByPurchaseRequestId(Long purchaseRequestId);
 }

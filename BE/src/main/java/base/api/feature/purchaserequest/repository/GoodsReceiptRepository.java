@@ -10,4 +10,6 @@ import java.util.List;
 public interface GoodsReceiptRepository extends JpaRepository<GoodsReceiptModel, Long> {
 
     List<GoodsReceiptModel> findByPurchaseRequestId(Long purchaseRequestId);
+
+    List<GoodsReceiptModel> findByBranchIdOrderByReceivedAtDesc(Long branchId);
 }
