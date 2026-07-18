@@ -18,4 +18,6 @@ public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest
     Page<PurchaseRequestModel> findByStatusIn(Collection<PurchaseRequestStatus> statuses, Pageable pageable);
 
     List<PurchaseRequestModel> findByStatus(PurchaseRequestStatus status);
+
+    List<PurchaseRequestModel> findByBranchIdAndStatusIn(Long branchId, Collection<PurchaseRequestStatus> statuses);
 }

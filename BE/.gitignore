@@ -48,3 +48,6 @@ uploads/
 ### Jqwik test database ###
 .jqwik-database
 HUONG_DAN.md
+
+### Local / team docs (not committed) ###
+documents/

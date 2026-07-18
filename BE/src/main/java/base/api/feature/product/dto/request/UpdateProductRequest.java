@@ -26,6 +26,11 @@ public class UpdateProductRequest {
     @Size(max = 255, message = "Unit must not exceed 255 characters.")
     private String unit;
 
+    @Size(max = 64, message = "Import unit must not exceed 64 characters.")
+    private String importUnit;
+
+    private Integer unitsPerImportUnit;
+
     @NotNull(message = "Reference import price is required.")
     private BigDecimal referenceImportPrice;
 

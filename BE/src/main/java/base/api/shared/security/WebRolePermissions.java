@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Ma trận phân quyền Web System.
+ * Web permission matrix — power ladder: Admin/Director -> BM/WM -> Cashier/IS.
  */
 public final class WebRolePermissions {
 
@@ -35,7 +35,9 @@ public final class WebRolePermissions {
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.SUPPLIER_MANAGEMENT,
-                WebPermission.APPROVE_IMPORT_REQUEST
+                WebPermission.APPROVE_IMPORT_REQUEST,
+                WebPermission.VIEW_CENTRAL_INVENTORY,
+                WebPermission.VIEW_BRANCH_INVENTORY
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(
@@ -52,7 +54,12 @@ public final class WebRolePermissions {
                 WebPermission.BUSINESS_PERFORMANCE_REPORTS,
                 WebPermission.STRATEGIC_PLANNING_OVERVIEW,
                 WebPermission.BRANCH_REVENUE_PROMOS,
-                WebPermission.APPROVE_IMPORT_REQUEST
+                WebPermission.APPROVE_IMPORT_REQUEST,
+                WebPermission.CATEGORY_MANAGEMENT,
+                WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.SUPPLIER_MANAGEMENT,
+                WebPermission.VIEW_CENTRAL_INVENTORY,
+                WebPermission.VIEW_BRANCH_INVENTORY
         ));
 
         map.put(UserRole.BRANCH_MANAGER, EnumSet.of(
@@ -66,7 +73,10 @@ public final class WebRolePermissions {
                 WebPermission.APPROVE_CASH_DISCREPANCY,
                 WebPermission.BRANCH_REVENUE_PROMOS,
                 WebPermission.SHIFT_MANAGEMENT,
-                WebPermission.CREATE_IMPORT_REQUEST
+                WebPermission.CREATE_IMPORT_REQUEST,
+                WebPermission.VIEW_BRANCH_INVENTORY,
+                WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.INVENTORY_COUNT
         ));
 
         map.put(UserRole.WAREHOUSE_MANAGER, EnumSet.of(
@@ -76,12 +86,15 @@ public final class WebRolePermissions {
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.CHOOSE_EXTERNAL_SUPPLIER,
                 WebPermission.MANAGE_DISPATCH_ORDERS,
-                WebPermission.CATEGORY_MANAGEMENT,
-                WebPermission.PRODUCT_MANAGEMENT
+                WebPermission.PRODUCT_VIEW
         ));
 
         map.put(UserRole.INVENTORY_STAFF, EnumSet.of(
-                WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE
+                WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE,
+                WebPermission.VIEW_BRANCH_INVENTORY,
+                WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.RECEIVE_SHIPMENT,
+                WebPermission.INVENTORY_COUNT
         ));
         map.put(UserRole.CASHIER, EnumSet.noneOf(WebPermission.class));
 
