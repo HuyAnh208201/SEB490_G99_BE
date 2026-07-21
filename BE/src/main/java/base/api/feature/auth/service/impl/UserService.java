@@ -692,6 +692,8 @@ public class UserService implements IUserService {
         return savedUser;
     }
 
+
+
     private Long resolveTargetBranchId(UserRole targetRole, Long requestedBranchId, UserModel creator) {
         if (targetRole == null) {
             throw new BadRequestException("Role không được để trống");
