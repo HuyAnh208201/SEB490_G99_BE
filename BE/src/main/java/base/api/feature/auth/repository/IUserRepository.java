@@ -6,9 +6,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -103,18 +105,20 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     );
 
     /**
-     * Trừ điểm atomic — chỉ thành công nếu user còn đủ điểm. Tránh race giữa các
-     * request đồng thời cùng chi tiêu điểm. Trả về số row được update (0 = không đủ điểm).
+     * Trừ điểm atomic — chỉ thành công nếu user còn đủ điểm.
+     * Trả về số row được update (0 = không đủ điểm).
      */
-    default int deductPointsAtomic(@Param("userId") Long userId, @Param("points") Long points) {
-        return 0;
-    }
+    @Modifying
+    @Transactional
+    @Query("UPDATE UserModel u SET u.points = u.points - :points WHERE u.id = :userId AND u.points >= :points")
+    int deductPointsAtomic(@Param("userId") Long userId, @Param("points") Long points);
 
     /**
-     * Hoàn điểm (cộng) khi hủy booking trước khi thanh toán thành công.
+     * Hoàn điểm (cộng) — dùng khi tích điểm từ hóa đơn hoặc hoàn điểm khi hủy.
      */
-    default int refundPointsAtomic(@Param("userId") Long userId, @Param("points") Long points) {
-        return 0;
-    }
+    @Modifying
+    @Transactional
+    @Query("UPDATE UserModel u SET u.points = u.points + :points WHERE u.id = :userId")
+    int refundPointsAtomic(@Param("userId") Long userId, @Param("points") Long points);
 
 }

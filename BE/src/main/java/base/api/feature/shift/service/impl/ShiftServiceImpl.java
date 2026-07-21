@@ -8,6 +8,8 @@ import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
 import base.api.feature.shift.dto.request.SetupWeekSlotRequest;
+import base.api.feature.shift.dto.request.CloseShiftRequest;
+import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
 import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.AssignedEmployeeResponse;
@@ -1013,6 +1015,113 @@ public class ShiftServiceImpl implements IShiftService {
         response.setWeekStart(weekStart);
         response.setDays(buildScheduleDays(weekStart, shifts, assignmentsByShiftId));
         return response;
+    // =========================================================================
+    // Đóng ca và đối soát tiền
+    // =========================================================================
+
+    @Override
+    @Transactional
+    public ShiftResponse closeShift(Long shiftId, CloseShiftRequest request) {
+        ShiftModel shift = findShiftOrThrow(shiftId);
+        UserModel currentUser = requireStaffOrCashier();
+
+        validateShiftBelongsToStaffBranch(shift, currentUser);
+        validateShiftCanBeClosed(shift);
+        validateNonNegativeMoney(request.getActualCash(), "Số tiền thực tế không được âm.");
+
+        shift.setActualCash(request.getActualCash());
+        shift.setDifference(calculateDifference(shift.getExpectedCash(), request.getActualCash()));
+        shift.setClosedBy(currentUser.getId());
+        shift.setStaffNote(request.getNote());
+        shift.setStatus(ShiftStatus.CLOSED);
+
+        return toResponse(shiftRepository.save(shift));
+    }
+
+    @Override
+    @Transactional
+    public ShiftResponse approveShift(Long shiftId, ReviewShiftRequest request) {
+        ShiftModel shift = findShiftOrThrow(shiftId);
+        UserModel currentUser = requireBranchManager();
+
+        assertOwnBranch(shift.getBranchId(), currentUser);
+        validateShiftCanBeReviewed(shift);
+
+        shift.setApprovedBy(currentUser.getId());
+        shift.setReviewNote(request.getNote());
+        shift.setStatus(ShiftStatus.APPROVED);
+
+        return toResponse(shiftRepository.save(shift));
+    }
+
+    @Override
+    @Transactional
+    public ShiftResponse rejectShift(Long shiftId, ReviewShiftRequest request) {
+        ShiftModel shift = findShiftOrThrow(shiftId);
+        UserModel currentUser = requireBranchManager();
+
+        assertOwnBranch(shift.getBranchId(), currentUser);
+        validateShiftCanBeReviewed(shift);
+
+        shift.setApprovedBy(currentUser.getId());
+        shift.setReviewNote(request.getNote());
+        shift.setStatus(ShiftStatus.REJECTED);
+
+        return toResponse(shiftRepository.save(shift));
+    }
+
+    // =========================================================================
+    // Private helpers — đóng ca
+    // =========================================================================
+
+    /**
+     * Chỉ cho phép Staff (Cashier hoặc Inventory Staff) đóng ca.
+     */
+    private UserModel requireStaffOrCashier() {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        UserRole role = currentUserProvider.getCurrentUserRole();
+
+        boolean isStaff = role == UserRole.CASHIER || role == UserRole.INVENTORY_STAFF;
+        if (!isStaff) {
+            throw new BusinessException("Đóng ca chỉ dành cho Cashier hoặc Inventory Staff.");
+        }
+        if (currentUser.getBranchId() == null) {
+            throw new BusinessException("Staff chưa được phân công vào chi nhánh nào.");
+        }
+        return currentUser;
+    }
+
+    /**
+     * Kiểm tra ca thuộc đúng chi nhánh của staff đang đăng nhập.
+     */
+    private void validateShiftBelongsToStaffBranch(ShiftModel shift, UserModel staff) {
+        if (!shift.getBranchId().equals(staff.getBranchId())) {
+            throw new BusinessException("Ca này không thuộc chi nhánh của bạn.");
+        }
+    }
+
+    /**
+     * Ca chỉ đóng được khi đang PUBLISHED hoặc REJECTED (nộp lại sau khi bị từ chối).
+     */
+    private void validateShiftCanBeClosed(ShiftModel shift) {
+        boolean canClose = shift.getStatus() == ShiftStatus.PUBLISHED
+                || shift.getStatus() == ShiftStatus.REJECTED;
+        if (!canClose) {
+            throw new BusinessException(
+                    "Chỉ đóng được ca đang PUBLISHED hoặc REJECTED. Trạng thái hiện tại: " + shift.getStatus()
+            );
+        }
+    }
+
+    /**
+     * BM chỉ phê duyệt / từ chối được ca đang CLOSED.
+     */
+    private void validateShiftCanBeReviewed(ShiftModel shift) {
+        if (shift.getStatus() != ShiftStatus.CLOSED) {
+            throw new BusinessException(
+                    "Chỉ đối soát được ca đang CLOSED. Trạng thái hiện tại: " + shift.getStatus()
+            );
+        }
     }
 
     private List<ScheduleDayResponse> buildScheduleDays(

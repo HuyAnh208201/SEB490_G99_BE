@@ -5,6 +5,8 @@ import base.api.feature.shift.dto.request.AssignSlotRequest;
 import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
+import base.api.feature.shift.dto.request.CloseShiftRequest;
+import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
 import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.AvailableEmployeeResponse;
@@ -62,4 +64,24 @@ public interface IShiftService {
             LocalTime startTime,
             LocalTime endTime,
             UserRole requiredRole);
+
+    /**
+     * Staff (Cashier/Inventory) đóng ca cuối ngày.
+     * Nhập tiền thực đếm được, hệ thống tự tính chênh lệch.
+     * Ca chuyển từ PUBLISHED → CLOSED.
+     */
+    ShiftResponse closeShift(Long shiftId, CloseShiftRequest request);
+
+    /**
+     * BM phê duyệt chênh lệch tiền ca.
+     * Ca chuyển từ CLOSED → APPROVED.
+     */
+    ShiftResponse approveShift(Long shiftId, ReviewShiftRequest request);
+
+    /**
+     * BM từ chối — yêu cầu staff đếm lại.
+     * Ca chuyển từ CLOSED → REJECTED.
+     * Staff có thể gọi closeShift() lại để nộp lại.
+     */
+    ShiftResponse rejectShift(Long shiftId, ReviewShiftRequest request);
 }

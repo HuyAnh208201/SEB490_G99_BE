@@ -56,6 +56,18 @@ public class ShiftModel {
     @Column(name = "approved_by")
     private Long approvedBy;
 
+    /** ID của staff đã đóng ca (Cashier hoặc Inventory Staff). */
+    @Column(name = "closed_by")
+    private Long closedBy;
+
+    /** Ghi chú của staff khi đóng ca. */
+    @Column(name = "staff_note", length = 500)
+    private String staffNote;
+
+    /** Ghi chú của BM khi phê duyệt hoặc từ chối. */
+    @Column(name = "review_note", length = 500)
+    private String reviewNote;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

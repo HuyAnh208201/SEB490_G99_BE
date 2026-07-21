@@ -34,6 +34,9 @@ public class ShiftMapper {
         response.setDifference(shift.getDifference());
         response.setStatus(shift.getStatus());
         response.setApprovedBy(shift.getApprovedBy());
+        response.setClosedBy(shift.getClosedBy());
+        response.setStaffNote(shift.getStaffNote());
+        response.setReviewNote(shift.getReviewNote());
         response.setCreatedAt(shift.getCreatedAt());
         return response;
     }

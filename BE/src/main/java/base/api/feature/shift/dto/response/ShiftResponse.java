@@ -35,6 +35,15 @@ public class ShiftResponse {
 
     private Long approvedBy;
 
+    /** ID staff đã đóng ca. */
+    private Long closedBy;
+
+    /** Ghi chú của staff khi đóng ca. */
+    private String staffNote;
+
+    /** Ghi chú của BM khi phê duyệt / từ chối. */
+    private String reviewNote;
+
     private LocalDateTime createdAt;
 
     private List<AssignedEmployeeResponse> assignedEmployees = new ArrayList<>();

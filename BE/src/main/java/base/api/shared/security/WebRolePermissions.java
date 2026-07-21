@@ -95,8 +95,12 @@ public final class WebRolePermissions {
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.RECEIVE_SHIPMENT,
                 WebPermission.INVENTORY_COUNT
+                WebPermission.CASHIER_CLOSE_SHIFT
         ));
-        map.put(UserRole.CASHIER, EnumSet.noneOf(WebPermission.class));
+        map.put(UserRole.CASHIER, EnumSet.of(
+                WebPermission.CASHIER_ADD_POINTS,
+                WebPermission.CASHIER_CLOSE_SHIFT
+        ));
 
         return Collections.unmodifiableMap(map);
     }
