@@ -1,5 +1,6 @@
 package base.api.feature.purchaseorder.service.impl;
 
+import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.purchaseorder.dto.request.CreatePurchaseOrderRequest;
 import base.api.feature.purchaseorder.dto.response.PurchaseOrderResponse;
@@ -74,6 +75,9 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
 
     @Autowired
     private CurrentUserProvider currentUserProvider;
+
+    @Autowired
+    private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
 
     @Override
     public List<RecommendedPurchaseProductResponse> getRecommendedProducts() {
@@ -272,7 +276,7 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
         awaiting.sort(Comparator.comparing(
                 PurchaseRequestModel::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
 
-        Map<Integer, Integer> workingStock = new HashMap<>(warehouseStockMap());
+        Map<Integer, Integer> workingStock = new HashMap<>(warehouseStockAllocationHelper.workingStockAfterApprovedReservations());
         List<Long> requestIds = awaiting.stream().map(PurchaseRequestModel::getId).toList();
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = detailRepository.findByPurchaseRequestIdIn(requestIds).stream()
                 .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));

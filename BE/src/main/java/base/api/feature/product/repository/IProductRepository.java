@@ -46,4 +46,36 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
     @EntityGraph(attributePaths = "category")
     @Query("SELECT p FROM ProductModel p WHERE p.id IN :ids")
     List<ProductModel> findByIdInWithCategory(@Param("ids") Collection<Integer> ids);
+
+    @Query("SELECT p.barcode FROM ProductModel p WHERE p.barcode IS NOT NULL")
+    List<String> findAllBarcodes();
+
+    @EntityGraph(attributePaths = "category")
+    @Query("""
+            SELECT p FROM ProductModel p
+            WHERE :supervisor = true
+               OR p.scope = 'GLOBAL'
+               OR (:branchId IS NOT NULL AND p.branchId = :branchId)
+            ORDER BY p.id ASC
+            """)
+    List<ProductModel> findVisibleProducts(
+            @Param("supervisor") boolean supervisor,
+            @Param("branchId") Long branchId);
+
+    @EntityGraph(attributePaths = "category")
+    @Query("""
+            SELECT p FROM ProductModel p
+            WHERE LOWER(p.status) = 'active'
+              AND (
+                    :supervisor = true
+                 OR p.scope = 'GLOBAL'
+                 OR (:branchId IS NOT NULL AND p.branchId = :branchId)
+              )
+            ORDER BY p.code ASC
+            """)
+    List<ProductModel> findVisibleActiveProducts(
+            @Param("supervisor") boolean supervisor,
+            @Param("branchId") Long branchId);
+
+    long countByScopeAndBranchId(String scope, Long branchId);
 }

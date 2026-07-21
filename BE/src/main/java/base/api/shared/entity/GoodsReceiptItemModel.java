@@ -30,4 +30,7 @@ public class GoodsReceiptItemModel {
 
     @Column(name = "received_quantity")
     private Integer receivedQuantity;
+
+    @Column(name = "note", length = 500)
+    private String note;
 }

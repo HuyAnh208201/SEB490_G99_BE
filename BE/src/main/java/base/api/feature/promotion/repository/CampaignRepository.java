@@ -18,4 +18,6 @@ public interface CampaignRepository extends JpaRepository<CampaignModel, Long> {
     List<CampaignModel> findByScopeOrderByIdAsc(CampaignScope scope);
 
     List<CampaignModel> findByIdIn(Collection<Long> ids);
+
+    List<CampaignModel> findByStatus(base.api.shared.enums.CampaignStatus status);
 }

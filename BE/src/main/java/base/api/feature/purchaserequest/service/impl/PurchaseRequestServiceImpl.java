@@ -3,6 +3,8 @@ package base.api.feature.purchaserequest.service.impl;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductPackagingService;
+import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.purchaserequest.dto.request.ApprovePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.CreatePurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.request.PurchaseRequestItemRequest;
@@ -59,6 +61,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -84,6 +87,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private WarehouseInventoryRepository warehouseInventoryRepository;
 
     @Autowired
+    private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
+
+    @Autowired
     private GoodsReceiptRepository goodsReceiptRepository;
 
     @Autowired
@@ -91,6 +97,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Autowired
     private IProductRepository productRepository;
+
+    @Autowired
+    private ProductPackagingService productPackagingService;
 
     @Autowired
     private IBranchRepository branchRepository;
@@ -202,7 +211,18 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             throw new ForbiddenException("Access denied.");
         }
 
-        return requests.map(this::buildSummaryResponse);
+        List<PurchaseRequestModel> content = requests.getContent();
+        Set<Long> branchIds = content.stream().map(PurchaseRequestModel::getBranchId).collect(Collectors.toSet());
+        Set<Long> userIds = content.stream().map(PurchaseRequestModel::getCreatedBy).collect(Collectors.toSet());
+        Map<Long, BranchModel> branchesById = branchRepository.findAllById(branchIds).stream()
+                .collect(Collectors.toMap(BranchModel::getId, Function.identity(), (a, b) -> a));
+        Map<Long, UserModel> usersById = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserModel::getId, Function.identity(), (a, b) -> a));
+
+        return requests.map(request -> buildSummaryResponse(
+                request,
+                branchesById.get(request.getBranchId()),
+                usersById.get(request.getCreatedBy())));
     }
 
     @Override
@@ -353,11 +373,10 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         }
         detailRepository.saveAll(details);
 
-        // So tổng SL duyệt của từng sản phẩm với tồn kho KHO TỔNG:
+        // So tổng SL duyệt với tồn kho KHO TỔNG (trừ nhu cầu các yêu cầu APPROVED khác):
         //  - Đủ tất cả  -> APPROVED (đi tiếp gom đơn / chờ vận chuyển)
         //  - Thiếu bất kỳ -> AWAITING_STOCK (chờ kho tổng đặt nhà cung cấp bổ sung)
-        Map<Integer, Integer> warehouseStockByProduct = loadWarehouseStock(details);
-        boolean warehouseHasEnough = hasEnoughWarehouseStock(details, warehouseStockByProduct);
+        boolean warehouseHasEnough = warehouseStockAllocationHelper.canApproveRequest(id, details);
 
         purchaseRequest.setStatus(warehouseHasEnough
                 ? PurchaseRequestStatus.APPROVED
@@ -454,25 +473,34 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         receipt.setStatus("completed");
         GoodsReceiptModel savedReceipt = goodsReceiptRepository.save(receipt);
 
+        Map<Integer, ProductModel> productsById = loadProductsById(details);
+
+        // requestedQty / approvedQuantity / receivedQuantity are all expressed in TOP packaging
+        // units (e.g. cases). Stock ledgers (branch_inventory) are kept in BASE units, so every
+        // quantity is converted via ProductPackagingService before it touches branch stock.
         List<GoodsReceiptItemModel> receiptItems = new ArrayList<>();
         for (PurchaseRequestDetailModel detail : details) {
-            int ordered = detail.getApprovedQuantity() != null
+            ProductModel product = productsById.get(detail.getProductId());
+            int orderedTopUnits = detail.getApprovedQuantity() != null
                     ? detail.getApprovedQuantity()
                     : safeStock(detail.getRequestedQty());
-            Integer receivedInput = receivedByProduct.getOrDefault(detail.getProductId(), ordered);
-            if (receivedInput == null || receivedInput < 0) {
+            Integer receivedTopUnitsInput = receivedByProduct.getOrDefault(detail.getProductId(), orderedTopUnits);
+            if (receivedTopUnitsInput == null || receivedTopUnitsInput < 0) {
                 throw new BadRequestException("Received quantity must be zero or greater.");
             }
-            int received = receivedInput;
+            int receivedTopUnits = receivedTopUnitsInput;
+
+            int orderedBaseUnits = productPackagingService.toBaseQty(orderedTopUnits, product);
+            int receivedBaseUnits = productPackagingService.toBaseQty(receivedTopUnits, product);
 
             GoodsReceiptItemModel receiptItem = new GoodsReceiptItemModel();
             receiptItem.setGoodsReceiptId(savedReceipt.getId());
             receiptItem.setProductId(detail.getProductId());
-            receiptItem.setOrderedQuantity(ordered);
-            receiptItem.setReceivedQuantity(received);
+            receiptItem.setOrderedQuantity(orderedBaseUnits);
+            receiptItem.setReceivedQuantity(receivedBaseUnits);
             receiptItems.add(receiptItem);
 
-            increaseBranchStock(purchaseRequest.getBranchId(), detail.getProductId(), received);
+            increaseBranchStock(purchaseRequest.getBranchId(), detail.getProductId(), receivedBaseUnits);
         }
         goodsReceiptItemRepository.saveAll(receiptItems);
 
@@ -662,7 +690,8 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         return productRepository.findAllActiveProducts().stream()
                 .map(product -> {
                     int currentStock = currentStockByProductId.getOrDefault(product.getId(), 0);
-                    int suggestedQty = Math.max(reorderPoint - currentStock, 0);
+                    int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
+                    int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, product);
                     return purchaseRequestMapper.toRecommendedProductResponse(product, currentStock, reorderPoint, suggestedQty);
                 })
                 .filter(product -> product.getCurrentStock() <= product.getReorderPoint())
@@ -671,6 +700,15 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private int safeStock(Integer stock) {
         return stock == null ? 0 : stock;
+    }
+
+    /** Convert a BASE-unit shortfall into a TOP packaging quantity (rounded up), minimum 1 when > 0. */
+    private int toTopUnitsCeil(int shortfallBaseUnits, ProductModel product) {
+        if (shortfallBaseUnits <= 0) {
+            return 0;
+        }
+        int conversionQty = productPackagingService.topConversionQty(product);
+        return Math.max(1, (shortfallBaseUnits + conversionQty - 1) / conversionQty);
     }
 
     private PurchaseRequestResponse buildResponse(PurchaseRequestModel request) {
@@ -689,6 +727,13 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private PurchaseRequestSummaryResponse buildSummaryResponse(PurchaseRequestModel request) {
         BranchModel branch = branchRepository.findById(request.getBranchId()).orElse(null);
         UserModel createdBy = userRepository.findById(request.getCreatedBy()).orElse(null);
+        return buildSummaryResponse(request, branch, createdBy);
+    }
+
+    private PurchaseRequestSummaryResponse buildSummaryResponse(
+            PurchaseRequestModel request,
+            BranchModel branch,
+            UserModel createdBy) {
         int itemCount = (int) detailRepository.countByPurchaseRequestId(request.getId());
         return purchaseRequestMapper.toSummaryResponse(request, itemCount, branch, createdBy);
     }

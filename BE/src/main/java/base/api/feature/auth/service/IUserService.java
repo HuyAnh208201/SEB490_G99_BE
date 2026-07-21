@@ -5,6 +5,7 @@ import base.api.feature.auth.dto.request.CompleteForgotPasswordDto;
 import base.api.feature.auth.dto.request.CreateUserByAdminDto;
 import base.api.feature.auth.dto.request.RegisterDto;
 import base.api.feature.auth.dto.request.UpdateProfileDto;
+import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
 import base.api.shared.entity.UserModel;
 
@@ -34,5 +35,13 @@ public interface IUserService {
 
     UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor);
 
+    UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor, String email, String verificationCode);
+
     void deleteUser(Long targetUserId, UserModel actor);
+
+    void deleteUser(Long targetUserId, UserModel actor, String email, String verificationCode);
+
+    void sendCriticalUserActionCode(Long targetUserId, String email, String actionType, UserModel actor);
+
+    CriticalRoleSlotsResponse getCriticalRoleSlots();
 }

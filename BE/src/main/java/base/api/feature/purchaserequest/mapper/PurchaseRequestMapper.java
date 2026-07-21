@@ -1,5 +1,6 @@
 package base.api.feature.purchaserequest.mapper;
 
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestDetailResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
@@ -10,6 +11,7 @@ import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.UserModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -21,6 +23,9 @@ import java.util.Map;
 public class PurchaseRequestMapper {
 
     private static final DateTimeFormatter REQUEST_NUMBER_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+    @Autowired
+    private ProductPackagingService productPackagingService;
 
     public PurchaseRequestSummaryResponse toSummaryResponse(
             PurchaseRequestModel request,
@@ -105,6 +110,11 @@ public class PurchaseRequestMapper {
         response.setRequestedQty(detail.getRequestedQty());
         response.setApprovedQuantity(detail.getApprovedQuantity());
         response.setSupplierId(detail.getSupplierId());
+        if (product != null) {
+            var topPackaging = productPackagingService.getTopPackaging(product);
+            response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
+            response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
+        }
         response.setWarehouseStock(warehouseStock);
         return response;
     }
@@ -124,6 +134,9 @@ public class PurchaseRequestMapper {
         response.setCurrentStock(currentStock);
         response.setReorderPoint(reorderPoint);
         response.setSuggestedQty(suggestedQty);
+        var topPackaging = productPackagingService.getTopPackaging(product);
+        response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
+        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
         return response;
     }
 
@@ -135,6 +148,9 @@ public class PurchaseRequestMapper {
         response.setProductName(product.getName());
         response.setCategoryName(product.getCategory() == null ? null : product.getCategory().getName());
         response.setUnit(product.getUnit());
+        var topPackaging = productPackagingService.getTopPackaging(product);
+        response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
+        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
         return response;
     }
 

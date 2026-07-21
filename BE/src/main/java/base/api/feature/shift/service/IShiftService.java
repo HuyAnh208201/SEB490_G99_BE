@@ -1,13 +1,20 @@
 package base.api.feature.shift.service;
 
 import base.api.feature.shift.dto.request.AssignEmployeesRequest;
+import base.api.feature.shift.dto.request.AssignSlotRequest;
 import base.api.feature.shift.dto.request.CloseShiftRequest;
 import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
 import base.api.feature.shift.dto.request.ReviewShiftRequest;
+import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
+import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.AvailableEmployeeResponse;
+import base.api.feature.shift.dto.response.CopyWeekResponse;
+import base.api.feature.shift.dto.response.PublishWeekResponse;
+import base.api.feature.shift.dto.response.SetupAndPublishWeekResponse;
 import base.api.feature.shift.dto.response.ShiftResponse;
+import base.api.feature.shift.dto.response.WeekSetupResponse;
 import base.api.feature.shift.dto.response.WeeklyScheduleResponse;
 import base.api.shared.enums.UserRole;
 
@@ -34,6 +41,20 @@ public interface IShiftService {
     ShiftResponse replaceEmployee(Long shiftId, Long employeeId, ReplaceAssignedEmployeeRequest request);
 
     ShiftResponse publish(Long id);
+
+    /**
+     * Upsert a DRAFT shift for the given time window and sync cashier / inventory-staff
+     * assignments. Empty both lists clears (deletes) an existing draft slot.
+     */
+    ShiftResponse assignToSlot(AssignSlotRequest request);
+
+    PublishWeekResponse publishWeek(WeekScheduleRequest request);
+
+    CopyWeekResponse copyPreviousWeek(WeekScheduleRequest request);
+
+    WeekSetupResponse getWeekSetup(Long branchId, LocalDate weekStart);
+
+    SetupAndPublishWeekResponse setupAndPublishWeek(SetupAndPublishWeekRequest request);
 
     WeeklyScheduleResponse getWeeklySchedule(Long branchId, LocalDate weekStart);
 

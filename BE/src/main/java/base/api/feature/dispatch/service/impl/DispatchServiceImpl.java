@@ -8,13 +8,13 @@ import base.api.feature.dispatch.dto.response.DispatchOrderResponse;
 import base.api.feature.dispatch.mapper.DispatchMapper;
 import base.api.feature.dispatch.repository.DispatchOrderRepository;
 import base.api.feature.dispatch.repository.DispatchOrderRequestRepository;
+import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.product.repository.IProductRepository;
-import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.feature.dispatch.service.IDispatchService;
-import base.api.shared.entity.BranchInventoryModel;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.DispatchOrderModel;
 import base.api.shared.entity.DispatchOrderRequestModel;
@@ -60,9 +60,6 @@ public class DispatchServiceImpl implements IDispatchService {
     private WarehouseInventoryRepository warehouseInventoryRepository;
 
     @Autowired
-    private BranchInventoryRepository branchInventoryRepository;
-
-    @Autowired
     private IBranchRepository branchRepository;
 
     @Autowired
@@ -74,9 +71,16 @@ public class DispatchServiceImpl implements IDispatchService {
     @Autowired
     private CurrentUserProvider currentUserProvider;
 
+    @Autowired
+    private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
+
+    @Autowired
+    private ProductPackagingService productPackagingService;
+
     @Override
     public List<DispatchApprovedRequestResponse> getApprovedRequests() {
-        List<PurchaseRequestModel> requests = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED);
+        List<PurchaseRequestModel> requests = warehouseStockAllocationHelper.filterDispatchableApproved(
+                purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED));
         if (requests.isEmpty()) {
             return List.of();
         }
@@ -122,20 +126,25 @@ public class DispatchServiceImpl implements IDispatchService {
             throw new NotFoundException("One or more requests not found.");
         }
         for (PurchaseRequestModel pr : requests) {
-            if (pr.getStatus() == null || !pr.getStatus().isDispatchable()) {
-                throw new BadRequestException("Only approved requests can be dispatched.");
+            if (pr.getStatus() != PurchaseRequestStatus.APPROVED) {
+                throw new BadRequestException(
+                        "Only approved requests with sufficient warehouse stock can be dispatched. "
+                                + "Requests awaiting stock must wait for supplier replenishment.");
             }
         }
 
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
+        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
 
-        // Tổng SL cần xuất theo từng sản phẩm.
+        // Tổng SL cần xuất theo từng sản phẩm, quy đổi từ đơn vị TOP (thùng/kiện) sang đơn vị BASE
+        // (đơn vị tồn kho tổng đang lưu trữ) qua ProductPackagingService.
         Map<Integer, Integer> neededByProduct = new HashMap<>();
         for (List<PurchaseRequestDetailModel> details : detailsByRequest.values()) {
             for (PurchaseRequestDetailModel detail : details) {
-                int qty = dispatchQuantity(detail);
-                if (qty > 0 && detail.getProductId() != null) {
-                    neededByProduct.merge(detail.getProductId(), qty, Integer::sum);
+                int topUnitsQty = dispatchQuantity(detail);
+                if (topUnitsQty > 0 && detail.getProductId() != null) {
+                    int baseUnitsQty = productPackagingService.toBaseQty(topUnitsQty, productsById.get(detail.getProductId()));
+                    neededByProduct.merge(detail.getProductId(), baseUnitsQty, Integer::sum);
                 }
             }
         }
@@ -213,10 +222,17 @@ public class DispatchServiceImpl implements IDispatchService {
         if (target == null) {
             throw new BadRequestException("Status is required.");
         }
+        if (target.isBranchReceiptOnly()) {
+            throw new BadRequestException(
+                    "Delivered status is set automatically when branch inventory staff confirms receipt.");
+        }
+        if (!target.isWarehouseSelectable()) {
+            throw new BadRequestException("Invalid dispatch status for warehouse update.");
+        }
 
         DispatchStatus current = order.getStatus() == null ? DispatchStatus.PREPARING : order.getStatus();
-        if (target.ordinal() < current.ordinal()) {
-            throw new BadRequestException("Cannot move dispatch status backwards.");
+        if (current == DispatchStatus.RECEIVED) {
+            throw new BadRequestException("Completed dispatch orders cannot be changed.");
         }
         if (target == current) {
             return buildDetail(order);
@@ -225,25 +241,27 @@ public class DispatchServiceImpl implements IDispatchService {
         List<Long> requestIds = dispatchOrderRequestRepository.findByDispatchOrderId(order.getId()).stream()
                 .map(DispatchOrderRequestModel::getPurchaseRequestId)
                 .toList();
-        List<PurchaseRequestModel> requests = purchaseRequestRepository.findAllById(requestIds);
+        List<PurchaseRequestModel> purchaseRequests = purchaseRequestRepository.findAllById(requestIds);
 
-        if (target == DispatchStatus.DELIVERING) {
-            requests.forEach(pr -> pr.setStatus(PurchaseRequestStatus.IN_TRANSIT));
-            purchaseRequestRepository.saveAll(requests);
-        } else if (target == DispatchStatus.RECEIVED) {
-            Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
-            for (PurchaseRequestModel pr : requests) {
-                for (PurchaseRequestDetailModel detail : detailsByRequest.getOrDefault(pr.getId(), List.of())) {
-                    increaseBranchStock(pr.getBranchId(), detail.getProductId(), dispatchQuantity(detail));
-                }
-                pr.setStatus(PurchaseRequestStatus.RECEIVED);
-            }
-            purchaseRequestRepository.saveAll(requests);
-            order.setDeliveredAt(LocalDateTime.now());
-        }
+        syncPurchaseRequestStatus(purchaseRequests, target);
 
         order.setStatus(target);
         return buildDetail(dispatchOrderRepository.save(order));
+    }
+
+    private void syncPurchaseRequestStatus(List<PurchaseRequestModel> purchaseRequests, DispatchStatus dispatchStatus) {
+        PurchaseRequestStatus prStatus = switch (dispatchStatus) {
+            case PREPARING, REDELIVERY -> PurchaseRequestStatus.DISPATCHING;
+            case DELIVERING -> PurchaseRequestStatus.IN_TRANSIT;
+            case RECEIVED -> PurchaseRequestStatus.RECEIVED;
+        };
+        for (PurchaseRequestModel pr : purchaseRequests) {
+            if (pr.getStatus() == PurchaseRequestStatus.RECEIVED) {
+                continue;
+            }
+            pr.setStatus(prStatus);
+        }
+        purchaseRequestRepository.saveAll(purchaseRequests);
     }
 
     // ----------------------------------------------------------------------------------
@@ -293,6 +311,7 @@ public class DispatchServiceImpl implements IDispatchService {
                 item.setProductName(product == null ? null : product.getName());
                 item.setUnit(product == null ? null : product.getUnit());
                 item.setQuantity(dispatchQuantity(detail));
+                item.setTopPackagingLabel(product == null ? null : productPackagingService.topLabel(product));
                 items.add(item);
             }
             line.setItems(items);
@@ -375,23 +394,6 @@ public class DispatchServiceImpl implements IDispatchService {
             return safe(detail.getApprovedQuantity());
         }
         return safe(detail.getRequestedQty());
-    }
-
-    private void increaseBranchStock(Long branchId, Integer productId, int quantity) {
-        if (branchId == null || productId == null || quantity <= 0) {
-            return;
-        }
-        BranchInventoryModel inventory = branchInventoryRepository
-                .findByBranchIdAndProductId(branchId, productId)
-                .orElseGet(() -> {
-                    BranchInventoryModel created = new BranchInventoryModel();
-                    created.setBranchId(branchId);
-                    created.setProductId(productId);
-                    created.setCurrentStock(0);
-                    return created;
-                });
-        inventory.setCurrentStock(safe(inventory.getCurrentStock()) + quantity);
-        branchInventoryRepository.save(inventory);
     }
 
     private int safe(Integer value) {

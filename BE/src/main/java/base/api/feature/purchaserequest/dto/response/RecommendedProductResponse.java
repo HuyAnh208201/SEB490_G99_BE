@@ -13,5 +13,10 @@ public class RecommendedProductResponse {
     private String unit;
     private Integer currentStock;
     private Integer reorderPoint;
+    /** Suggested quantity expressed in TOP packaging units (what BM enters on the request). */
     private Integer suggestedQty;
+    /** English label of the TOP packaging level, e.g. "Case of 24". */
+    private String topPackagingLabel;
+    /** How many base units one TOP packaging unit contains. */
+    private Integer topPackagingConversionQty;
 }
