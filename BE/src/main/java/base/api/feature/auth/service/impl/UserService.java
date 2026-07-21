@@ -692,7 +692,15 @@ public class UserService implements IUserService {
         return savedUser;
     }
 
-
+    // TODO: [Giang] deactivateUser — cần bổ sung findManagedTargetUser() và clearManagedBranchIfNeeded() để compile
+    // @Override
+    // @Transactional
+    // public UserModel deactivateUser(Long targetUserId, UserModel actor) {
+    //     UserModel target = findManagedTargetUser(targetUserId, actor);
+    //     target.setActive(false);
+    //     clearManagedBranchIfNeeded(target);
+    //     return userRepository.save(target);
+    // }
 
     private Long resolveTargetBranchId(UserRole targetRole, Long requestedBranchId, UserModel creator) {
         if (targetRole == null) {
