@@ -16,6 +16,10 @@ public class ProductMapper {
         response.setDescription(product.getDescription());
         response.setImageUrl(product.getImageUrl());
         response.setUnit(product.getUnit());
+        response.setImportUnit(product.getImportUnit());
+        response.setUnitsPerImportUnit(product.getUnitsPerImportUnit());
+        response.setScope(product.getScope());
+        response.setBranchId(product.getBranchId());
         response.setReferenceImportPrice(product.getReferenceImportPrice());
         response.setDefaultSalePrice(product.getDefaultSalePrice());
         response.setStatus(product.getStatus());
@@ -38,6 +42,10 @@ public class ProductMapper {
         response.setName(product.getName());
         response.setImageUrl(product.getImageUrl());
         response.setUnit(product.getUnit());
+        response.setImportUnit(product.getImportUnit());
+        response.setUnitsPerImportUnit(product.getUnitsPerImportUnit());
+        response.setScope(product.getScope());
+        response.setBranchId(product.getBranchId());
         response.setReferenceImportPrice(product.getReferenceImportPrice());
         response.setDefaultSalePrice(product.getDefaultSalePrice());
         response.setStatus(product.getStatus());

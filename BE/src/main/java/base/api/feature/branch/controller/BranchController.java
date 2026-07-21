@@ -51,7 +51,7 @@ public class BranchController extends BaseAPIController {
     }
 
     @Operation(summary = "Get branch list")
-    @PreAuthorize("@permissionChecker.has('BRANCH_LIST_ADMIN')")
+    @PreAuthorize("@permissionChecker.hasAny('BRANCH_LIST_ADMIN', 'BRANCH_DASHBOARD')")
     @GetMapping
     public ResponseEntity<TFUResponse<List<BranchResponse>>> getAll() {
         return success(branchService.getAllBranches());

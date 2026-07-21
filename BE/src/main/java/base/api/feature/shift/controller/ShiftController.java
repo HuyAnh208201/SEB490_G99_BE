@@ -1,12 +1,19 @@
 package base.api.feature.shift.controller;
 
 import base.api.feature.shift.dto.request.AssignEmployeesRequest;
+import base.api.feature.shift.dto.request.AssignSlotRequest;
 import base.api.feature.shift.dto.request.CloseShiftRequest;
 import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
 import base.api.feature.shift.dto.request.ReviewShiftRequest;
+import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
+import base.api.feature.shift.dto.request.WeekScheduleRequest;
+import base.api.feature.shift.dto.response.CopyWeekResponse;
+import base.api.feature.shift.dto.response.PublishWeekResponse;
+import base.api.feature.shift.dto.response.SetupAndPublishWeekResponse;
 import base.api.feature.shift.dto.response.ShiftResponse;
+import base.api.feature.shift.dto.response.WeekSetupResponse;
 import base.api.feature.shift.dto.response.WeeklyScheduleResponse;
 import base.api.feature.shift.service.IShiftService;
 import base.api.shared.base.BaseAPIController;
@@ -87,6 +94,51 @@ public class ShiftController extends BaseAPIController {
     @PutMapping("/{id}/publish")
     public ResponseEntity<TFUResponse<ShiftResponse>> publish(@PathVariable Long id) {
         return success(shiftService.publish(id), "Shift published successfully.");
+    }
+
+    @Operation(summary = "Assign staff to a schedule slot (creates DRAFT only when saving)")
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @PostMapping("/slot/assign")
+    public ResponseEntity<TFUResponse<ShiftResponse>> assignToSlot(
+            @Valid @RequestBody AssignSlotRequest request) {
+        ShiftResponse data = shiftService.assignToSlot(request);
+        String message = data == null ? "Slot cleared." : "Slot assignments saved.";
+        return success(data, message);
+    }
+
+    @Operation(summary = "Publish all staffing-ready DRAFT shifts in a week")
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @PutMapping("/week/publish")
+    public ResponseEntity<TFUResponse<PublishWeekResponse>> publishWeek(
+            @Valid @RequestBody WeekScheduleRequest request) {
+        PublishWeekResponse data = shiftService.publishWeek(request);
+        return success(data, "Week publish completed.");
+    }
+
+    @Operation(summary = "Copy previous week assignments into empty slots of the target week")
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @PostMapping("/week/copy")
+    public ResponseEntity<TFUResponse<CopyWeekResponse>> copyPreviousWeek(
+            @Valid @RequestBody WeekScheduleRequest request) {
+        CopyWeekResponse data = shiftService.copyPreviousWeek(request);
+        return success(data, "Previous week copy completed.");
+    }
+
+    @Operation(summary = "Load week setup grid with staff candidates")
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @GetMapping("/week/setup")
+    public ResponseEntity<TFUResponse<WeekSetupResponse>> getWeekSetup(
+            @RequestParam Long branchId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStart) {
+        return success(shiftService.getWeekSetup(branchId, weekStart));
+    }
+
+    @Operation(summary = "Assign every unpublished slot for a week and publish atomically")
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @PostMapping("/week/setup-and-publish")
+    public ResponseEntity<TFUResponse<SetupAndPublishWeekResponse>> setupAndPublishWeek(
+            @Valid @RequestBody SetupAndPublishWeekRequest request) {
+        return success(shiftService.setupAndPublishWeek(request), "Week setup published successfully.");
     }
 
     @Operation(summary = "Assign employees to shift")

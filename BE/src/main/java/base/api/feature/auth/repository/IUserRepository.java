@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -80,6 +81,27 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     List<UserModel> findByBranchIdAndRoleName(
             @Param("branchId") Long branchId,
             @Param("roleName") String roleName
+    );
+
+    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name IN :roleNames")
+    List<UserModel> findByBranchIdAndRoleNames(
+            @Param("branchId") Long branchId,
+            @Param("roleNames") Collection<String> roleNames
+    );
+
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE u.roleEntity.name = :roleName AND LOWER(u.status) = 'active'
+            """)
+    long countActiveByRoleName(@Param("roleName") String roleName);
+
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE u.roleEntity.name = :roleName AND LOWER(u.status) = 'active' AND u.id <> :excludeUserId
+            """)
+    long countActiveByRoleNameExcluding(
+            @Param("roleName") String roleName,
+            @Param("excludeUserId") Long excludeUserId
     );
 
     /**

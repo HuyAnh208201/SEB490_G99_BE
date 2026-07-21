@@ -6,20 +6,25 @@ import base.api.feature.auth.dto.request.CreateUserByAdminDto;
 import base.api.feature.auth.dto.request.RegisterDto;
 import base.api.feature.auth.dto.request.UpdateProfileDto;
 import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
+import base.api.feature.auth.repository.CriticalUserActionTokenRepository;
 import base.api.feature.auth.repository.IRoleRepository;
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.CriticalUserActionTokenModel;
 import base.api.shared.entity.EmailVerificationTokenModel;
 import base.api.shared.entity.PasswordResetTokenModel;
 import base.api.shared.entity.RoleModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserGender;
+import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.enums.UserRole;
 import base.api.feature.auth.repository.IEmailVerificationTokenRepository;
 import base.api.feature.auth.repository.IPasswordResetTokenRepository;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.config.EmailService;
+import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
@@ -31,6 +36,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -57,6 +63,12 @@ public class UserService implements IUserService {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private CriticalUserActionTokenRepository criticalUserActionTokenRepository;
+
+    @Autowired
+    private CurrentUserProvider currentUserProvider;
 
     @Value("${url.api-url:http://localhost:1328}")
     private String apiBaseUrl;
@@ -199,7 +211,32 @@ public class UserService implements IUserService {
 
     @Override
     public List<UserModel> getAllUsers() {
-        return userRepository.findAll();
+        UserModel actor;
+        UserRole actorRole;
+        try {
+            actor = currentUserProvider.getCurrentUserOrThrow();
+            actorRole = actor.getRole() == null ? null : actor.getRole().toWebRole();
+        } catch (Exception ex) {
+            return userRepository.findAll();
+        }
+
+        List<UserModel> all = userRepository.findAll();
+        if (actorRole != UserRole.BRANCH_MANAGER) {
+            return all;
+        }
+
+        Long branchId = actor.getBranchId();
+        return all.stream()
+                .filter(u -> isVisibleToBranchManager(u, branchId))
+                .toList();
+    }
+
+    private boolean isVisibleToBranchManager(UserModel user, Long branchId) {
+        UserRole role = user.getRole() == null ? null : user.getRole().toWebRole();
+        if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
+            return true;
+        }
+        return branchId != null && branchId.equals(user.getBranchId());
     }
 
     @Override
@@ -579,6 +616,7 @@ public class UserService implements IUserService {
         if (persistedRole == UserRole.BRANCH_MANAGER && targetBranch != null && targetBranch.getManagerId() != null) {
             throw new ConflictException("Chi nhánh đã có quản lý");
         }
+        validateCriticalRoleSlot(persistedRole, null);
 
         String tempPassword = generateTempPassword(12);
 
@@ -729,9 +767,20 @@ public class UserService implements IUserService {
     @Override
     @Transactional
     public UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor) {
+        return updateUserStatus(targetUserId, active, actor, null, null);
+    }
+
+    @Override
+    @Transactional
+    public UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor, String email, String verificationCode) {
         assertCanManageTargetUser(actor, targetUserId);
         UserModel target = userRepository.findById(targetUserId)
                 .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+
+        if (!active && isCriticalRole(target.getRole())) {
+            verifyCriticalUserAction(targetUserId, actor, "DEACTIVATE", email, verificationCode);
+        }
+
         target.setActive(active);
         return userRepository.save(target);
     }
@@ -739,6 +788,12 @@ public class UserService implements IUserService {
     @Override
     @Transactional
     public void deleteUser(Long targetUserId, UserModel actor) {
+        deleteUser(targetUserId, actor, null, null);
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(Long targetUserId, UserModel actor, String email, String verificationCode) {
         assertCanManageTargetUser(actor, targetUserId);
         if (actor.getId().equals(targetUserId)) {
             throw new BadRequestException("Không thể xóa tài khoản của chính mình.");
@@ -747,7 +802,9 @@ public class UserService implements IUserService {
                 .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
 
         UserRole targetRole = target.getRole();
-        if (targetRole == UserRole.ADMIN) {
+        if (isCriticalRole(targetRole)) {
+            verifyCriticalUserAction(targetUserId, actor, "DELETE", email, verificationCode);
+        } else if (targetRole == UserRole.ADMIN) {
             throw new ForbiddenException("Không thể xóa tài khoản Admin.");
         }
 
@@ -761,6 +818,119 @@ public class UserService implements IUserService {
         }
 
         userRepository.delete(target);
+    }
+
+    @Override
+    @Transactional
+    public void sendCriticalUserActionCode(Long targetUserId, String email, String actionType, UserModel actor) {
+        assertCanManageTargetUser(actor, targetUserId);
+        UserModel target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+        if (!isCriticalRole(target.getRole())) {
+            throw new BadRequestException("This account does not require verification.");
+        }
+
+        String normalizedEmail = normalizeEmail(email);
+        if (!normalizeEmail(actor.getEmail()).equalsIgnoreCase(normalizedEmail)) {
+            throw new BadRequestException("Email does not match your account.");
+        }
+
+        String code = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+        CriticalUserActionTokenModel token = new CriticalUserActionTokenModel();
+        token.setTargetUserId(targetUserId);
+        token.setActorUserId(actor.getId());
+        token.setActionType(actionType.toUpperCase());
+        token.setVerificationCode(code);
+        token.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+        criticalUserActionTokenRepository.save(token);
+
+        String fullName = buildDisplayName(actor);
+        String subject = "ChainStore — Critical account action verification";
+        String body = String.format(
+                "<html><body style='font-family: Arial, sans-serif;'>"
+                        + "<h2>Verify critical account action</h2>"
+                        + "<p>Hello %s,</p>"
+                        + "<p>You requested to <strong>%s</strong> the account <strong>%s</strong>.</p>"
+                        + "<p style='font-size:28px;font-weight:bold;letter-spacing:6px;color:#0058be;'>%s</p>"
+                        + "<p>This code expires in 15 minutes.</p>"
+                        + "</body></html>",
+                fullName,
+                actionType.toLowerCase(),
+                buildDisplayName(target),
+                code);
+        try {
+            emailService.sendHtmlEmail(normalizedEmail, subject, body);
+        } catch (Exception ex) {
+            throw new BadRequestException("Unable to send verification email. Please try again.");
+        }
+    }
+
+    @Override
+    public CriticalRoleSlotsResponse getCriticalRoleSlots() {
+        CriticalRoleSlotsResponse response = new CriticalRoleSlotsResponse();
+        response.setAdminAvailable(userRepository.countActiveByRoleName(UserRole.ADMIN.name()) == 0);
+        response.setDirectorAvailable(userRepository.countActiveByRoleName(UserRole.DIRECTOR.name()) == 0);
+        response.setWarehouseManagerAvailable(
+                userRepository.countActiveByRoleName(UserRole.WAREHOUSE_MANAGER.name()) == 0);
+        return response;
+    }
+
+    private void validateCriticalRoleSlot(UserRole role, Long excludeUserId) {
+        if (role == null) {
+            return;
+        }
+        UserRole web = role.toWebRole();
+        long count = excludeUserId == null
+                ? userRepository.countActiveByRoleName(web.name())
+                : userRepository.countActiveByRoleNameExcluding(web.name(), excludeUserId);
+        if ((web == UserRole.ADMIN || web == UserRole.DIRECTOR || web == UserRole.WAREHOUSE_MANAGER) && count > 0) {
+            throw new ConflictException("Only one active " + web.name() + " account is allowed in the system.");
+        }
+    }
+
+    private boolean isCriticalRole(UserRole role) {
+        if (role == null) {
+            return false;
+        }
+        UserRole web = role.toWebRole();
+        return web == UserRole.ADMIN || web == UserRole.DIRECTOR;
+    }
+
+    private void verifyCriticalUserAction(
+            Long targetUserId,
+            UserModel actor,
+            String actionType,
+            String email,
+            String verificationCode) {
+        if (email == null || email.isBlank()) {
+            throw new BadRequestException("Email confirmation is required for this action.");
+        }
+        if (verificationCode == null || verificationCode.isBlank()) {
+            throw new BadRequestException("Verification code is required for this action.");
+        }
+        if (!normalizeEmail(email).equalsIgnoreCase(normalizeEmail(actor.getEmail()))) {
+            throw new BadRequestException("Email does not match your account.");
+        }
+
+        CriticalUserActionTokenModel token = criticalUserActionTokenRepository
+                .findTopByTargetUserIdAndActorUserIdAndActionTypeAndUsedFalseOrderByCreatedAtDesc(
+                        targetUserId, actor.getId(), actionType.toUpperCase())
+                .orElseThrow(() -> new BadRequestException("No verification code found. Please send a new code."));
+        if (token.isExpired()) {
+            throw new BadRequestException("Verification code has expired. Please send a new code.");
+        }
+        if (!token.getVerificationCode().equals(verificationCode.trim())) {
+            throw new BadRequestException("Invalid verification code.");
+        }
+        token.setUsed(true);
+        criticalUserActionTokenRepository.save(token);
+    }
+
+    private String buildDisplayName(UserModel user) {
+        String fullName = (user.getFirstName() != null ? user.getFirstName() : "")
+                + (user.getLastName() != null ? " " + user.getLastName() : "");
+        fullName = fullName.trim();
+        return fullName.isEmpty() ? user.getUserName() : fullName;
     }
 
     private void assertCanManageTargetUser(UserModel actor, Long targetUserId) {

@@ -2,6 +2,7 @@ package base.api.feature.shift.repository;
 
 import base.api.shared.entity.ShiftAssignmentModel;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -35,6 +36,10 @@ public interface ShiftAssignmentRepository extends JpaRepository<ShiftAssignment
     boolean existsByShiftIdAndStaffId(Long shiftId, Long staffId);
 
     void deleteByShiftIdAndStaffId(Long shiftId, Long staffId);
+
+    @Modifying
+    @Query("DELETE FROM ShiftAssignmentModel a WHERE a.shift.id = :shiftId")
+    int deleteAllByShiftId(@Param("shiftId") Long shiftId);
 
     @Query("""
             SELECT a FROM ShiftAssignmentModel a

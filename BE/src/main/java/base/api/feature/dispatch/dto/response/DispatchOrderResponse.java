@@ -41,6 +41,9 @@ public class DispatchOrderResponse {
         private String productCode;
         private String productName;
         private String unit;
+        /** Quantity expressed in TOP packaging units (see topPackagingLabel), not base stock units. */
         private Integer quantity;
+        /** English label of the TOP packaging level, e.g. "Case of 24". */
+        private String topPackagingLabel;
     }
 }

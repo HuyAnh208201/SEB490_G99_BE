@@ -49,6 +49,13 @@ public class ProductController extends BaseAPIController {
         return success(productService.getAll());
     }
 
+    @Operation(summary = "Generate unique EAN-13 barcode (893 prefix)")
+    @PreAuthorize("@permissionChecker.has('PRODUCT_MANAGEMENT')")
+    @PostMapping("/generate-barcode")
+    public ResponseEntity<TFUResponse<String>> generateBarcode() {
+        return success(productService.generateBarcode(), "Barcode generated.");
+    }
+
     @Operation(summary = "Get product detail")
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<ProductResponse>> getById(@PathVariable Integer id) {
