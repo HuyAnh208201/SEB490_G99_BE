@@ -7,14 +7,18 @@ import base.api.feature.posorder.repository.OrderRefundRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.service.RefundService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
+import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.shared.entity.OrderItemModel;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.OrderRefundModel;
+import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +29,8 @@ import java.util.Objects;
 
 @Service
 public class RefundServiceImpl implements RefundService {
+
+    private static final Logger log = LoggerFactory.getLogger(RefundServiceImpl.class);
 
     /** Cửa sổ cho phép xin hoàn/trả tính từ lúc tạo đơn — chặn ở server, không tin client. */
     private static final long REFUND_WINDOW_MINUTES = 5;
@@ -47,6 +53,9 @@ public class RefundServiceImpl implements RefundService {
 
     @Autowired
     private IUserRepository userRepository;
+
+    @Autowired
+    private PointTransactionRepository pointTransactionRepository;
 
     @Autowired
     private CurrentUserProvider currentUserProvider;
@@ -141,6 +150,9 @@ public class RefundServiceImpl implements RefundService {
                 // Hoàn lại điểm khách đã dùng để đổi trong đơn.
                 userRepository.refundPointsAtomic(order.getCustomerId(), redeemed);
             }
+            // Ghi lịch sử đảo điểm cho báo cáo — best-effort, KHÔNG làm fail refund.
+            // Điểm tặng bị thu hồi ghi âm; điểm đổi hoàn lại ghi dương.
+            recordReversalHistory(order.getCustomerId(), order.getId(), earned, redeemed);
         }
 
         // 3. Đơn chuyển REFUNDED để loại khỏi doanh thu.
@@ -178,6 +190,33 @@ public class RefundServiceImpl implements RefundService {
     // =========================================================================
     // Private helpers
     // =========================================================================
+
+    /**
+     * Ghi lịch sử đảo điểm khi duyệt hoàn đơn. Best-effort: nuốt mọi lỗi để không làm
+     * fail refund (điểm thực đã được thu hồi/hoàn ở trên; đây chỉ là log cho báo cáo).
+     */
+    private void recordReversalHistory(Long customerId, Long orderId, long earned, long redeemed) {
+        try {
+            if (earned > 0) {
+                savePointTransaction(customerId, orderId, -earned);
+            }
+            if (redeemed > 0) {
+                savePointTransaction(customerId, orderId, redeemed);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to record point reversal history for order {}: {}", orderId, ex.getMessage());
+        }
+    }
+
+    private void savePointTransaction(Long customerId, Long orderId, long points) {
+        PointTransactionModel transaction = new PointTransactionModel();
+        transaction.setCustomerId(customerId);
+        transaction.setOrderId(orderId);
+        transaction.setPoints(points);
+        transaction.setType("REFUND_REVERSAL");
+        transaction.setCreatedAt(LocalDateTime.now());
+        pointTransactionRepository.save(transaction);
+    }
 
     private OrderRefundModel requirePendingInBranch(Long refundId, UserModel manager) {
         OrderRefundModel refund = orderRefundRepository.findById(refundId)

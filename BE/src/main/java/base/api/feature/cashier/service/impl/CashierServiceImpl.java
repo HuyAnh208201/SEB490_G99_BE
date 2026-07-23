@@ -8,6 +8,8 @@ import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
 import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
 import base.api.feature.cashier.service.ICashierService;
+import base.api.feature.report.repository.PointTransactionRepository;
+import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -40,6 +43,9 @@ public class CashierServiceImpl implements ICashierService {
 
     @Autowired
     private IUserService userService;
+
+    @Autowired
+    private PointTransactionRepository pointTransactionRepository;
 
     // -------------------------------------------------------------------------
     // Public methods
@@ -80,6 +86,14 @@ public class CashierServiceImpl implements ICashierService {
         long requested = request.getPointsToRedeem() == null ? 0L : request.getPointsToRedeem();
 
         PointSettlement settlement = settlePoints(customer, request.getInvoiceAmount(), requested);
+
+        // Ghi lịch sử tích điểm cho báo cáo — tích điểm rời không qua đơn nên order_id null.
+        if (settlement.pointsEarned() > 0) {
+            savePointTransaction(customer.getId(), settlement.pointsEarned(), "EARN");
+        }
+        if (settlement.pointsRedeemed() > 0) {
+            savePointTransaction(customer.getId(), -settlement.pointsRedeemed(), "REDEEM");
+        }
 
         return toAddPointsResponse(
                 customer,
@@ -174,6 +188,17 @@ public class CashierServiceImpl implements ICashierService {
      */
     private void addPointsToCustomer(Long customerId, long pointsToAdd) {
         userRepository.refundPointsAtomic(customerId, pointsToAdd);
+    }
+
+    /** Ghi một dòng lịch sử tích/đổi điểm (order_id null vì tích điểm rời không qua đơn). */
+    private void savePointTransaction(Long customerId, long points, String type) {
+        PointTransactionModel transaction = new PointTransactionModel();
+        transaction.setCustomerId(customerId);
+        transaction.setOrderId(null);
+        transaction.setPoints(points);
+        transaction.setType(type);
+        transaction.setCreatedAt(LocalDateTime.now());
+        pointTransactionRepository.save(transaction);
     }
 
     /** Chuyển UserModel → CustomerLookupResponse. */

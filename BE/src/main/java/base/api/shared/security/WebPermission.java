@@ -49,7 +49,9 @@ public enum WebPermission {
     POS_CHECKOUT("Cashier: Sell at the counter, view order history and discount codes"),
 
     REFUND_REQUEST("Cashier: Request order refund"),
-    REFUND_APPROVAL("Branch Manager: Approve order refund");
+    REFUND_APPROVAL("Branch Manager: Approve order refund"),
+
+    REPORTS_VIEW("View business reports");
 
     private final String label;
 }

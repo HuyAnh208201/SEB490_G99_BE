@@ -6,14 +6,17 @@ import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRefundRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
+import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.shared.entity.OrderItemModel;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.OrderRefundModel;
+import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -33,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,6 +53,7 @@ class RefundServiceTest {
     @Mock private OrderItemRepository orderItemRepository;
     @Mock private BranchInventoryRepository branchInventoryRepository;
     @Mock private IUserRepository userRepository;
+    @Mock private PointTransactionRepository pointTransactionRepository;
     @Mock private base.api.shared.security.CurrentUserProvider currentUserProvider;
 
     @InjectMocks
@@ -120,6 +125,12 @@ class RefundServiceTest {
         // Thu hồi điểm đã tặng + hoàn điểm khách đã dùng.
         verify(userRepository).deductPointsAtomic(200L, 5L);
         verify(userRepository).refundPointsAtomic(200L, 2L);
+        // Ghi lịch sử đảo điểm: điểm tặng thu hồi ghi âm (-5), điểm đổi hoàn lại ghi dương (+2).
+        ArgumentCaptor<PointTransactionModel> reversals = ArgumentCaptor.forClass(PointTransactionModel.class);
+        verify(pointTransactionRepository, times(2)).save(reversals.capture());
+        assertEquals(-5L, reversals.getAllValues().get(0).getPoints());
+        assertEquals(2L, reversals.getAllValues().get(1).getPoints());
+        assertEquals("REFUND_REVERSAL", reversals.getAllValues().get(0).getType());
         // Đơn loại khỏi doanh thu, yêu cầu chuyển APPROVED.
         assertEquals("REFUNDED", order.getStatus());
         assertEquals("APPROVED", refund.getStatus());
