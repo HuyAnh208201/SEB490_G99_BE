@@ -162,7 +162,7 @@ public class UserService implements IUserService {
             String subject = "Chúc mừng đăng ký và xác thực tài khoản";
             String fullName = (dto.getFirstName() != null ? dto.getFirstName() : "") +
                     (dto.getLastName() != null ? " " + dto.getLastName() : "");
-            if(fullName.trim().isEmpty()) {
+            if (fullName.trim().isEmpty()) {
                 fullName = dto.getUserName();
             }
 
@@ -271,7 +271,7 @@ public class UserService implements IUserService {
             String subject = "Đặt lại mật khẩu";
             String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
                     (user.getLastName() != null ? " " + user.getLastName() : "");
-            if(fullName.trim().isEmpty()) {
+            if (fullName.trim().isEmpty()) {
                 fullName = user.getUserName();
             }
 
@@ -410,7 +410,7 @@ public class UserService implements IUserService {
             String subject = "Chào mừng bạn!";
             String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
                     (user.getLastName() != null ? " " + user.getLastName() : "");
-            if(fullName.trim().isEmpty()) {
+            if (fullName.trim().isEmpty()) {
                 fullName = user.getUserName();
             }
 

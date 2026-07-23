@@ -18,5 +18,7 @@ public interface IProductService {
 
     List<ProductResponse> getAll();
 
+    ProductResponse scanByBarcode(String barcode);
+
     String generateBarcode();
 }

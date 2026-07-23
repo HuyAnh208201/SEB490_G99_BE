@@ -181,6 +181,28 @@ public class ProductServiceImpl implements IProductService {
                 .toList();
     }
 
+    @Override
+    public ProductResponse scanByBarcode(String barcode) {
+        String normalizedBarcode = normalizeRequiredText(barcode, "Barcode is required.");
+        ProductModel product = productRepository.findByBarcode(normalizedBarcode)
+                .orElseThrow(() -> new NotFoundException("Product not found for this barcode."));
+
+        if (!"active".equalsIgnoreCase(product.getStatus())) {
+            throw new BadRequestException("This product is inactive and cannot be added to the cart.");
+        }
+
+        assertCanViewProduct(product);
+        ProductResponse response = enrichSingle(productMapper.toResponse(product));
+        applyTopPackaging(response, productPackagingService.getTopPackaging(product));
+
+        VisibilityContext visibility = resolveVisibility();
+        if (visibility.branchId() != null && (response.getBranchStock() == null || response.getBranchStock() <= 0)) {
+            throw new BadRequestException("This product is out of stock at your branch.");
+        }
+
+        return response;
+    }
+
     private void applyTopPackaging(ProductResponse response, ProductPackagingModel topPackaging) {
         if (topPackaging == null) {
             return;
@@ -310,7 +332,7 @@ public class ProductServiceImpl implements IProductService {
                 || web == UserRole.DIRECTOR
                 || web == UserRole.WAREHOUSE_MANAGER;
         Long branchId = null;
-        if (web == UserRole.BRANCH_MANAGER || web == UserRole.INVENTORY_STAFF) {
+        if (web == UserRole.BRANCH_MANAGER || web == UserRole.INVENTORY_STAFF || web == UserRole.CASHIER) {
             branchId = actor.getBranchId();
         }
         return new VisibilityContext(supervisor, branchId);
