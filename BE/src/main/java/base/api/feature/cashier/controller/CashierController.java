@@ -4,6 +4,7 @@ import base.api.feature.cashier.dto.request.AddPointsRequest;
 import base.api.feature.cashier.dto.request.CreateCustomerRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
+import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
@@ -47,6 +48,16 @@ public class CashierController extends BaseAPIController {
 
         CustomerLookupResponse customer = cashierService.lookupCustomer(phoneOrEmail);
         return success(customer);
+    }
+
+    @Operation(
+            summary = "Tỉ lệ tích/đổi điểm",
+            description = "FE đọc để hiển thị, không tự đặt. Server luôn tính lại khi chốt đơn."
+    )
+    @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
+    @GetMapping("/loyalty-config")
+    public ResponseEntity<TFUResponse<LoyaltyConfigResponse>> loyaltyConfig() {
+        return success(cashierService.getLoyaltyConfig());
     }
 
     /**
