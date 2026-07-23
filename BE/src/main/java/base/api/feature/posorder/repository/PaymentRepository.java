@@ -2,8 +2,11 @@ package base.api.feature.posorder.repository;
 
 import base.api.shared.entity.PaymentModel;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 
@@ -11,4 +14,26 @@ import java.util.List;
 public interface PaymentRepository extends JpaRepository<PaymentModel, Long> {
 
     List<PaymentModel> findByOrderIdIn(Collection<Long> orderIds);
+
+    /**
+     * Tổng tiền mặt thực thu trong một ca — vế "doanh thu tiền mặt" của công thức
+     * Expected = tiền đầu ca + doanh thu tiền mặt.
+     *
+     * Chỉ tính method CASH: chuyển khoản không nằm trong két nên không được cộng
+     * vào số tiền thu ngân phải đếm.
+     */
+    @Query("""
+            SELECT COALESCE(SUM(p.amount), 0) FROM PaymentModel p
+            WHERE p.method = 'CASH'
+              AND p.status = 'SUCCESS'
+              AND p.orderId IN (SELECT o.id FROM OrderModel o WHERE o.shiftId = :shiftId)
+            """)
+    BigDecimal sumCashTakenInShift(@Param("shiftId") Long shiftId);
+
+    @Query("""
+            SELECT COUNT(p) FROM PaymentModel p
+            WHERE p.status = 'SUCCESS'
+              AND p.orderId IN (SELECT o.id FROM OrderModel o WHERE o.shiftId = :shiftId)
+            """)
+    long countTransactionsInShift(@Param("shiftId") Long shiftId);
 }

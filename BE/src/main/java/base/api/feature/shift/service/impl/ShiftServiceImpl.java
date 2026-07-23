@@ -2,6 +2,7 @@ package base.api.feature.shift.service.impl;
 
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.shift.dto.request.AssignEmployeesRequest;
 import base.api.feature.shift.dto.request.AssignSlotRequest;
 import base.api.feature.shift.dto.request.CloseShiftRequest;
@@ -83,6 +84,9 @@ public class ShiftServiceImpl implements IShiftService {
 
     @Autowired
     private CurrentUserProvider currentUserProvider;
+
+    @Autowired
+    private PaymentRepository paymentRepository;
 
     /** Cash float handed to the first shift of each day when the caller does not supply one. */
     @Value("${shift.default-opening-cash:2000000}")
@@ -1110,6 +1114,10 @@ public class ShiftServiceImpl implements IShiftService {
         validateShiftCanBeClosed(shift);
         validateNonNegativeMoney(request.getActualCash(), "Số tiền thực tế không được âm.");
 
+        // Expected phải tính lại tại thời điểm đóng ca. Giá trị lưu sẵn trên shift là 0
+        // (các luồng xếp lịch tuần khởi tạo bằng 0), lấy nó ra dùng thì chênh lệch luôn
+        // bằng đúng số tiền đếm được.
+        shift.setExpectedCash(expectedCashFor(shift));
         shift.setActualCash(request.getActualCash());
         shift.setDifference(calculateDifference(shift.getExpectedCash(), request.getActualCash()));
         shift.setClosedBy(currentUser.getId());
@@ -1355,6 +1363,16 @@ public class ShiftServiceImpl implements IShiftService {
         if (value != null && value.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException(message);
         }
+    }
+
+    /**
+     * Expected = tiền đầu ca + doanh thu tiền mặt bán trong ca.
+     * Cùng công thức với luồng shift-session, để hai đường đóng ca không ra hai con số.
+     */
+    private BigDecimal expectedCashFor(ShiftModel shift) {
+        BigDecimal opening = shift.getOpeningCash() == null ? BigDecimal.ZERO : shift.getOpeningCash();
+        BigDecimal cashTaken = paymentRepository.sumCashTakenInShift(shift.getId());
+        return opening.add(cashTaken == null ? BigDecimal.ZERO : cashTaken);
     }
 
     private BigDecimal calculateDifference(BigDecimal expectedCash, BigDecimal actualCash) {
