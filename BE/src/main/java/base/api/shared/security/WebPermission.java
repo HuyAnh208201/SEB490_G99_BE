@@ -44,6 +44,7 @@ public enum WebPermission {
     INVENTORY_COUNT("Inventory Count"),
     CASHIER_ADD_POINTS("Cashier: Add loyalty points to customer"),
     CASHIER_CLOSE_SHIFT("Cashier/Staff: Close shift and submit actual cash"),
+    MY_SHIFTS("My Shifts"),
 
     POS_CHECKOUT("Cashier: Sell at the counter, view order history and discount codes");
 

@@ -76,7 +76,8 @@ public final class WebRolePermissions {
                 WebPermission.CREATE_IMPORT_REQUEST,
                 WebPermission.VIEW_BRANCH_INVENTORY,
                 WebPermission.PRODUCT_MANAGEMENT,
-                WebPermission.INVENTORY_COUNT
+                WebPermission.INVENTORY_COUNT,
+                WebPermission.MY_SHIFTS
         ));
 
         map.put(UserRole.WAREHOUSE_MANAGER, EnumSet.of(
@@ -101,6 +102,7 @@ public final class WebRolePermissions {
         map.put(UserRole.CASHIER, EnumSet.of(
                 WebPermission.CASHIER_ADD_POINTS,
                 WebPermission.CASHIER_CLOSE_SHIFT,
+                WebPermission.MY_SHIFTS,
                 WebPermission.POS_CHECKOUT
         ));
 
