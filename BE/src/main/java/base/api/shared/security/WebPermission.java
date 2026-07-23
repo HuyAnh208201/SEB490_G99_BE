@@ -43,7 +43,8 @@ public enum WebPermission {
     RECEIVE_SHIPMENT("Receive Shipment"),
     INVENTORY_COUNT("Inventory Count"),
     CASHIER_ADD_POINTS("Cashier: Add loyalty points to customer"),
-    CASHIER_CLOSE_SHIFT("Cashier/Staff: Close shift and submit actual cash");
+    CASHIER_CLOSE_SHIFT("Cashier/Staff: Close shift and submit actual cash"),
+    MY_SHIFTS("My Shifts");
 
     private final String label;
 }
