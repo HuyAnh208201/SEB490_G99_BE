@@ -112,9 +112,62 @@ public class PosOrderTablesMigration {
                         UNIQUE KEY uq_vouchers_code (code)
                     )
                     """);
+            // Bảng orders/order_items/order_discounts có thể đã tồn tại từ bản thiết kế
+            // gốc mà thiếu các cột bổ sung. CREATE TABLE IF NOT EXISTS ở trên bỏ qua bảng
+            // đã có, nên phải thêm cột lẻ tại đây.
+            addColumnIfMissing("orders", "invoice_code", "VARCHAR(64) NULL");
+            addColumnIfMissing("orders", "points_redeemed", "BIGINT NOT NULL DEFAULT 0");
+            addColumnIfMissing("orders", "points_earned", "BIGINT NOT NULL DEFAULT 0");
+            addColumnIfMissing("order_items", "product_name", "VARCHAR(255) NULL");
+            addColumnIfMissing("order_discounts", "code", "VARCHAR(64) NULL");
+
+            // Bảng orders gốc đặt FK customer_id -> customers(id), nhưng cả hệ thống coi
+            // khách là user role CUSTOMER với điểm trên users.points (CashierServiceImpl,
+            // getOrCreateGuestByPhone). customer_id thực chất trỏ users.id, nên FK sang
+            // customers phải gỡ, nếu không mọi đơn có khách đều vi phạm ràng buộc.
+            dropForeignKeyIfPresent("orders", "customer_id", "customers");
+
             log.info("Ensured POS order tables exist");
         } catch (Exception ex) {
             log.warn("POS order tables migration skipped: {}", ex.getMessage());
+        }
+    }
+
+    private void addColumnIfMissing(String table, String column, String definition) {
+        Integer exists = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*) FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = ?
+                          AND COLUMN_NAME = ?
+                        """,
+                Integer.class,
+                table,
+                column);
+        if (exists == null || exists == 0) {
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+            log.info("Added column {}.{}", table, column);
+        }
+    }
+
+    /** Tên FK do MySQL tự sinh nên tra theo cột/bảng đích thay vì đoán tên. */
+    private void dropForeignKeyIfPresent(String table, String column, String referencedTable) {
+        String constraintName = jdbcTemplate.query(
+                """
+                        SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = ?
+                          AND COLUMN_NAME = ?
+                          AND REFERENCED_TABLE_NAME = ?
+                        LIMIT 1
+                        """,
+                rs -> rs.next() ? rs.getString(1) : null,
+                table,
+                column,
+                referencedTable);
+        if (constraintName != null) {
+            jdbcTemplate.execute("ALTER TABLE " + table + " DROP FOREIGN KEY " + constraintName);
+            log.info("Dropped FK {} on {}.{}", constraintName, table, column);
         }
     }
 }
