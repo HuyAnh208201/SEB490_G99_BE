@@ -71,13 +71,26 @@ public class CashierServiceImpl implements ICashierService {
     public AddPointsResponse addPointsFromInvoice(AddPointsRequest request) {
         UserModel customer = findCustomerByPhoneOrEmail(request.getPhoneOrEmail());
 
-        long pointsToAdd = calculatePoints(request.getInvoiceAmount());
-        validatePointsToAdd(pointsToAdd);
+        long pointsToRedeem = request.getPointsToRedeem() == null ? 0L : request.getPointsToRedeem();
+        if (pointsToRedeem > 0) {
+            // Atomic: 0 row nghĩa là điểm đã bị tiêu ở nơi khác giữa lúc tra cứu và lúc chốt.
+            int updated = userRepository.deductPointsAtomic(customer.getId(), pointsToRedeem);
+            if (updated == 0) {
+                throw new BadRequestException(
+                        "Customer does not have enough points to redeem " + pointsToRedeem + ".");
+            }
+        }
 
-        addPointsToCustomer(customer.getId(), pointsToAdd);
+        // Hoá đơn nhỏ hơn 10.000đ chỉ đơn giản là không được điểm nào — không phải lỗi,
+        // nếu ném exception ở đây thì cả việc trừ điểm phía trên cũng bị rollback.
+        long pointsEarned = calculatePoints(request.getInvoiceAmount());
+        if (pointsEarned > 0) {
+            addPointsToCustomer(customer.getId(), pointsEarned);
+        }
 
-        long newTotalPoints = customer.getPoints() + pointsToAdd;
-        return toAddPointsResponse(customer, pointsToAdd, newTotalPoints, request.getInvoiceAmount());
+        long newTotalPoints = customer.getPoints() - pointsToRedeem + pointsEarned;
+        return toAddPointsResponse(
+                customer, pointsToRedeem, pointsEarned, newTotalPoints, request.getInvoiceAmount());
     }
 
     // -------------------------------------------------------------------------
@@ -122,17 +135,6 @@ public class CashierServiceImpl implements ICashierService {
     }
 
     /**
-     * Đảm bảo hóa đơn đủ lớn để được ít nhất 1 điểm.
-     */
-    private void validatePointsToAdd(long points) {
-        if (points <= 0) {
-            throw new BadRequestException(
-                    "Invoice total is too small. At least " + VND_PER_POINT + " VND is needed to earn 1 point."
-            );
-        }
-    }
-
-    /**
      * Cộng điểm vào tài khoản khách hàng trong DB.
      */
     private void addPointsToCustomer(Long customerId, long pointsToAdd) {
@@ -150,9 +152,10 @@ public class CashierServiceImpl implements ICashierService {
         );
     }
 
-    /** Chuyển kết quả tích điểm → AddPointsResponse. */
+    /** Chuyển kết quả chốt điểm → AddPointsResponse. */
     private AddPointsResponse toAddPointsResponse(
             UserModel customer,
+            long pointsRedeemed,
             long pointsEarned,
             long newTotalPoints,
             BigDecimal invoiceAmount
@@ -160,6 +163,7 @@ public class CashierServiceImpl implements ICashierService {
         return new AddPointsResponse(
                 customer.getFirstName(),
                 customer.getEmail(),
+                pointsRedeemed,
                 pointsEarned,
                 newTotalPoints,
                 invoiceAmount

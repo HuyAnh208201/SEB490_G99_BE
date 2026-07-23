@@ -6,7 +6,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 /**
- * Trả về sau khi tích điểm thành công.
+ * Trả về sau khi chốt điểm cho hoá đơn.
  */
 @Data
 @AllArgsConstructor
@@ -17,6 +17,9 @@ public class AddPointsResponse {
 
     /** Email của khách hàng. */
     private String customerEmail;
+
+    /** Số điểm vừa bị trừ do khách đổi lấy giảm giá. */
+    private long pointsRedeemed;
 
     /** Số điểm vừa được cộng thêm từ hóa đơn này. */
     private long pointsEarned;

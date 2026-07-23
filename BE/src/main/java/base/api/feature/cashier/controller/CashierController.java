@@ -87,14 +87,17 @@ public class CashierController extends BaseAPIController {
     }
 
     /**
-     * Cộng điểm cho khách hàng sau khi thanh toán hóa đơn.
-     * Quy tắc: 10.000 VNĐ = 1 điểm.
+     * Chốt điểm cho hóa đơn sau khi thanh toán: trừ điểm khách đổi và cộng điểm kiếm được.
+     * Quy tắc cộng: 10.000 VNĐ = 1 điểm. Quy tắc đổi do FE quyết định giá trị quy đổi.
      *
      * POST /api/cashier/add-points
      */
     @Operation(
-            summary = "Tích điểm từ hóa đơn",
-            description = "Cashier nhập SĐT/email khách và số tiền hóa đơn. Hệ thống tính và cộng điểm tự động (10.000 VNĐ = 1 điểm)."
+            summary = "Chốt điểm cho hóa đơn",
+            description = "Trừ điểm khách đổi lấy giảm giá (pointsToRedeem) rồi cộng điểm kiếm được "
+                    + "từ số tiền thực trả (10.000 VNĐ = 1 điểm). Cả hai chạy trong cùng một "
+                    + "transaction nên không thể trừ mà không cộng. Hóa đơn dưới 10.000 VNĐ chỉ "
+                    + "đơn giản là được 0 điểm, không phải lỗi."
     )
     @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
     @PostMapping("/add-points")
@@ -102,6 +105,7 @@ public class CashierController extends BaseAPIController {
             @Valid @RequestBody AddPointsRequest request) {
 
         AddPointsResponse result = cashierService.addPointsFromInvoice(request);
-        return success(result, "Tích điểm thành công! Khách hàng nhận được " + result.getPointsEarned() + " điểm.");
+        return success(result, "Loyalty points settled. Earned " + result.getPointsEarned()
+                + ", redeemed " + result.getPointsRedeemed() + ".");
     }
 }
