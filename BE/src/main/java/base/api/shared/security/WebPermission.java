@@ -46,7 +46,10 @@ public enum WebPermission {
     CASHIER_CLOSE_SHIFT("Cashier/Staff: Close shift and submit actual cash"),
     MY_SHIFTS("My Shifts"),
 
-    POS_CHECKOUT("Cashier: Sell at the counter, view order history and discount codes");
+    POS_CHECKOUT("Cashier: Sell at the counter, view order history and discount codes"),
+
+    REFUND_REQUEST("Cashier: Request order refund"),
+    REFUND_APPROVAL("Branch Manager: Approve order refund");
 
     private final String label;
 }

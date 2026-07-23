@@ -71,6 +71,7 @@ public final class WebRolePermissions {
                 WebPermission.PROMOTION_DETAILS,
                 WebPermission.PROMOTION_MANAGEMENT,
                 WebPermission.APPROVE_CASH_DISCREPANCY,
+                WebPermission.REFUND_APPROVAL,
                 WebPermission.BRANCH_REVENUE_PROMOS,
                 WebPermission.SHIFT_MANAGEMENT,
                 WebPermission.CREATE_IMPORT_REQUEST,
@@ -103,7 +104,8 @@ public final class WebRolePermissions {
                 WebPermission.CASHIER_ADD_POINTS,
                 WebPermission.CASHIER_CLOSE_SHIFT,
                 WebPermission.MY_SHIFTS,
-                WebPermission.POS_CHECKOUT
+                WebPermission.POS_CHECKOUT,
+                WebPermission.REFUND_REQUEST
         ));
 
         return Collections.unmodifiableMap(map);
