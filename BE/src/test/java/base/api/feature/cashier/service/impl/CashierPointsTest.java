@@ -3,6 +3,7 @@ package base.api.feature.cashier.service.impl;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.cashier.dto.request.AddPointsRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
+import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
@@ -32,6 +33,9 @@ class CashierPointsTest {
 
     @Mock
     private IUserRepository userRepository;
+
+    @Mock
+    private PointTransactionRepository pointTransactionRepository;
 
     @InjectMocks
     private CashierServiceImpl service;

@@ -1,0 +1,25 @@
+package base.api.feature.report.service;
+
+import base.api.feature.report.dto.CashDiscrepancyResponse;
+import base.api.feature.report.dto.InvoiceRow;
+import base.api.feature.report.dto.PointTransactionResponse;
+import base.api.feature.report.dto.RevenueReportResponse;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * Báo cáo kinh doanh. Mỗi phương thức tự áp phạm vi (scope) theo vai trò người gọi:
+ * ADMIN/DIRECTOR xem toàn hệ thống (branchId optional), BRANCH_MANAGER bị ép về chi
+ * nhánh của mình (branchId truyền lên bị bỏ qua).
+ */
+public interface ReportService {
+
+    RevenueReportResponse getRevenue(String groupBy, LocalDate from, LocalDate to, Long branchId);
+
+    List<InvoiceRow> getInvoices(LocalDate from, LocalDate to, Long branchId);
+
+    List<CashDiscrepancyResponse> getCashDiscrepancies(LocalDate from, LocalDate to, Long branchId);
+
+    List<PointTransactionResponse> getPointTransactions(LocalDate from, LocalDate to, Long branchId);
+}

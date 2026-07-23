@@ -14,6 +14,7 @@ import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.posorder.repository.VoucherCatalogRepository;
 import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.posorder.service.IPosOrderService;
+import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftRepository;
@@ -21,6 +22,7 @@ import base.api.shared.entity.OrderDiscountModel;
 import base.api.shared.entity.OrderItemModel;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.PaymentModel;
+import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.ShiftModel;
 import base.api.shared.entity.UserModel;
@@ -81,6 +83,9 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
     @Autowired
     private ICashierService cashierService;
+
+    @Autowired
+    private PointTransactionRepository pointTransactionRepository;
 
     @Autowired
     private CurrentUserProvider currentUserProvider;
@@ -195,6 +200,17 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
         PaymentModel payment = buildPayment(request, order.getId(), total, now);
         paymentRepository.save(payment);
+
+        // Ghi lịch sử tích điểm cho báo cáo — chỉ THÊM log, không đổi logic tính điểm.
+        // Phải ghi ở đây (không phải trong settlePoints) vì lúc settlePoints đơn chưa có id.
+        if (customer != null) {
+            if (pointsEarned > 0) {
+                savePointTransaction(customer.getId(), order.getId(), pointsEarned, "EARN", now);
+            }
+            if (pointsToRedeem > 0) {
+                savePointTransaction(customer.getId(), order.getId(), -pointsToRedeem, "REDEEM", now);
+            }
+        }
 
         return toResponse(order, items, payment, customer);
     }
@@ -367,6 +383,16 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
     private String buildInvoiceCode(Long orderId, LocalDateTime now) {
         return "INV-" + now.getYear() + "-" + String.format("%06d", orderId);
+    }
+
+    private void savePointTransaction(Long customerId, Long orderId, long points, String type, LocalDateTime at) {
+        PointTransactionModel transaction = new PointTransactionModel();
+        transaction.setCustomerId(customerId);
+        transaction.setOrderId(orderId);
+        transaction.setPoints(points);
+        transaction.setType(type);
+        transaction.setCreatedAt(at);
+        pointTransactionRepository.save(transaction);
     }
 
     private List<OrderResponse> hydrate(List<OrderModel> orders) {
