@@ -22,6 +22,9 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
 
     boolean existsByBarcodeAndIdNot(String barcode, Integer id);
 
+    @EntityGraph(attributePaths = "category")
+    Optional<ProductModel> findByBarcode(String barcode);
+
     boolean existsByCategory_Id(Integer categoryId);
 
     @EntityGraph(attributePaths = "category")
