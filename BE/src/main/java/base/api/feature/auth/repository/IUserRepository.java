@@ -77,6 +77,20 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     @Query("SELECT u FROM UserModel u WHERE u.roleEntity.name = :roleName")
     List<UserModel> findByRoleName(@Param("roleName") String roleName);
 
+    /**
+     * POS quick search: partial match on phone, email or name, customers only.
+     * Cashier thường chỉ nhớ vài số cuối nên không thể bắt gõ đủ SĐT.
+     */
+    @Query("""
+            SELECT u FROM UserModel u
+            WHERE u.roleEntity.name = 'CUSTOMER'
+              AND (u.phone LIKE CONCAT('%', :keyword, '%')
+                   OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                   OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%')))
+            ORDER BY u.fullName ASC
+            """)
+    List<UserModel> searchCustomers(@Param("keyword") String keyword, Pageable pageable);
+
     @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name = :roleName")
     List<UserModel> findByBranchIdAndRoleName(
             @Param("branchId") Long branchId,

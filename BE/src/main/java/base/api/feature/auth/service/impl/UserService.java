@@ -96,11 +96,14 @@ public class UserService implements IUserService {
 
     @Override
     @Transactional
-    public UserModel getOrCreateGuestByPhone(String phone) {
+    public UserModel getOrCreateGuestByPhone(String phone, String fullName) {
         if (phone == null || phone.trim().isEmpty()) {
             throw new IllegalArgumentException("Số điện thoại không được để trống");
         }
         String normalized = phone.trim().replaceAll("\\s+", "");
+        String name = fullName == null || fullName.isBlank()
+                ? "Khách vãng lai"
+                : fullName.trim();
         return userRepository.findByPhone(normalized)
                 .orElseGet(() -> {
                     UserModel guest = new UserModel();
@@ -108,8 +111,7 @@ public class UserService implements IUserService {
                     guest.setPhone(normalized);
                     guest.setEmail("walkin_" + normalized + "@guest.chainstore.com");
                     guest.setPassword(passwordEncoder.encode(java.util.UUID.randomUUID().toString()));
-                    guest.setFirstName("Khách");
-                    guest.setLastName("Vãng lai");
+                    guest.setFullName(name);
                     guest.setRole(UserRole.CUSTOMER);
                     guest.setVerified(true);
                     guest.setActive(true);
