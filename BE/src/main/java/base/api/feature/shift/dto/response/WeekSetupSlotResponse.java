@@ -3,6 +3,7 @@ package base.api.feature.shift.dto.response;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -18,6 +19,8 @@ public class WeekSetupSlotResponse {
     private int slotIndex;
     private boolean first;
     private boolean last;
+    /** Cash float already saved on the shift, or the suggested default for an unsaved first slot. */
+    private BigDecimal openingCash;
     private boolean published;
     private boolean readOnly;
     private Long shiftId;

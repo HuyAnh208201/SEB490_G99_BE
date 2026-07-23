@@ -7,6 +7,7 @@ import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
 import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
+import base.api.feature.shift.dto.request.UpdateOpeningCashRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
 import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.AvailableEmployeeResponse;
@@ -66,9 +67,16 @@ public interface IShiftService {
             UserRole requiredRole);
 
     /**
+     * Branch Manager adjusts the cash float by hand. Allowed only while the shift is
+     * DRAFT or PUBLISHED — anything already closed or reviewed keeps its figures.
+     */
+    ShiftResponse updateOpeningCash(Long shiftId, UpdateOpeningCashRequest request);
+
+    /**
      * Staff (Cashier/Inventory) đóng ca cuối ngày.
      * Nhập tiền thực đếm được, hệ thống tự tính chênh lệch.
      * Ca chuyển từ PUBLISHED → CLOSED.
+     * Đồng thời bàn giao {@code actualCash} sang {@code openingCash} của ca kế tiếp cùng ngày.
      */
     ShiftResponse closeShift(Long shiftId, CloseShiftRequest request);
 

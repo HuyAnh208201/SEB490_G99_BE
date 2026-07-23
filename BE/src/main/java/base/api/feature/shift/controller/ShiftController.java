@@ -7,6 +7,7 @@ import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
 import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
+import base.api.feature.shift.dto.request.UpdateOpeningCashRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
 import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.CopyWeekResponse;
@@ -28,6 +29,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -79,6 +81,22 @@ public class ShiftController extends BaseAPIController {
             @PathVariable Long id,
             @Valid @RequestBody UpdateShiftRequest request) {
         return success(shiftService.update(id, request), "Shift updated successfully.");
+    }
+
+    @Operation(
+            summary = "Update opening cash float",
+            description = "The first slot of each day already gets a float from configuration "
+                    + "(shift.default-opening-cash). Use this to adjust it by hand: holidays, a special "
+                    + "float, or a handover that did not match. Allowed while the shift is DRAFT or "
+                    + "PUBLISHED only. Note: if the previous shift of the same day closes after this "
+                    + "call, its handover amount overwrites the value set here."
+    )
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @PatchMapping("/{id}/opening-cash")
+    public ResponseEntity<TFUResponse<ShiftResponse>> updateOpeningCash(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateOpeningCashRequest request) {
+        return success(shiftService.updateOpeningCash(id, request), "Opening cash updated successfully.");
     }
 
     @Operation(summary = "Delete shift")
