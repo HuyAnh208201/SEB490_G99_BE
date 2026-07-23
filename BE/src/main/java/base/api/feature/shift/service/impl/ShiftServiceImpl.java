@@ -875,6 +875,48 @@ public class ShiftServiceImpl implements IShiftService {
                 .toList();
     }
 
+    @Override
+    public List<ShiftResponse> getMyShifts() {
+        UserModel user = currentUserProvider.getCurrentUserOrThrow();
+        if (user.getRole() != UserRole.CASHIER) {
+            throw new BusinessException("Only cashiers can view assigned shifts.");
+        }
+        LocalDateTime from = LocalDate.now().minusDays(7).atStartOfDay();
+        LocalDateTime to = LocalDate.now().plusDays(14).atStartOfDay();
+        List<ShiftAssignmentModel> assignments =
+                assignmentRepository.findPublishedAssignmentsForStaffBetween(
+                        user.getId(), from, to, ShiftStatus.PUBLISHED);
+        List<ShiftResponse> responses = new ArrayList<>();
+        for (ShiftAssignmentModel assignment : assignments) {
+            ShiftModel shift = assignment.getShift();
+            List<ShiftAssignmentModel> all = assignmentRepository.findByShiftId(shift.getId());
+            responses.add(shiftMapper.toResponse(shift, all));
+        }
+        return responses;
+    }
+
+    @Override
+    @Transactional
+    public ShiftResponse checkIn(Long shiftId) {
+        UserModel user = currentUserProvider.getCurrentUserOrThrow();
+        if (user.getRole() != UserRole.CASHIER) {
+            throw new BusinessException("Only cashiers can check in to a shift.");
+        }
+        ShiftModel shift = findShiftOrThrow(shiftId);
+        if (shift.getStatus() != ShiftStatus.PUBLISHED) {
+            throw new BusinessException("Only published shifts can be checked in.");
+        }
+        ShiftAssignmentModel assignment = assignmentRepository
+                .findFirstByShiftIdAndStaffIdOrderByIdDesc(shiftId, user.getId())
+                .orElseThrow(() -> new BusinessException("You are not assigned to this shift."));
+        if (assignment.getCheckInAt() == null) {
+            assignment.setCheckInAt(LocalDateTime.now());
+            assignmentRepository.save(assignment);
+        }
+        List<ShiftAssignmentModel> all = assignmentRepository.findByShiftId(shiftId);
+        return shiftMapper.toResponse(shift, all);
+    }
+
     private List<ShiftAssignmentModel> syncSlotAssignments(
             ShiftModel shift,
             List<Long> cashiers,

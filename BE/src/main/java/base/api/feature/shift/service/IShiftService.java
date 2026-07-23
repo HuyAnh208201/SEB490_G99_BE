@@ -66,6 +66,10 @@ public interface IShiftService {
             LocalTime endTime,
             UserRole requiredRole);
 
+    List<ShiftResponse> getMyShifts();
+
+    ShiftResponse checkIn(Long shiftId);
+
     /**
      * Branch Manager adjusts the cash float by hand. Allowed only while the shift is
      * DRAFT or PUBLISHED — anything already closed or reviewed keeps its figures.

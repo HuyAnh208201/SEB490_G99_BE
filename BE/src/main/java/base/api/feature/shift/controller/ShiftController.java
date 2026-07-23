@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -197,6 +198,20 @@ public class ShiftController extends BaseAPIController {
             @RequestParam Long branchId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStart) {
         return success(shiftService.getWeeklySchedule(branchId, weekStart));
+    }
+
+    @Operation(summary = "My assigned shifts (cashier — published schedule from Branch Manager)")
+    @PreAuthorize("@permissionChecker.has('MY_SHIFTS')")
+    @GetMapping("/my")
+    public ResponseEntity<TFUResponse<List<ShiftResponse>>> getMyShifts() {
+        return success(shiftService.getMyShifts());
+    }
+
+    @Operation(summary = "Check in to assigned shift")
+    @PreAuthorize("@permissionChecker.has('MY_SHIFTS')")
+    @PatchMapping("/{shiftId}/check-in")
+    public ResponseEntity<TFUResponse<ShiftResponse>> checkIn(@PathVariable Long shiftId) {
+        return success(shiftService.checkIn(shiftId), "Checked in successfully.");
     }
 
     // =========================================================================
