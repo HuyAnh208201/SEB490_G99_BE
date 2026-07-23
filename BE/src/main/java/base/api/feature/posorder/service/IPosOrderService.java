@@ -1,0 +1,26 @@
+package base.api.feature.posorder.service;
+
+import base.api.feature.posorder.dto.request.CheckoutRequest;
+import base.api.feature.posorder.dto.response.OrderResponse;
+import base.api.feature.posorder.dto.response.VoucherResponse;
+
+import java.time.LocalDate;
+import java.util.List;
+
+public interface IPosOrderService {
+
+    /**
+     * Chốt một đơn tại quầy: ghi hoá đơn, trừ tồn kho, chốt điểm và đánh dấu
+     * voucher đã dùng — tất cả trong một transaction. Hỏng bất kỳ bước nào thì
+     * không có gì được ghi.
+     */
+    OrderResponse checkout(CheckoutRequest request);
+
+    /** Lịch sử đơn của chi nhánh đang đăng nhập. */
+    List<OrderResponse> getOrders(LocalDate from, LocalDate to);
+
+    OrderResponse getOrderById(Long id);
+
+    /** Tra mã giảm giá trước khi chốt đơn để cashier thấy ngay số tiền giảm. */
+    VoucherResponse lookupVoucher(String code);
+}

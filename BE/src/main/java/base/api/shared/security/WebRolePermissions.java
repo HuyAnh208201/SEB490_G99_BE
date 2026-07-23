@@ -100,7 +100,8 @@ public final class WebRolePermissions {
 
         map.put(UserRole.CASHIER, EnumSet.of(
                 WebPermission.CASHIER_ADD_POINTS,
-                WebPermission.CASHIER_CLOSE_SHIFT
+                WebPermission.CASHIER_CLOSE_SHIFT,
+                WebPermission.POS_CHECKOUT
         ));
 
         return Collections.unmodifiableMap(map);

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -39,6 +40,11 @@ class CashierPointsTest {
 
     @BeforeEach
     void setUp() {
+        // @Value không được inject trong unit test — không set thì tỉ lệ = 0 và
+        // mọi hoá đơn đều ra 0 điểm.
+        ReflectionTestUtils.setField(service, "vndPerPoint", 10_000L);
+        ReflectionTestUtils.setField(service, "pointValueVnd", 1_000L);
+
         customer = new UserModel();
         customer.setId(7L);
         customer.setFullName("Trần Bảo");
