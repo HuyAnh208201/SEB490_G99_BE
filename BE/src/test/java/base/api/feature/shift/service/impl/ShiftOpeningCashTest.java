@@ -48,6 +48,9 @@ class ShiftOpeningCashTest {
     private ShiftAssignmentRepository assignmentRepository;
 
     @Mock
+    private base.api.feature.posorder.repository.PaymentRepository paymentRepository;
+
+    @Mock
     private IBranchRepository branchRepository;
 
     @Mock
@@ -112,6 +115,23 @@ class ShiftOpeningCashTest {
     }
 
     @Test
+    void expectedCashIsOpeningFloatPlusCashTakenDuringTheShift() {
+        ShiftModel closing = shift(1L, ShiftStatus.PUBLISHED, 8, 12);
+        closing.setOpeningCash(new BigDecimal("2000000"));
+        ShiftModel next = shift(2L, ShiftStatus.PUBLISHED, 12, 16);
+
+        stubClose(closing, next);
+        // Bán được 5 triệu tiền mặt trong ca.
+        when(paymentRepository.sumCashTakenInShift(1L)).thenReturn(new BigDecimal("5000000"));
+
+        // Đếm đúng 7 triệu = 2 quỹ + 5 bán → không được lệch đồng nào.
+        service.closeShift(1L, closeWith("7000000"));
+
+        assertEquals(0, new BigDecimal("7000000").compareTo(closing.getExpectedCash()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(closing.getDifference()));
+    }
+
+    @Test
     void openingCashCannotBeEditedOnceTheShiftIsClosed() {
         ShiftModel closed = shift(1L, ShiftStatus.CLOSED, 8, 12);
         when(shiftRepository.findById(1L)).thenReturn(Optional.of(closed));
@@ -129,6 +149,7 @@ class ShiftOpeningCashTest {
 
     private void stubClose(ShiftModel closing, ShiftModel next) {
         when(shiftRepository.findById(1L)).thenReturn(Optional.of(closing));
+        when(paymentRepository.sumCashTakenInShift(1L)).thenReturn(BigDecimal.ZERO);
         signedInAs(UserRole.CASHIER);
         when(shiftRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         when(shiftRepository.findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(

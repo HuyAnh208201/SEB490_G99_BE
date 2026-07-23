@@ -6,6 +6,7 @@ import base.api.feature.inventorycount.repository.InventoryCountSessionRepositor
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
+import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.shift.repository.ShiftRepository;
 import base.api.feature.shiftsession.dto.request.CloseInventoryShiftRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmHandoverRequest;
@@ -58,6 +59,9 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
 
     @Autowired
     private ShiftSessionRepository sessionRepository;
+
+    @Autowired
+    private PaymentRepository paymentRepository;
 
     @Autowired
     private ShiftSessionHighValueItemRepository highValueItemRepository;
@@ -451,14 +455,31 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 });
     }
 
+    /**
+     * Expected = tiền đầu ca + doanh thu tiền mặt trong ca − tiền hoàn.
+     *
+     * Doanh thu đọc thẳng từ bảng payments của ca thay vì tin vào số đã lưu trên
+     * session: thu ngân vẫn bán tiếp sau khi mở màn đóng ca, nên số phải được tính
+     * lại ở mọi lần chạm vào (xem closing context, lưu nháp, bàn giao).
+     */
     private void refreshCashierTotals(ShiftSessionModel session) {
         if (session.getRole() != UserRole.CASHIER) {
             return;
         }
+        BigDecimal sales = BigDecimal.ZERO;
+        if (session.getShiftId() != null) {
+            BigDecimal taken = paymentRepository.sumCashTakenInShift(session.getShiftId());
+            sales = taken != null ? taken : BigDecimal.ZERO;
+            session.setTransactionCount(
+                    (int) paymentRepository.countTransactionsInShift(session.getShiftId()));
+        }
+        session.setCashSales(sales);
+
         BigDecimal opening = session.getOpeningFundAmount() != null
                 ? session.getOpeningFundAmount()
                 : BigDecimal.ZERO;
-        BigDecimal sales = session.getCashSales() != null ? session.getCashSales() : BigDecimal.ZERO;
+        // Chưa có luồng hoàn tiền nào trong app nên refunds luôn 0; giữ lại vế trừ
+        // để khi có refund thì chỉ cần điền số vào, không phải sửa công thức.
         BigDecimal refunds = session.getRefundAmount() != null ? session.getRefundAmount() : BigDecimal.ZERO;
         session.setExpectedCash(opening.add(sales).subtract(refunds));
     }
