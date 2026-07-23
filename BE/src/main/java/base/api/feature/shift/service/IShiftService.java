@@ -65,6 +65,10 @@ public interface IShiftService {
             LocalTime endTime,
             UserRole requiredRole);
 
+    List<ShiftResponse> getMyShifts();
+
+    ShiftResponse checkIn(Long shiftId);
+
     /**
      * Staff (Cashier/Inventory) đóng ca cuối ngày.
      * Nhập tiền thực đếm được, hệ thống tự tính chênh lệch.
