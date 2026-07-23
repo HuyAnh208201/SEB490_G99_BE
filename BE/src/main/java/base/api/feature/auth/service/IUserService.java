@@ -18,10 +18,12 @@ public interface IUserService {
     UserModel findById(Long id);
 
     /**
-     * Lấy hoặc tạo user guest từ SĐT (cho khách vãng lai).
-     * User chỉ có phone, userName=phone, chưa verify.
+     * Lấy hoặc tạo user guest từ SĐT (cho khách vãng lai tại POS).
+     * Chỉ có phone + tên, email và mật khẩu được sinh tự động.
+     *
+     * @param fullName tên khách do cashier nhập; để trống thì dùng tên mặc định
      */
-    UserModel getOrCreateGuestByPhone(String phone);
+    UserModel getOrCreateGuestByPhone(String phone, String fullName);
 
     UserModel registerUser(RegisterDto dto);
     UserModel createUserByAdmin(CreateUserByAdminDto dto, UserModel creator) throws Exception;

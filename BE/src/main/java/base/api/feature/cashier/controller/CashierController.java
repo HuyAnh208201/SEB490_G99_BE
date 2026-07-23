@@ -1,6 +1,7 @@
 package base.api.feature.cashier.controller;
 
 import base.api.feature.cashier.dto.request.AddPointsRequest;
+import base.api.feature.cashier.dto.request.CreateCustomerRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
 import base.api.feature.cashier.service.ICashierService;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/cashier")
@@ -44,6 +47,43 @@ public class CashierController extends BaseAPIController {
 
         CustomerLookupResponse customer = cashierService.lookupCustomer(phoneOrEmail);
         return success(customer);
+    }
+
+    /**
+     * Tìm khách theo một phần SĐT, email hoặc tên — cashier chỉ cần gõ vài số cuối.
+     *
+     * GET /api/cashier/customers?keyword=9123
+     */
+    @Operation(
+            summary = "Tìm khách hàng (gõ một phần)",
+            description = "Khớp một phần SĐT, email hoặc tên. Trả về tối đa 10 gợi ý, "
+                    + "danh sách rỗng nếu không khớp ai (không phải lỗi 404)."
+    )
+    @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
+    @GetMapping("/customers")
+    public ResponseEntity<TFUResponse<List<CustomerLookupResponse>>> searchCustomers(
+            @RequestParam String keyword) {
+
+        return success(cashierService.searchCustomers(keyword));
+    }
+
+    /**
+     * Tạo nhanh khách mới tại quầy khi tra cứu không ra.
+     *
+     * POST /api/cashier/customer
+     */
+    @Operation(
+            summary = "Tạo nhanh khách hàng",
+            description = "Chỉ cần tên và SĐT; email và mật khẩu do hệ thống sinh. "
+                    + "Nếu SĐT đã có khách thì trả về khách đó thay vì tạo trùng."
+    )
+    @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
+    @PostMapping("/customer")
+    public ResponseEntity<TFUResponse<CustomerLookupResponse>> createCustomer(
+            @Valid @RequestBody CreateCustomerRequest request) {
+
+        CustomerLookupResponse customer = cashierService.createCustomer(request);
+        return success(customer, "Customer created successfully.");
     }
 
     /**
