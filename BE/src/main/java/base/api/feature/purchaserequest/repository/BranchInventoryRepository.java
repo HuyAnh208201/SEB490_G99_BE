@@ -33,4 +33,19 @@ public interface BranchInventoryRepository extends JpaRepository<BranchInventory
             @Param("branchId") Long branchId,
             @Param("productId") Integer productId,
             @Param("quantity") Integer quantity);
+
+    /**
+     * Cộng lại tồn kho khi hoàn/trả hàng — không có điều kiện chặn như deductStock
+     * vì trả hàng luôn hợp lệ, chỉ đơn thuần đưa số lượng đã bán về lại kho.
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE BranchInventoryModel b SET b.currentStock = b.currentStock + :quantity
+            WHERE b.branchId = :branchId AND b.productId = :productId
+            """)
+    int addStock(
+            @Param("branchId") Long branchId,
+            @Param("productId") Integer productId,
+            @Param("quantity") Integer quantity);
 }
