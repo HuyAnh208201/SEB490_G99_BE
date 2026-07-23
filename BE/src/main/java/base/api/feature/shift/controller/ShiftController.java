@@ -2,10 +2,8 @@ package base.api.feature.shift.controller;
 
 import base.api.feature.shift.dto.request.AssignEmployeesRequest;
 import base.api.feature.shift.dto.request.AssignSlotRequest;
-import base.api.feature.shift.dto.request.CloseShiftRequest;
 import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
-import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
 import base.api.feature.shift.dto.request.UpdateOpeningCashRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
@@ -212,48 +210,5 @@ public class ShiftController extends BaseAPIController {
     @PatchMapping("/{shiftId}/check-in")
     public ResponseEntity<TFUResponse<ShiftResponse>> checkIn(@PathVariable Long shiftId) {
         return success(shiftService.checkIn(shiftId), "Checked in successfully.");
-    }
-
-    // =========================================================================
-    // Đóng ca và đối soát tiền
-    // =========================================================================
-
-    @Operation(
-            summary = "Đóng ca (Staff)",
-            description = "Cashier hoặc Inventory Staff đóng ca cuối ngày. " +
-                    "Nhập số tiền thực đếm được. Hệ thống tự tính chênh lệch = actual - expected. " +
-                    "Ca chuyển sang trạng thái CLOSED, chờ BM đối soát."
-    )
-    @PreAuthorize("@permissionChecker.has('CASHIER_CLOSE_SHIFT')")
-    @PutMapping("/{id}/close")
-    public ResponseEntity<TFUResponse<ShiftResponse>> closeShift(
-            @PathVariable Long id,
-            @Valid @RequestBody CloseShiftRequest request) {
-        ShiftResponse result = shiftService.closeShift(id, request);
-        return success(result, "Đóng ca thành công. Chênh lệch: " + result.getDifference() + " VNĐ. Chờ BM phê duyệt.");
-    }
-
-    @Operation(
-            summary = "Phê duyệt chênh lệch tiền ca (Branch Manager)",
-            description = "BM xác nhận chênh lệch giữa tiền thực và tiền kỳ vọng. Ca chuyển sang APPROVED."
-    )
-    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
-    @PutMapping("/{id}/approve")
-    public ResponseEntity<TFUResponse<ShiftResponse>> approveShift(
-            @PathVariable Long id,
-            @RequestBody ReviewShiftRequest request) {
-        return success(shiftService.approveShift(id, request), "Phê duyệt chênh lệch thành công.");
-    }
-
-    @Operation(
-            summary = "Từ chối — yêu cầu đếm lại (Branch Manager)",
-            description = "BM từ chối kết quả kiểm kê. Staff sẽ phải đếm lại và nộp lại. Ca chuyển sang REJECTED."
-    )
-    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
-    @PutMapping("/{id}/reject")
-    public ResponseEntity<TFUResponse<ShiftResponse>> rejectShift(
-            @PathVariable Long id,
-            @RequestBody ReviewShiftRequest request) {
-        return success(shiftService.rejectShift(id, request), "Từ chối. Staff cần đếm lại và nộp lại.");
     }
 }

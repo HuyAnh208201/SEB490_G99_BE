@@ -68,11 +68,34 @@ public class ShiftSessionTableMigration {
                         KEY idx_hv_session (session_id)
                     )
                     """);
+            // Bảng shift_sessions đã tồn tại trên DB thật nên CREATE TABLE IF NOT EXISTS ở
+            // trên bỏ qua; các cột phê duyệt chênh lệch tiền ca (BM approve/reject) phải
+            // thêm lẻ tại đây thay vì CREATE lại.
+            addColumnIfMissing("shift_sessions", "review_note", "TEXT NULL");
+            addColumnIfMissing("shift_sessions", "reviewed_by", "BIGINT NULL");
+            addColumnIfMissing("shift_sessions", "reviewed_at", "DATETIME NULL");
             dedupeShiftSessions();
             ensureUniqueShiftEmployee();
             log.info("Ensured shift_sessions tables");
         } catch (Exception ex) {
             log.warn("shift session migration skipped: {}", ex.getMessage());
+        }
+    }
+
+    private void addColumnIfMissing(String table, String column, String definition) {
+        Integer exists = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*) FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = ?
+                          AND COLUMN_NAME = ?
+                        """,
+                Integer.class,
+                table,
+                column);
+        if (exists == null || exists == 0) {
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+            log.info("Added column {}.{}", table, column);
         }
     }
 

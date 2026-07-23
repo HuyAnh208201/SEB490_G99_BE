@@ -25,4 +25,9 @@ public interface ShiftSessionRepository extends JpaRepository<ShiftSessionModel,
             Long branchId,
             ShiftSessionStatus status,
             base.api.shared.enums.UserRole role);
+
+    List<ShiftSessionModel> findByBranchIdAndStatusAndRoleOrderByClosedAtDesc(
+            Long branchId,
+            ShiftSessionStatus status,
+            base.api.shared.enums.UserRole role);
 }

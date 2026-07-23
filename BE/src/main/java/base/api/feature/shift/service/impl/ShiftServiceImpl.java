@@ -2,13 +2,10 @@ package base.api.feature.shift.service.impl;
 
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
-import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.shift.dto.request.AssignEmployeesRequest;
 import base.api.feature.shift.dto.request.AssignSlotRequest;
-import base.api.feature.shift.dto.request.CloseShiftRequest;
 import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
-import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
 import base.api.feature.shift.dto.request.SetupWeekSlotRequest;
 import base.api.feature.shift.dto.request.UpdateOpeningCashRequest;
@@ -84,9 +81,6 @@ public class ShiftServiceImpl implements IShiftService {
 
     @Autowired
     private CurrentUserProvider currentUserProvider;
-
-    @Autowired
-    private PaymentRepository paymentRepository;
 
     /** Cash float handed to the first shift of each day when the caller does not supply one. */
     @Value("${shift.default-opening-cash:2000000}")
@@ -1100,121 +1094,6 @@ public class ShiftServiceImpl implements IShiftService {
         return shiftMapper.toResponse(shift, assignmentRepository.findByShiftId(shift.getId()));
     }
 
-    // =========================================================================
-    // Đóng ca và đối soát tiền
-    // =========================================================================
-
-    @Override
-    @Transactional
-    public ShiftResponse closeShift(Long shiftId, CloseShiftRequest request) {
-        ShiftModel shift = findShiftOrThrow(shiftId);
-        UserModel currentUser = requireStaffOrCashier();
-
-        validateShiftBelongsToStaffBranch(shift, currentUser);
-        validateShiftCanBeClosed(shift);
-        validateNonNegativeMoney(request.getActualCash(), "Số tiền thực tế không được âm.");
-
-        // Expected phải tính lại tại thời điểm đóng ca. Giá trị lưu sẵn trên shift là 0
-        // (các luồng xếp lịch tuần khởi tạo bằng 0), lấy nó ra dùng thì chênh lệch luôn
-        // bằng đúng số tiền đếm được.
-        shift.setExpectedCash(expectedCashFor(shift));
-        shift.setActualCash(request.getActualCash());
-        shift.setDifference(calculateDifference(shift.getExpectedCash(), request.getActualCash()));
-        shift.setClosedBy(currentUser.getId());
-        shift.setStaffNote(request.getNote());
-        shift.setStatus(ShiftStatus.CLOSED);
-
-        ShiftModel saved = shiftRepository.save(shift);
-        handOverCashToNextShift(saved);
-        return toResponse(saved);
-    }
-
-    @Override
-    @Transactional
-    public ShiftResponse approveShift(Long shiftId, ReviewShiftRequest request) {
-        ShiftModel shift = findShiftOrThrow(shiftId);
-        UserModel currentUser = requireBranchManager();
-
-        assertOwnBranch(shift.getBranchId(), currentUser);
-        validateShiftCanBeReviewed(shift);
-
-        shift.setApprovedBy(currentUser.getId());
-        shift.setReviewNote(request.getNote());
-        shift.setStatus(ShiftStatus.APPROVED);
-
-        return toResponse(shiftRepository.save(shift));
-    }
-
-    @Override
-    @Transactional
-    public ShiftResponse rejectShift(Long shiftId, ReviewShiftRequest request) {
-        ShiftModel shift = findShiftOrThrow(shiftId);
-        UserModel currentUser = requireBranchManager();
-
-        assertOwnBranch(shift.getBranchId(), currentUser);
-        validateShiftCanBeReviewed(shift);
-
-        shift.setApprovedBy(currentUser.getId());
-        shift.setReviewNote(request.getNote());
-        shift.setStatus(ShiftStatus.REJECTED);
-
-        return toResponse(shiftRepository.save(shift));
-    }
-
-    // =========================================================================
-    // Private helpers — đóng ca
-    // =========================================================================
-
-    /**
-     * Chỉ cho phép Staff (Cashier hoặc Inventory Staff) đóng ca.
-     */
-    private UserModel requireStaffOrCashier() {
-        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
-        UserRole role = currentUserProvider.getCurrentUserRole();
-
-        boolean isStaff = role == UserRole.CASHIER || role == UserRole.INVENTORY_STAFF;
-        if (!isStaff) {
-            throw new BusinessException("Đóng ca chỉ dành cho Cashier hoặc Inventory Staff.");
-        }
-        if (currentUser.getBranchId() == null) {
-            throw new BusinessException("Staff chưa được phân công vào chi nhánh nào.");
-        }
-        return currentUser;
-    }
-
-    /**
-     * Kiểm tra ca thuộc đúng chi nhánh của staff đang đăng nhập.
-     */
-    private void validateShiftBelongsToStaffBranch(ShiftModel shift, UserModel staff) {
-        if (!shift.getBranchId().equals(staff.getBranchId())) {
-            throw new BusinessException("Ca này không thuộc chi nhánh của bạn.");
-        }
-    }
-
-    /**
-     * Ca chỉ đóng được khi đang PUBLISHED hoặc REJECTED (nộp lại sau khi bị từ chối).
-     */
-    private void validateShiftCanBeClosed(ShiftModel shift) {
-        boolean canClose = shift.getStatus() == ShiftStatus.PUBLISHED
-                || shift.getStatus() == ShiftStatus.REJECTED;
-        if (!canClose) {
-            throw new BusinessException(
-                    "Chỉ đóng được ca đang PUBLISHED hoặc REJECTED. Trạng thái hiện tại: " + shift.getStatus()
-            );
-        }
-    }
-
-    /**
-     * BM chỉ phê duyệt / từ chối được ca đang CLOSED.
-     */
-    private void validateShiftCanBeReviewed(ShiftModel shift) {
-        if (shift.getStatus() != ShiftStatus.CLOSED) {
-            throw new BusinessException(
-                    "Chỉ đối soát được ca đang CLOSED. Trạng thái hiện tại: " + shift.getStatus()
-            );
-        }
-    }
-
     private WeeklyScheduleResponse buildWeeklySchedule(
             Long branchId,
             LocalDate weekStart,
@@ -1365,16 +1244,6 @@ public class ShiftServiceImpl implements IShiftService {
         }
     }
 
-    /**
-     * Expected = tiền đầu ca + doanh thu tiền mặt bán trong ca.
-     * Cùng công thức với luồng shift-session, để hai đường đóng ca không ra hai con số.
-     */
-    private BigDecimal expectedCashFor(ShiftModel shift) {
-        BigDecimal opening = shift.getOpeningCash() == null ? BigDecimal.ZERO : shift.getOpeningCash();
-        BigDecimal cashTaken = paymentRepository.sumCashTakenInShift(shift.getId());
-        return opening.add(cashTaken == null ? BigDecimal.ZERO : cashTaken);
-    }
-
     private BigDecimal calculateDifference(BigDecimal expectedCash, BigDecimal actualCash) {
         if (expectedCash == null || actualCash == null) {
             return null;
@@ -1388,8 +1257,8 @@ public class ShiftServiceImpl implements IShiftService {
 
     /**
      * The first slot of the day takes the float the BM supplied, falling back to the
-     * configured default. Later slots start at 0 and are overwritten by the handover
-     * when the preceding shift closes — see {@link #handOverCashToNextShift(ShiftModel)}.
+     * configured default. Later slots start at 0 and are overwritten by the cash handover
+     * recorded on the previous shift session when it is approved (see the shift-session flow).
      */
     private BigDecimal resolveOpeningCash(BigDecimal requested, boolean firstOfDay) {
         if (!firstOfDay) {
@@ -1425,33 +1294,6 @@ public class ShiftServiceImpl implements IShiftService {
                         branchId, day.atStartOfDay(), day.plusDays(1).atStartOfDay())
                 .stream()
                 .noneMatch(existing -> existing.getStartTime().isBefore(startTime));
-    }
-
-    /**
-     * Cash handover: the next shift of the same day takes the {@code actualCash} just counted
-     * as its float. Only DRAFT/PUBLISHED shifts are overwritten — anything already closed or
-     * reviewed keeps its figures. Re-runnable: when staff resubmit after a REJECT, the next
-     * shift picks up the corrected amount.
-     */
-    private void handOverCashToNextShift(ShiftModel closedShift) {
-        BigDecimal actualCash = closedShift.getActualCash();
-        if (actualCash == null) {
-            return;
-        }
-        LocalDate day = closedShift.getStartTime().toLocalDate();
-        shiftRepository
-                .findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
-                        closedShift.getBranchId(),
-                        closedShift.getEndTime(),
-                        day.plusDays(1).atStartOfDay())
-                .stream()
-                .findFirst()
-                .filter(next -> next.getStatus() == ShiftStatus.DRAFT
-                        || next.getStatus() == ShiftStatus.PUBLISHED)
-                .ifPresent(next -> {
-                    next.setOpeningCash(actualCash);
-                    shiftRepository.save(next);
-                });
     }
 
     private void assertOpeningCashEditable(ShiftModel shift) {
