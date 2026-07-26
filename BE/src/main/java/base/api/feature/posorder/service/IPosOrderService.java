@@ -3,6 +3,8 @@ package base.api.feature.posorder.service;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderResponse;
 import base.api.feature.posorder.dto.response.VoucherResponse;
+import base.api.shared.dto.PageRequestDTO;
+import org.springframework.data.domain.Page;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -18,6 +20,12 @@ public interface IPosOrderService {
 
     /** Lịch sử đơn của chi nhánh đang đăng nhập. */
     List<OrderResponse> getOrders(LocalDate from, LocalDate to);
+
+    Page<OrderResponse> getOrderPage(
+            PageRequestDTO pageRequest,
+            LocalDate from,
+            LocalDate to,
+            String paymentMethod);
 
     OrderResponse getOrderById(Long id);
 

@@ -3,12 +3,13 @@ package base.api.feature.category.repository;
 import base.api.shared.entity.CategoryModel;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
 @Repository
-public interface ICategoryRepository extends JpaRepository<CategoryModel, Integer> {
+public interface ICategoryRepository extends JpaRepository<CategoryModel, Integer>, JpaSpecificationExecutor<CategoryModel> {
 
     boolean existsByNameIgnoreCase(String name);
 

@@ -8,15 +8,20 @@ import base.api.feature.category.repository.ICategoryRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.category.service.ICategoryService;
 import base.api.shared.entity.CategoryModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.NotFoundException;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class CategoryServiceImpl implements ICategoryService {
@@ -85,6 +90,24 @@ public class CategoryServiceImpl implements ICategoryService {
         return categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
                 .map(categoryMapper::toResponse)
                 .toList();
+    }
+
+    @Override
+    public Page<CategoryResponse> getPage(PageRequestDTO pageRequest) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<CategoryModel> specification = (root, ignored, cb) -> cb.conjunction();
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("name")), pattern),
+                    cb.like(cb.lower(root.get("description")), pattern)
+            ));
+        }
+        return categoryRepository.findAll(
+                        specification,
+                        query.toPageable("id", Sort.Direction.ASC, Set.of("id", "name")))
+                .map(categoryMapper::toResponse);
     }
 
     private CategoryModel findCategoryOrThrow(Integer id) {

@@ -3,13 +3,14 @@ package base.api.feature.promotion.repository;
 import base.api.shared.entity.CampaignModel;
 import base.api.shared.enums.CampaignScope;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.List;
 
 @Repository
-public interface CampaignRepository extends JpaRepository<CampaignModel, Long> {
+public interface CampaignRepository extends JpaRepository<CampaignModel, Long>, JpaSpecificationExecutor<CampaignModel> {
 
     boolean existsByNameIgnoreCase(String name);
 

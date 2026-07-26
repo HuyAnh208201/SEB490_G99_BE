@@ -1,6 +1,7 @@
 package base.api.feature.posorder.service.impl;
 
 import base.api.feature.auth.service.IUserService;
+import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
@@ -28,12 +29,18 @@ import base.api.shared.entity.ShiftModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.entity.VoucherCatalogModel;
 import base.api.shared.entity.VoucherModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.ShiftStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +53,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -80,6 +89,9 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
     @Autowired
     private IUserService userService;
+
+    @Autowired
+    private IUserRepository userRepository;
 
     @Autowired
     private ICashierService cashierService;
@@ -228,6 +240,64 @@ public class PosOrderServiceImpl implements IPosOrderService {
                         .findByBranchIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
                                 cashier.getBranchId(), from.atStartOfDay(), to.plusDays(1).atStartOfDay());
         return hydrate(orders);
+    }
+
+    @Override
+    public Page<OrderResponse> getOrderPage(
+            PageRequestDTO pageRequest,
+            LocalDate from,
+            LocalDate to,
+            String paymentMethod
+    ) {
+        UserModel cashier = requireCashier();
+        Specification<OrderModel> spec = (root, query, cb) ->
+                cb.equal(root.get("branchId"), cashier.getBranchId());
+
+        if (from != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.greaterThanOrEqualTo(root.get("createdAt"), from.atStartOfDay()));
+        }
+        if (to != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.lessThan(root.get("createdAt"), to.plusDays(1).atStartOfDay()));
+        }
+
+        String search = pageRequest.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            Long searchedId = extractNumericId(search);
+            spec = spec.and((root, query, cb) -> {
+                var customerSubquery = query.subquery(Long.class);
+                var customer = customerSubquery.from(UserModel.class);
+                customerSubquery.select(customer.get("id"))
+                        .where(cb.like(cb.lower(customer.get("fullName")), pattern));
+                var textMatch = cb.or(
+                        cb.like(cb.lower(root.get("invoiceCode")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        root.get("customerId").in(customerSubquery));
+                return searchedId == null
+                        ? textMatch
+                        : cb.or(textMatch, cb.equal(root.get("id"), searchedId));
+            });
+        }
+
+        if (paymentMethod != null && !paymentMethod.isBlank() && !"ALL".equalsIgnoreCase(paymentMethod)) {
+            String normalizedMethod = paymentMethod.trim().toUpperCase(Locale.ROOT);
+            spec = spec.and((root, query, cb) -> {
+                var paymentSubquery = query.subquery(Long.class);
+                var payment = paymentSubquery.from(PaymentModel.class);
+                paymentSubquery.select(payment.get("orderId"))
+                        .where(cb.equal(cb.upper(payment.get("method")), normalizedMethod));
+                return root.get("id").in(paymentSubquery);
+            });
+        }
+
+        Pageable pageable = pageRequest.toPageable(
+                "createdAt",
+                Sort.Direction.DESC,
+                Set.of("id", "invoiceCode", "total", "status", "createdAt"));
+        Page<OrderModel> orders = orderRepository.findAll(spec, pageable);
+        return new PageImpl<>(hydrate(orders.getContent()), pageable, orders.getTotalElements());
     }
 
     @Override
@@ -404,6 +474,13 @@ public class PosOrderServiceImpl implements IPosOrderService {
                 .collect(Collectors.groupingBy(OrderItemModel::getOrderId));
         Map<Long, PaymentModel> paymentByOrder = paymentRepository.findByOrderIdIn(ids).stream()
                 .collect(Collectors.toMap(PaymentModel::getOrderId, p -> p, (first, ignored) -> first));
+        Map<Long, UserModel> customerById = userRepository.findAllById(
+                        orders.stream()
+                                .map(OrderModel::getCustomerId)
+                                .filter(java.util.Objects::nonNull)
+                                .collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(UserModel::getId, customer -> customer));
 
         return orders.stream()
                 .sorted(Comparator.comparing(OrderModel::getCreatedAt).reversed())
@@ -411,7 +488,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
                         order,
                         itemsByOrder.getOrDefault(order.getId(), List.of()),
                         paymentByOrder.get(order.getId()),
-                        null))
+                        customerById.get(order.getCustomerId())))
                 .toList();
     }
 
@@ -467,5 +544,17 @@ public class PosOrderServiceImpl implements IPosOrderService {
             throw new BusinessException("Cashier is not assigned to a branch.");
         }
         return currentUser;
+    }
+
+    private Long extractNumericId(String value) {
+        String digits = value.replaceAll("\\D+", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(digits);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

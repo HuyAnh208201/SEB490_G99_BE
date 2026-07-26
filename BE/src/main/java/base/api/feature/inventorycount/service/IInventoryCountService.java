@@ -2,6 +2,8 @@ package base.api.feature.inventorycount.service;
 
 import base.api.feature.inventorycount.dto.request.SubmitInventoryCountRequest;
 import base.api.feature.inventorycount.dto.response.InventoryCountSessionResponse;
+import base.api.shared.dto.PageRequestDTO;
+import org.springframework.data.domain.Page;
 import base.api.feature.inventorycount.dto.response.InventoryCountSheetResponse;
 
 import java.util.List;
@@ -16,6 +18,8 @@ public interface IInventoryCountService {
     InventoryCountSessionResponse submitCount(SubmitInventoryCountRequest request);
 
     List<InventoryCountSessionResponse> getHistory();
+
+    Page<InventoryCountSessionResponse> getHistoryPage(PageRequestDTO pageRequest, String status);
 
     InventoryCountSessionResponse getSession(Long id);
 

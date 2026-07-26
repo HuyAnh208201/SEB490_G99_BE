@@ -5,6 +5,9 @@ import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
 import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.enums.CampaignStatus;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -29,4 +32,10 @@ public interface ICampaignService {
     CampaignResponse getCampaign(Long id);
 
     List<CampaignSummaryResponse> getAllCampaigns();
+
+    Page<CampaignSummaryResponse> getCampaignPage(
+            PageRequestDTO pageRequest,
+            CampaignStatus status,
+            Long branchId,
+            String creatorTier);
 }

@@ -46,7 +46,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
@@ -59,6 +61,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -192,24 +195,73 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     @Override
     public Page<PurchaseRequestSummaryResponse> getRequestHistory(PageRequestDTO pageRequest) {
-        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
-        UserRole role = currentUserProvider.getCurrentUserRole();
-        Pageable pageable = newestFirst(pageRequest);
+        return getRequestHistory(pageRequest, null, null);
+    }
 
-        Page<PurchaseRequestModel> requests;
+    @Override
+    public Page<PurchaseRequestSummaryResponse> getRequestHistory(
+            PageRequestDTO pageRequest,
+            PurchaseRequestStatus status,
+            Long requestedBranchId
+    ) {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        UserRole rawRole = currentUserProvider.getCurrentUserRole();
+        UserRole role = rawRole == null ? null : rawRole.toWebRole();
+        Pageable pageable = newestFirst(pageRequest);
+        Specification<PurchaseRequestModel> specification = (root, ignored, cb) -> cb.conjunction();
         if (role == UserRole.ADMIN || role == UserRole.DIRECTOR) {
-            requests = purchaseRequestRepository.findAll(pageable);
+            if (requestedBranchId != null) {
+                specification = specification.and((root, ignored, cb) ->
+                        cb.equal(root.get("branchId"), requestedBranchId));
+            }
         } else if (role == UserRole.WAREHOUSE_MANAGER) {
-            requests = purchaseRequestRepository.findByStatusIn(WAREHOUSE_VISIBLE_STATUSES, pageable);
+            specification = specification.and((root, ignored, cb) ->
+                    root.get("status").in(WAREHOUSE_VISIBLE_STATUSES));
+            if (requestedBranchId != null) {
+                specification = specification.and((root, ignored, cb) ->
+                        cb.equal(root.get("branchId"), requestedBranchId));
+            }
         } else if (role == UserRole.BRANCH_MANAGER) {
             Long branchId = resolveBranchManagerBranchId(currentUser);
-            requests = purchaseRequestRepository.findByBranchId(branchId, pageable);
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("branchId"), branchId));
         } else if (role == UserRole.INVENTORY_STAFF) {
             Long branchId = resolveBranchStaffBranchId(currentUser);
-            requests = purchaseRequestRepository.findByBranchId(branchId, pageable);
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("branchId"), branchId));
         } else {
             throw new ForbiddenException("Access denied.");
         }
+
+        if (status != null) {
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("status"), status));
+        }
+        String search = pageRequest == null ? null : pageRequest.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(java.util.Locale.ROOT) + "%";
+            Long searchedId = extractNumericId(search);
+            specification = specification.and((root, criteriaQuery, cb) -> {
+                var branchSubquery = criteriaQuery.subquery(Long.class);
+                var branch = branchSubquery.from(BranchModel.class);
+                branchSubquery.select(branch.get("id"))
+                        .where(cb.or(
+                                cb.like(cb.lower(branch.get("name")), pattern),
+                                cb.like(cb.lower(branch.get("address")), pattern)));
+
+                var creatorSubquery = criteriaQuery.subquery(Long.class);
+                var creator = creatorSubquery.from(UserModel.class);
+                creatorSubquery.select(creator.get("id"))
+                        .where(cb.like(cb.lower(creator.get("fullName")), pattern));
+
+                var textMatch = cb.or(
+                        cb.like(cb.lower(root.get("reason")), pattern),
+                        root.get("branchId").in(branchSubquery),
+                        root.get("createdBy").in(creatorSubquery));
+                return searchedId == null
+                        ? textMatch
+                        : cb.or(textMatch, cb.equal(root.get("id"), searchedId));
+            });
+        }
+
+        Page<PurchaseRequestModel> requests = purchaseRequestRepository.findAll(specification, pageable);
 
         List<PurchaseRequestModel> content = requests.getContent();
         Set<Long> branchIds = content.stream().map(PurchaseRequestModel::getBranchId).collect(Collectors.toSet());
@@ -298,6 +350,26 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         return result;
     }
 
+    @Override
+    public Page<ConsolidatedBranchResponse> getConsolidatedRequestPage(PageRequestDTO pageRequest) {
+        String search = pageRequest.normalizedSearch();
+        String normalizedSearch = search == null ? null : search.toLowerCase(Locale.ROOT);
+        List<ConsolidatedBranchResponse> filtered = getConsolidatedRequests().stream()
+                .filter(branch -> normalizedSearch == null
+                        || containsIgnoreCase(branch.getBranchName(), normalizedSearch)
+                        || containsIgnoreCase(branch.getBranchAddress(), normalizedSearch)
+                        || branch.getCategories().stream().anyMatch(category ->
+                                containsIgnoreCase(category.getCategoryName(), normalizedSearch)
+                                        || category.getItems().stream().anyMatch(item ->
+                                        containsIgnoreCase(item.getProductCode(), normalizedSearch)
+                                                || containsIgnoreCase(item.getProductName(), normalizedSearch))))
+                .toList();
+        Pageable pageable = pageRequest.toPageable();
+        int from = Math.min((int) pageable.getOffset(), filtered.size());
+        int to = Math.min(from + pageable.getPageSize(), filtered.size());
+        return new PageImpl<>(filtered.subList(from, to), pageable, filtered.size());
+    }
+
     private List<ConsolidatedBranchResponse.CategoryGroup> buildCategoryGroups(
             Map<Integer, Integer> quantityByProduct,
             Map<Integer, ProductModel> productsById
@@ -334,6 +406,22 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         categories.sort(Comparator.comparing(
                 ConsolidatedBranchResponse.CategoryGroup::getCategoryName, Comparator.nullsLast(String::compareTo)));
         return categories;
+    }
+
+    private boolean containsIgnoreCase(String value, String normalizedSearch) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(normalizedSearch);
+    }
+
+    private Long extractNumericId(String value) {
+        String digits = value.replaceAll("\\D+", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(digits);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     @Override
@@ -740,20 +828,15 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private Pageable newestFirst(PageRequestDTO pageRequest) {
         PageRequestDTO safeRequest = pageRequest == null ? new PageRequestDTO() : pageRequest;
-        return PageRequest.of(
-                Math.max(0, safeRequest.getPage() - 1),
-                Math.max(1, safeRequest.getSize()),
-                Sort.by(Sort.Direction.DESC, "createdAt")
-        );
+        return safeRequest.toPageable(
+                "createdAt",
+                Sort.Direction.DESC,
+                Set.of("id", "status", "createdAt", "approvedAt"));
     }
 
     private Pageable productSearchPage(PageRequestDTO pageRequest) {
         PageRequestDTO safeRequest = pageRequest == null ? new PageRequestDTO() : pageRequest;
-        return PageRequest.of(
-                Math.max(0, safeRequest.getPage() - 1),
-                Math.max(1, safeRequest.getSize()),
-                Sort.by(Sort.Direction.ASC, "name")
-        );
+        return safeRequest.toPageable("name", Sort.Direction.ASC, Set.of("id", "code", "name"));
     }
 
     private String normalizeNullableText(String value) {

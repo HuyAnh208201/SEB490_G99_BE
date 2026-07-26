@@ -8,6 +8,9 @@ import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
 import base.api.feature.promotion.service.ICampaignService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
+import base.api.shared.enums.CampaignStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -23,6 +26,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -51,6 +56,17 @@ public class PromotionController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<CampaignSummaryResponse>>> getAll() {
         return success(campaignService.getAllCampaigns());
+    }
+
+    @Operation(summary = "Search, filter and paginate campaigns")
+    @PreAuthorize("@permissionChecker.has('PROMOTION_LIST')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<CampaignSummaryResponse>>> getPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) CampaignStatus status,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String creatorTier) {
+        return successPage(campaignService.getCampaignPage(pageRequest, status, branchId, creatorTier));
     }
 
     @Operation(summary = "Get campaign detail")

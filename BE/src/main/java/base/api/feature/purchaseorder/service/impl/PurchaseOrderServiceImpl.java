@@ -21,6 +21,7 @@ import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.SupplierModel;
 import base.api.shared.entity.WarehouseInventoryModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.PurchaseOrderStatus;
 import base.api.shared.enums.PurchaseRequestStatus;
 import base.api.shared.exception.BadRequestException;
@@ -31,6 +32,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -43,6 +47,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
@@ -213,6 +219,49 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
         return purchaseOrderRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::buildDetail)
                 .toList();
+    }
+
+    @Override
+    public Page<PurchaseOrderResponse> getOrderPage(
+            PageRequestDTO pageRequest,
+            PurchaseOrderStatus status
+    ) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<PurchaseOrderModel> specification = (root, ignored, cb) -> cb.conjunction();
+        if (status != null) {
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("status"), status));
+        }
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            Long id = parseOrderIdentifier(search);
+            Set<Integer> supplierIds = supplierRepository.findAll((root, ignored, cb) ->
+                            cb.like(cb.lower(root.get("name")), pattern)).stream()
+                    .map(SupplierModel::getId)
+                    .collect(Collectors.toSet());
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("notes")), pattern),
+                    id == null ? cb.disjunction() : cb.equal(root.get("id"), id),
+                    supplierIds.isEmpty() ? cb.disjunction() : root.get("supplierId").in(supplierIds)
+            ));
+        }
+        return purchaseOrderRepository.findAll(
+                        specification,
+                        query.toPageable(
+                                "createdAt",
+                                Sort.Direction.DESC,
+                                Set.of("id", "status", "supplierId", "createdAt", "receivedAt", "updatedAt")))
+                .map(this::buildDetail);
+    }
+
+    private Long parseOrderIdentifier(String value) {
+        String digits = value.replaceAll("\\D", "");
+        if (digits.isBlank()) return null;
+        try {
+            return Long.valueOf(digits);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     @Override

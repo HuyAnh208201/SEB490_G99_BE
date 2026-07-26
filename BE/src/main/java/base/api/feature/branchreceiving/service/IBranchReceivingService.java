@@ -5,6 +5,8 @@ import base.api.feature.branchreceiving.dto.response.ReceiveShipmentDetailRespon
 import base.api.feature.branchreceiving.dto.response.ReceivingHistoryResponse;
 import base.api.feature.branchreceiving.dto.response.ReceivingOrderResponse;
 import base.api.feature.branchreceiving.dto.response.ReceivingReceiptDetailResponse;
+import base.api.shared.dto.PageRequestDTO;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -16,11 +18,15 @@ public interface IBranchReceivingService {
 
     List<ReceivingOrderResponse> getIncomingOrders();
 
+    Page<ReceivingOrderResponse> getIncomingOrderPage(PageRequestDTO pageRequest, String status);
+
     ReceiveShipmentDetailResponse getShipmentDetail(Long dispatchOrderId, Long requestId);
 
     ReceivingHistoryResponse receiveShipment(Long dispatchOrderId, Long requestId, ReceiveShipmentRequest request);
 
     List<ReceivingHistoryResponse> getReceivingHistory();
+
+    Page<ReceivingHistoryResponse> getReceivingHistoryPage(PageRequestDTO pageRequest, String status);
 
     ReceivingReceiptDetailResponse getReceiptDetail(Long receiptId);
 }
