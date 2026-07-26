@@ -27,9 +27,14 @@ import base.api.shared.enums.PurchaseRequestStatus;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import base.api.shared.dto.PageRequestDTO;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -40,6 +45,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Locale;
+import java.util.function.Function;
 
 @Service
 public class DispatchServiceImpl implements IDispatchService {
@@ -111,6 +118,30 @@ public class DispatchServiceImpl implements IDispatchService {
                 DispatchApprovedRequestResponse::getCreatedAt,
                 Comparator.nullsLast(Comparator.naturalOrder())));
         return result;
+    }
+
+    @Override
+    public Page<DispatchApprovedRequestResponse> getApprovedRequestPage(
+            PageRequestDTO pageRequest,
+            String area,
+            String route
+    ) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        String search = query.normalizedSearch();
+        List<DispatchApprovedRequestResponse> candidates = getApprovedRequests().stream()
+                .filter(row -> area == null || area.isBlank() || equalsIgnoreCase(row.getArea(), area))
+                .filter(row -> route == null || route.isBlank() || equalsIgnoreCase(row.getRoute(), route))
+                .filter(row -> search == null || matchesApprovedSearch(row, search))
+                .toList();
+        Map<Long, DispatchApprovedRequestResponse> responseById = candidates.stream()
+                .collect(Collectors.toMap(DispatchApprovedRequestResponse::getId, Function.identity()));
+        Specification<PurchaseRequestModel> specification = responseById.isEmpty()
+                ? (root, ignored, cb) -> cb.disjunction()
+                : (root, ignored, cb) -> root.get("id").in(responseById.keySet());
+        return purchaseRequestRepository.findAll(
+                        specification,
+                        query.toPageable("createdAt", Sort.Direction.ASC, Set.of("id", "createdAt")))
+                .map(request -> responseById.get(request.getId()));
     }
 
     @Override
@@ -201,6 +232,61 @@ public class DispatchServiceImpl implements IDispatchService {
     }
 
     @Override
+    public Page<DispatchOrderResponse> getDispatchOrderPage(
+            PageRequestDTO pageRequest,
+            DispatchStatus status
+    ) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<DispatchOrderModel> specification = (root, ignored, cb) -> cb.conjunction();
+        if (status != null) {
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("status"), status));
+        }
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            Long id = parseIdentifier(search);
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("vehicle")), pattern),
+                    cb.like(cb.lower(root.get("deliveryArea")), pattern),
+                    cb.like(cb.lower(root.get("route")), pattern),
+                    id == null ? cb.disjunction() : cb.equal(root.get("id"), id)
+            ));
+        }
+        Page<DispatchOrderModel> orderPage = dispatchOrderRepository.findAll(
+                specification,
+                query.toPageable(
+                        "createdAt",
+                        Sort.Direction.DESC,
+                        Set.of("id", "status", "vehicle", "deliveryArea", "route", "createdAt", "deliveredAt")));
+        return new PageImpl<>(
+                buildDetails(orderPage.getContent()),
+                orderPage.getPageable(),
+                orderPage.getTotalElements());
+    }
+
+    private boolean matchesApprovedSearch(DispatchApprovedRequestResponse row, String search) {
+        String normalized = search.toLowerCase(Locale.ROOT);
+        return java.util.stream.Stream.of(
+                        row.getRequestNumber(), row.getBranchName(), row.getArea(), row.getRoute())
+                .filter(value -> value != null)
+                .anyMatch(value -> value.toLowerCase(Locale.ROOT).contains(normalized));
+    }
+
+    private boolean equalsIgnoreCase(String left, String right) {
+        return left != null && right != null && left.equalsIgnoreCase(right.trim());
+    }
+
+    private Long parseIdentifier(String value) {
+        String digits = value.replaceAll("\\D", "");
+        if (digits.isBlank()) return null;
+        try {
+            return Long.valueOf(digits);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    @Override
     public DispatchOrderResponse getDispatchOrder(Long id) {
         DispatchOrderModel order = dispatchOrderRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Dispatch order not found."));
@@ -269,15 +355,7 @@ public class DispatchServiceImpl implements IDispatchService {
     // ----------------------------------------------------------------------------------
 
     private DispatchOrderResponse buildDetail(DispatchOrderModel order) {
-        DispatchOrderResponse response = new DispatchOrderResponse();
-        response.setId(order.getId());
-        response.setDispatchNumber(dispatchMapper.toDispatchNumber(order));
-        response.setStatus(order.getStatus() == null ? null : order.getStatus().name());
-        response.setVehicle(order.getVehicle());
-        response.setDeliveryArea(order.getDeliveryArea());
-        response.setRoute(order.getRoute());
-        response.setCreatedAt(order.getCreatedAt());
-        response.setDeliveredAt(order.getDeliveredAt());
+        DispatchOrderResponse response = toBaseResponse(order);
 
         List<Long> requestIds = dispatchOrderRequestRepository.findByDispatchOrderId(order.getId()).stream()
                 .map(DispatchOrderRequestModel::getPurchaseRequestId)
@@ -288,9 +366,71 @@ public class DispatchServiceImpl implements IDispatchService {
 
         List<PurchaseRequestModel> requests = purchaseRequestRepository.findAllById(requestIds);
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
+        appendRequests(
+                response,
+                requests,
+                detailsByRequest,
+                loadProducts(detailsByRequest.values()),
+                loadBranches(requests));
+        return response;
+    }
+
+    private List<DispatchOrderResponse> buildDetails(List<DispatchOrderModel> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> orderIds = orders.stream().map(DispatchOrderModel::getId).toList();
+        Map<Long, List<Long>> requestIdsByOrder = dispatchOrderRequestRepository
+                .findByDispatchOrderIdIn(orderIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        DispatchOrderRequestModel::getDispatchOrderId,
+                        Collectors.mapping(DispatchOrderRequestModel::getPurchaseRequestId, Collectors.toList())));
+        List<Long> requestIds = requestIdsByOrder.values().stream()
+                .flatMap(List::stream)
+                .distinct()
+                .toList();
+        Map<Long, PurchaseRequestModel> requestsById = purchaseRequestRepository.findAllById(requestIds).stream()
+                .collect(Collectors.toMap(PurchaseRequestModel::getId, Function.identity(), (left, right) -> left));
+        List<PurchaseRequestModel> requests = new ArrayList<>(requestsById.values());
+        Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
         Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
         Map<Long, BranchModel> branchesById = loadBranches(requests);
 
+        return orders.stream().map(order -> {
+            DispatchOrderResponse response = toBaseResponse(order);
+            List<PurchaseRequestModel> orderRequests = requestIdsByOrder
+                    .getOrDefault(order.getId(), List.of())
+                    .stream()
+                    .map(requestsById::get)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+            appendRequests(response, orderRequests, detailsByRequest, productsById, branchesById);
+            return response;
+        }).toList();
+    }
+
+    private DispatchOrderResponse toBaseResponse(DispatchOrderModel order) {
+        DispatchOrderResponse response = new DispatchOrderResponse();
+        response.setId(order.getId());
+        response.setDispatchNumber(dispatchMapper.toDispatchNumber(order));
+        response.setStatus(order.getStatus() == null ? null : order.getStatus().name());
+        response.setVehicle(order.getVehicle());
+        response.setDeliveryArea(order.getDeliveryArea());
+        response.setRoute(order.getRoute());
+        response.setCreatedAt(order.getCreatedAt());
+        response.setDeliveredAt(order.getDeliveredAt());
+        return response;
+    }
+
+    private void appendRequests(
+            DispatchOrderResponse response,
+            List<PurchaseRequestModel> requests,
+            Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest,
+            Map<Integer, ProductModel> productsById,
+            Map<Long, BranchModel> branchesById
+    ) {
         for (PurchaseRequestModel pr : requests) {
             List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
             BranchModel branch = branchesById.get(pr.getBranchId());
@@ -317,7 +457,6 @@ public class DispatchServiceImpl implements IDispatchService {
             line.setItems(items);
             response.getRequests().add(line);
         }
-        return response;
     }
 
     private Map<Long, List<PurchaseRequestDetailModel>> loadDetailsByRequest(List<Long> requestIds) {

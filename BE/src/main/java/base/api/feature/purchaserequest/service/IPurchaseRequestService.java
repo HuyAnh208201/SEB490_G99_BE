@@ -12,6 +12,7 @@ import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
 import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
 import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.enums.PurchaseRequestStatus;
 import org.springframework.data.domain.Page;
 
 import java.util.List;
@@ -35,9 +36,16 @@ public interface IPurchaseRequestService {
 
     Page<PurchaseRequestSummaryResponse> getRequestHistory(PageRequestDTO pageRequest);
 
+    Page<PurchaseRequestSummaryResponse> getRequestHistory(
+            PageRequestDTO pageRequest,
+            PurchaseRequestStatus status,
+            Long branchId);
+
     List<RecommendedProductResponse> getRecommendedProducts();
 
     Page<ProductSearchResponse> searchProducts(String keyword, PageRequestDTO pageRequest);
 
     List<ConsolidatedBranchResponse> getConsolidatedRequests();
+
+    Page<ConsolidatedBranchResponse> getConsolidatedRequestPage(PageRequestDTO pageRequest);
 }

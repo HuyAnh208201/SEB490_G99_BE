@@ -4,6 +4,7 @@ import base.api.feature.shiftsession.dto.request.CloseInventoryShiftRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmHandoverRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmOpeningFundRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmVerificationRequest;
+import base.api.feature.shiftsession.dto.request.ReviewSessionRequest;
 import base.api.feature.shiftsession.dto.request.SaveClosingDraftRequest;
 import base.api.feature.shiftsession.dto.request.StartShiftRequest;
 import base.api.feature.shiftsession.dto.response.ShiftSessionResponse;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -122,5 +124,32 @@ public class ShiftSessionController extends BaseAPIController {
     @GetMapping("/history")
     public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> history() {
         return success(shiftSessionService.getHistory());
+    }
+
+    @Operation(summary = "Cashier shifts pending cash-discrepancy approval (branch manager)")
+    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
+    @GetMapping("/pending")
+    public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> pendingApprovals() {
+        return success(shiftSessionService.getPendingApprovals());
+    }
+
+    @Operation(summary = "Approve a cashier shift cash discrepancy (branch manager)")
+    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<TFUResponse<ShiftSessionResponse>> approve(
+            @PathVariable Long id,
+            @RequestBody(required = false) ReviewSessionRequest request) {
+        String note = request != null ? request.getNote() : null;
+        return success(shiftSessionService.approveSession(id, note), "Shift session approved.");
+    }
+
+    @Operation(summary = "Reject a cashier shift cash discrepancy — cashier recounts (branch manager)")
+    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
+    @PostMapping("/{id}/reject")
+    public ResponseEntity<TFUResponse<ShiftSessionResponse>> reject(
+            @PathVariable Long id,
+            @RequestBody(required = false) ReviewSessionRequest request) {
+        String note = request != null ? request.getNote() : null;
+        return success(shiftSessionService.rejectSession(id, note), "Shift session rejected. Cashier must recount.");
     }
 }

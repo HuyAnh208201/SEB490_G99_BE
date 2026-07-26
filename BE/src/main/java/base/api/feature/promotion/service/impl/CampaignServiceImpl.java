@@ -1,6 +1,7 @@
 package base.api.feature.promotion.service.impl;
 
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
@@ -15,6 +16,7 @@ import base.api.shared.entity.CampaignBranchExclusionModel;
 import base.api.shared.entity.CampaignBranchModel;
 import base.api.shared.entity.CampaignModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.CampaignScope;
 import base.api.shared.enums.CampaignStatus;
 import base.api.shared.enums.CampaignType;
@@ -32,6 +34,8 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -45,6 +49,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 @Service
 public class CampaignServiceImpl implements ICampaignService {
@@ -60,6 +66,9 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Autowired
     private IBranchRepository branchRepository;
+
+    @Autowired
+    private IUserRepository userRepository;
 
     @Autowired
     private CampaignMapper campaignMapper;
@@ -338,6 +347,99 @@ public class CampaignServiceImpl implements ICampaignService {
                         campaign,
                         branchIdsByCampaign.getOrDefault(campaign.getId(), List.of())))
                 .toList();
+    }
+
+    @Override
+    public Page<CampaignSummaryResponse> getCampaignPage(
+            PageRequestDTO pageRequest,
+            CampaignStatus status,
+            Long branchId,
+            String creatorTier
+    ) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        UserRole currentRole = currentUserProvider.getCurrentUserRole();
+        Specification<CampaignModel> specification = (root, ignored, cb) -> cb.conjunction();
+        Long currentBranchId = null;
+
+        if (canManageChainPromotions(currentRole)) {
+            // No additional visibility restriction for chain-level roles.
+        } else if (currentRole == UserRole.BRANCH_MANAGER) {
+            currentBranchId = resolveCurrentBranchId(currentUser);
+            Set<Long> visibleIds = findCampaignsVisibleToBranch(currentBranchId).stream()
+                    .map(CampaignModel::getId)
+                    .collect(Collectors.toSet());
+            specification = visibleIds.isEmpty()
+                    ? specification.and((root, ignored, cb) -> cb.disjunction())
+                    : specification.and((root, ignored, cb) -> root.get("id").in(visibleIds));
+        } else {
+            throw new ForbiddenException("Access denied.");
+        }
+
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            specification = specification.and((root, ignored, cb) ->
+                    cb.like(cb.lower(root.get("name")), pattern));
+        }
+        if (status != null) {
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("status"), status));
+        }
+        if (branchId != null) {
+            Set<Long> linkedToBranch = Set.copyOf(campaignBranchRepository.findCampaignIdsByBranchId(branchId));
+            Set<Long> linkedCampaigns = campaignBranchRepository.findAll().stream()
+                    .map(CampaignBranchModel::getCampaignId)
+                    .collect(Collectors.toSet());
+            specification = specification.and((root, ignored, cb) -> {
+                var branchMatch = linkedToBranch.isEmpty()
+                        ? cb.disjunction()
+                        : root.get("id").in(linkedToBranch);
+                var unrestrictedChain = linkedCampaigns.isEmpty()
+                        ? cb.equal(root.get("scope"), CampaignScope.CHAIN)
+                        : cb.and(
+                                cb.equal(root.get("scope"), CampaignScope.CHAIN),
+                                cb.not(root.get("id").in(linkedCampaigns)));
+                return cb.or(branchMatch, unrestrictedChain);
+            });
+        }
+        if (creatorTier != null && !creatorTier.isBlank() && !"all".equalsIgnoreCase(creatorTier)) {
+            Set<Long> chainCreatorIds = userRepository.findAll().stream()
+                    .filter(user -> user.getRole() != null)
+                    .filter(user -> {
+                        UserRole role = user.getRole().toWebRole();
+                        return role == UserRole.ADMIN || role == UserRole.DIRECTOR;
+                    })
+                    .map(UserModel::getId)
+                    .collect(Collectors.toSet());
+            if ("chain".equalsIgnoreCase(creatorTier)) {
+                specification = chainCreatorIds.isEmpty()
+                        ? specification.and((root, ignored, cb) -> cb.disjunction())
+                        : specification.and((root, ignored, cb) -> root.get("createdBy").in(chainCreatorIds));
+            } else if ("branch".equalsIgnoreCase(creatorTier) && !chainCreatorIds.isEmpty()) {
+                specification = specification.and((root, ignored, cb) ->
+                        cb.not(root.get("createdBy").in(chainCreatorIds)));
+            }
+        }
+
+        Long responseBranchId = currentBranchId;
+        Page<CampaignModel> campaigns = campaignRepository.findAll(
+                specification,
+                query.toPageable(
+                        "createdAt",
+                        Sort.Direction.DESC,
+                        Set.of("id", "name", "status", "priority", "startAt", "endAt", "createdAt")));
+        Map<Long, List<Long>> branchIdsByCampaign = loadBranchIdsByCampaign(campaigns.getContent());
+        Set<Long> excludedCampaignIds = responseBranchId == null
+                ? Set.of()
+                : campaignBranchExclusionRepository.findByBranchId(responseBranchId).stream()
+                .map(CampaignBranchExclusionModel::getCampaignId)
+                .collect(Collectors.toSet());
+        return campaigns.map(campaign -> {
+            List<Long> campaignBranchIds = branchIdsByCampaign.getOrDefault(campaign.getId(), List.of());
+            boolean deactivated = responseBranchId != null && isDeactivatedForBranch(
+                    campaign, responseBranchId, campaignBranchIds, excludedCampaignIds);
+            return campaignMapper.toSummaryResponse(campaign, campaignBranchIds, deactivated);
+        });
     }
 
     private List<CampaignModel> findCampaignsVisibleToBranch(Long branchId) {

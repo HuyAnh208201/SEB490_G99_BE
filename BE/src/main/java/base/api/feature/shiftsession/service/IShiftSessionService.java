@@ -33,4 +33,22 @@ public interface IShiftSessionService {
     ShiftSessionResponse closeInventoryShift(CloseInventoryShiftRequest request);
 
     List<ShiftSessionResponse> getHistory();
+
+    /**
+     * BM: các ca cashier đang chờ phê duyệt chênh lệch tiền (PENDING_APPROVAL)
+     * thuộc chi nhánh của BM đang đăng nhập.
+     */
+    List<ShiftSessionResponse> getPendingApprovals();
+
+    /**
+     * BM phê duyệt chênh lệch tiền ca: PENDING_APPROVAL → APPROVED, lưu người/thời điểm
+     * duyệt và ghi chú.
+     */
+    ShiftSessionResponse approveSession(Long id, String note);
+
+    /**
+     * BM từ chối: PENDING_APPROVAL → PENDING_HANDOVER (handoverConfirmed=false) để cashier
+     * đếm lại rồi đóng ca lại. Lưu người/thời điểm duyệt và ghi chú lý do.
+     */
+    ShiftSessionResponse rejectSession(Long id, String note);
 }

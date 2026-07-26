@@ -8,6 +8,9 @@ import base.api.feature.auth.dto.request.UpdateProfileDto;
 import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.enums.UserRole;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -18,14 +21,17 @@ public interface IUserService {
     UserModel findById(Long id);
 
     /**
-     * Lấy hoặc tạo user guest từ SĐT (cho khách vãng lai).
-     * User chỉ có phone, userName=phone, chưa verify.
+     * Lấy hoặc tạo user guest từ SĐT (cho khách vãng lai tại POS).
+     * Chỉ có phone + tên, email và mật khẩu được sinh tự động.
+     *
+     * @param fullName tên khách do cashier nhập; để trống thì dùng tên mặc định
      */
-    UserModel getOrCreateGuestByPhone(String phone);
+    UserModel getOrCreateGuestByPhone(String phone, String fullName);
 
     UserModel registerUser(RegisterDto dto);
     UserModel createUserByAdmin(CreateUserByAdminDto dto, UserModel creator) throws Exception;
     List<UserModel> getAllUsers();
+    Page<UserModel> getUserPage(PageRequestDTO pageRequest, UserRole role, Long branchId, String status);
     InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception;
     void completeForgotPassword(CompleteForgotPasswordDto dto) throws Exception;
     void verifyEmailByToken(String token) throws Exception;

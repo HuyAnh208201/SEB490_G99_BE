@@ -1,28 +1,51 @@
 package base.api.feature.cashier.service.impl;
 
 import base.api.feature.auth.repository.IUserRepository;
+import base.api.feature.auth.service.IUserService;
 import base.api.feature.cashier.dto.request.AddPointsRequest;
+import base.api.feature.cashier.dto.request.CreateCustomerRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
+import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
 import base.api.feature.cashier.service.ICashierService;
+import base.api.feature.report.repository.PointTransactionRepository;
+import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class CashierServiceImpl implements ICashierService {
 
-    /** Cứ 10.000 VNĐ thì khách được 1 điểm. */
-    private static final long VND_PER_POINT = 10_000L;
+    /** Quầy chỉ cần vài gợi ý để chọn, không phải danh bạ. */
+    private static final int SEARCH_LIMIT = 10;
+
+    /** Tiêu bao nhiêu VNĐ được 1 điểm. */
+    @Value("${loyalty.vnd-per-point:10000}")
+    private long vndPerPoint;
+
+    /** 1 điểm đổi được bao nhiêu VNĐ giảm giá. */
+    @Value("${loyalty.point-value-vnd:1000}")
+    private long pointValueVnd;
 
     @Autowired
     private IUserRepository userRepository;
+
+    @Autowired
+    private IUserService userService;
+
+    @Autowired
+    private PointTransactionRepository pointTransactionRepository;
 
     // -------------------------------------------------------------------------
     // Public methods
@@ -35,17 +58,85 @@ public class CashierServiceImpl implements ICashierService {
     }
 
     @Override
+    public List<CustomerLookupResponse> searchCustomers(String keyword) {
+        String trimmed = keyword == null ? "" : keyword.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        return userRepository.searchCustomers(trimmed, PageRequest.of(0, SEARCH_LIMIT)).stream()
+                .map(this::toCustomerLookupResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public CustomerLookupResponse createCustomer(CreateCustomerRequest request) {
+        UserModel customer = userService.getOrCreateGuestByPhone(
+                request.getPhone(), request.getFullName());
+
+        // SĐT có thể đã thuộc một tài khoản nhân viên — không được biến họ thành khách.
+        validateIsCustomerRole(customer);
+        return toCustomerLookupResponse(customer);
+    }
+
+    @Override
     @Transactional
     public AddPointsResponse addPointsFromInvoice(AddPointsRequest request) {
         UserModel customer = findCustomerByPhoneOrEmail(request.getPhoneOrEmail());
+        long requested = request.getPointsToRedeem() == null ? 0L : request.getPointsToRedeem();
 
-        long pointsToAdd = calculatePoints(request.getInvoiceAmount());
-        validatePointsToAdd(pointsToAdd);
+        PointSettlement settlement = settlePoints(customer, request.getInvoiceAmount(), requested);
 
-        addPointsToCustomer(customer.getId(), pointsToAdd);
+        // Ghi lịch sử tích điểm cho báo cáo — tích điểm rời không qua đơn nên order_id null.
+        if (settlement.pointsEarned() > 0) {
+            savePointTransaction(customer.getId(), settlement.pointsEarned(), "EARN");
+        }
+        if (settlement.pointsRedeemed() > 0) {
+            savePointTransaction(customer.getId(), -settlement.pointsRedeemed(), "REDEEM");
+        }
 
-        long newTotalPoints = customer.getPoints() + pointsToAdd;
-        return toAddPointsResponse(customer, pointsToAdd, newTotalPoints, request.getInvoiceAmount());
+        return toAddPointsResponse(
+                customer,
+                settlement.pointsRedeemed(),
+                settlement.pointsEarned(),
+                settlement.totalPoints(),
+                request.getInvoiceAmount());
+    }
+
+    @Override
+    public LoyaltyConfigResponse getLoyaltyConfig() {
+        return new LoyaltyConfigResponse(vndPerPoint, pointValueVnd);
+    }
+
+    @Override
+    public BigDecimal redeemValueOf(long points) {
+        if (points <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return BigDecimal.valueOf(points).multiply(BigDecimal.valueOf(pointValueVnd));
+    }
+
+    @Override
+    @Transactional
+    public PointSettlement settlePoints(UserModel customer, BigDecimal invoiceAmount, long pointsToRedeem) {
+        if (pointsToRedeem > 0) {
+            // Atomic: 0 row nghĩa là điểm đã bị tiêu ở nơi khác giữa lúc tra cứu và lúc chốt.
+            int updated = userRepository.deductPointsAtomic(customer.getId(), pointsToRedeem);
+            if (updated == 0) {
+                throw new BadRequestException(
+                        "Customer does not have enough points to redeem " + pointsToRedeem + ".");
+            }
+        }
+
+        // Hoá đơn nhỏ hơn một điểm chỉ đơn giản là không được điểm nào — không phải lỗi,
+        // nếu ném exception ở đây thì cả việc trừ điểm phía trên cũng bị rollback.
+        long pointsEarned = calculatePoints(invoiceAmount);
+        if (pointsEarned > 0) {
+            addPointsToCustomer(customer.getId(), pointsEarned);
+        }
+
+        long totalPoints = customer.getPoints() - pointsToRedeem + pointsEarned;
+        return new PointSettlement(pointsToRedeem, pointsEarned, totalPoints);
     }
 
     // -------------------------------------------------------------------------
@@ -63,7 +154,7 @@ public class CashierServiceImpl implements ICashierService {
         if (customer == null) {
             customer = userRepository.findByPhone(phoneOrEmail)
                     .orElseThrow(() -> new NotFoundException(
-                            "Không tìm thấy khách hàng với SĐT hoặc email: " + phoneOrEmail
+                            "No customer found for: " + phoneOrEmail
                     ));
         }
 
@@ -77,7 +168,7 @@ public class CashierServiceImpl implements ICashierService {
      */
     private void validateIsCustomerRole(UserModel user) {
         if (user.getRole() != UserRole.CUSTOMER) {
-            throw new BadRequestException("Tài khoản này không phải khách hàng, không thể tích điểm.");
+            throw new BadRequestException("This phone or email belongs to a staff account, not a customer.");
         }
     }
 
@@ -86,18 +177,10 @@ public class CashierServiceImpl implements ICashierService {
      * Quy tắc: 10.000 VNĐ = 1 điểm. Phần lẻ dưới 10.000 VNĐ không tính.
      */
     private long calculatePoints(BigDecimal invoiceAmount) {
-        return invoiceAmount.longValue() / VND_PER_POINT;
-    }
-
-    /**
-     * Đảm bảo hóa đơn đủ lớn để được ít nhất 1 điểm.
-     */
-    private void validatePointsToAdd(long points) {
-        if (points <= 0) {
-            throw new BadRequestException(
-                    "Số tiền hóa đơn quá nhỏ. Cần ít nhất " + VND_PER_POINT + " VNĐ để tích 1 điểm."
-            );
+        if (invoiceAmount == null || vndPerPoint <= 0) {
+            return 0L;
         }
+        return invoiceAmount.longValue() / vndPerPoint;
     }
 
     /**
@@ -105,6 +188,17 @@ public class CashierServiceImpl implements ICashierService {
      */
     private void addPointsToCustomer(Long customerId, long pointsToAdd) {
         userRepository.refundPointsAtomic(customerId, pointsToAdd);
+    }
+
+    /** Ghi một dòng lịch sử tích/đổi điểm (order_id null vì tích điểm rời không qua đơn). */
+    private void savePointTransaction(Long customerId, long points, String type) {
+        PointTransactionModel transaction = new PointTransactionModel();
+        transaction.setCustomerId(customerId);
+        transaction.setOrderId(null);
+        transaction.setPoints(points);
+        transaction.setType(type);
+        transaction.setCreatedAt(LocalDateTime.now());
+        pointTransactionRepository.save(transaction);
     }
 
     /** Chuyển UserModel → CustomerLookupResponse. */
@@ -118,9 +212,10 @@ public class CashierServiceImpl implements ICashierService {
         );
     }
 
-    /** Chuyển kết quả tích điểm → AddPointsResponse. */
+    /** Chuyển kết quả chốt điểm → AddPointsResponse. */
     private AddPointsResponse toAddPointsResponse(
             UserModel customer,
+            long pointsRedeemed,
             long pointsEarned,
             long newTotalPoints,
             BigDecimal invoiceAmount
@@ -128,6 +223,7 @@ public class CashierServiceImpl implements ICashierService {
         return new AddPointsResponse(
                 customer.getFirstName(),
                 customer.getEmail(),
+                pointsRedeemed,
                 pointsEarned,
                 newTotalPoints,
                 invoiceAmount

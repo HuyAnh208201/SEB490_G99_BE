@@ -8,6 +8,8 @@ import base.api.feature.branchreceiving.dto.response.ReceivingReceiptDetailRespo
 import base.api.feature.branchreceiving.service.IBranchReceivingService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -36,6 +39,16 @@ public class BranchReceivingController extends BaseAPIController {
     @GetMapping("/orders")
     public ResponseEntity<TFUResponse<List<ReceivingOrderResponse>>> getIncomingOrders() {
         return success(branchReceivingService.getIncomingOrders());
+    }
+
+    @Operation(summary = "Paginated incoming dispatch orders for the staff's branch")
+    @PreAuthorize("@permissionChecker.has('RECEIVE_SHIPMENT')")
+    @GetMapping("/orders/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<ReceivingOrderResponse>>> getIncomingOrderPage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false) String status
+    ) {
+        return successPage(branchReceivingService.getIncomingOrderPage(pageRequest, status));
     }
 
     @Operation(summary = "Shipment detail to receive (Receive Shipment)")
@@ -66,6 +79,16 @@ public class BranchReceivingController extends BaseAPIController {
     @GetMapping("/receipts")
     public ResponseEntity<TFUResponse<List<ReceivingHistoryResponse>>> getReceivingHistory() {
         return success(branchReceivingService.getReceivingHistory());
+    }
+
+    @Operation(summary = "Paginated receiving history for the staff's branch")
+    @PreAuthorize("@permissionChecker.has('RECEIVE_SHIPMENT')")
+    @GetMapping("/receipts/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<ReceivingHistoryResponse>>> getReceivingHistoryPage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false) String status
+    ) {
+        return successPage(branchReceivingService.getReceivingHistoryPage(pageRequest, status));
     }
 
     @Operation(summary = "Receiving receipt detail")

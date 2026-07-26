@@ -18,6 +18,7 @@ import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.entity.WarehouseInventoryModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.ProductScope;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
@@ -28,6 +29,9 @@ import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.util.Ean13BarcodeGenerator;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -35,6 +39,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class ProductServiceImpl implements IProductService {
@@ -179,6 +186,82 @@ public class ProductServiceImpl implements IProductService {
                     return response;
                 })
                 .toList();
+    }
+
+    @Override
+    public Page<ProductResponse> getPage(
+            PageRequestDTO pageRequest,
+            Integer categoryId,
+            String status,
+            String scope,
+            boolean lowStockOnly
+    ) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        VisibilityContext visibility = resolveVisibility();
+        Specification<ProductModel> specification = (root, ignored, cb) -> cb.conjunction();
+
+        if (!visibility.supervisor()) {
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.equal(cb.upper(root.get("scope")), ProductScope.GLOBAL.getValue()),
+                    cb.equal(root.get("branchId"), visibility.branchId())
+            ));
+        }
+
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("code")), pattern),
+                    cb.like(cb.lower(root.get("barcode")), pattern),
+                    cb.like(cb.lower(root.get("name")), pattern),
+                    cb.like(cb.lower(root.get("description")), pattern)
+            ));
+        }
+        if (categoryId != null) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(root.get("category").get("id"), categoryId));
+        }
+        if (status != null && !status.isBlank()) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(cb.lower(root.get("status")), status.trim().toLowerCase(Locale.ROOT)));
+        }
+        if (scope != null && !scope.isBlank()) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(cb.upper(root.get("scope")), scope.trim().toUpperCase(Locale.ROOT)));
+        }
+
+        Map<Integer, WarehouseInventoryModel> warehouseStock = loadWarehouseStockMap();
+        if (lowStockOnly) {
+            Set<Integer> lowStockIds = warehouseStock.values().stream()
+                    .filter(row -> row.getReorderPoint() != null && row.getReorderPoint() > 0)
+                    .filter(row -> (row.getQuantity() == null ? 0 : row.getQuantity()) <= row.getReorderPoint())
+                    .map(WarehouseInventoryModel::getProductId)
+                    .collect(Collectors.toSet());
+            if (lowStockIds.isEmpty()) {
+                specification = specification.and((root, ignored, cb) -> cb.disjunction());
+            } else {
+                specification = specification.and((root, ignored, cb) -> root.get("id").in(lowStockIds));
+            }
+        }
+
+        Page<ProductModel> products = productRepository.findAll(
+                specification,
+                query.toPageable(
+                        "id",
+                        Sort.Direction.ASC,
+                        Set.of("id", "code", "name", "status", "createdAt", "updatedAt")));
+        Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
+        Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
+                products.getContent().stream().map(ProductModel::getId).toList());
+
+        return products.map(product -> {
+            ProductResponse response = enrichList(
+                    productMapper.toListResponse(product), branchStock, warehouseStock, visibility);
+            ProductPackagingModel top = topPackagings.getOrDefault(
+                    product.getId(), productPackagingService.getTopPackaging(product));
+            applyTopPackaging(response, top);
+            return response;
+        });
     }
 
     @Override

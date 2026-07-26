@@ -6,6 +6,7 @@ import base.api.feature.inventorycount.repository.InventoryCountSessionRepositor
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
+import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.shift.repository.ShiftRepository;
 import base.api.feature.shiftsession.dto.request.CloseInventoryShiftRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmHandoverRequest;
@@ -58,6 +59,9 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
 
     @Autowired
     private ShiftSessionRepository sessionRepository;
+
+    @Autowired
+    private PaymentRepository paymentRepository;
 
     @Autowired
     private ShiftSessionHighValueItemRepository highValueItemRepository;
@@ -264,7 +268,12 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 || !Boolean.TRUE.equals(session.getHandoverConfirmed())) {
             throw new BusinessException("Complete verification and handover before closing the shift.");
         }
-        finalizeClose(session, user);
+        // Cashier đóng ca KHÔNG hoàn tất ngay: chuyển sang chờ BM phê duyệt chênh lệch.
+        // Ca chỉ thành APPROVED khi BM duyệt (xem approveSession). Inventory staff vẫn
+        // dùng finalizeClose (→ CLOSED) vì không dính tiền.
+        session.setStatus(ShiftSessionStatus.PENDING_APPROVAL);
+        session.setClosedAt(LocalDateTime.now());
+        sessionRepository.save(session);
         ShiftModel shift = shiftRepository.findById(session.getShiftId()).orElseThrow();
         shift.setExpectedCash(session.getExpectedCash());
         shift.setActualCash(session.getActualCash());
@@ -308,6 +317,63 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 .toList();
     }
 
+    @Override
+    public List<ShiftSessionResponse> getPendingApprovals() {
+        UserModel manager = requireBranchManager();
+        return sessionRepository
+                .findByBranchIdAndStatusAndRoleOrderByClosedAtDesc(
+                        manager.getBranchId(), ShiftSessionStatus.PENDING_APPROVAL, UserRole.CASHIER)
+                .stream()
+                .map(session -> toResponse(session, resolveEmployee(session)))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public ShiftSessionResponse approveSession(Long id, String note) {
+        UserModel manager = requireBranchManager();
+        ShiftSessionModel session = requirePendingApprovalInBranch(id, manager);
+        session.setStatus(ShiftSessionStatus.APPROVED);
+        session.setReviewedBy(manager.getId());
+        session.setReviewedAt(LocalDateTime.now());
+        session.setReviewNote(note != null ? note.trim() : null);
+        sessionRepository.save(session);
+        return toResponse(session, resolveEmployee(session));
+    }
+
+    @Override
+    @Transactional
+    public ShiftSessionResponse rejectSession(Long id, String note) {
+        UserModel manager = requireBranchManager();
+        ShiftSessionModel session = requirePendingApprovalInBranch(id, manager);
+        // Trả ca về PENDING_HANDOVER và bỏ cờ handover để cashier đếm lại rồi đóng ca lại
+        // (findActiveSession nhận PENDING_HANDOVER nên cashier mở lại được màn closing).
+        session.setStatus(ShiftSessionStatus.PENDING_HANDOVER);
+        session.setHandoverConfirmed(false);
+        session.setReviewedBy(manager.getId());
+        session.setReviewedAt(LocalDateTime.now());
+        session.setReviewNote(note != null ? note.trim() : null);
+        sessionRepository.save(session);
+        return toResponse(session, resolveEmployee(session));
+    }
+
+    private ShiftSessionModel requirePendingApprovalInBranch(Long id, UserModel manager) {
+        ShiftSessionModel session = sessionRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("Shift session not found."));
+        if (session.getStatus() != ShiftSessionStatus.PENDING_APPROVAL) {
+            throw new BusinessException("Only sessions pending approval can be reviewed.");
+        }
+        if (!Objects.equals(session.getBranchId(), manager.getBranchId())) {
+            throw new BusinessException("You can only review sessions in your own branch.");
+        }
+        return session;
+    }
+
+    private UserModel resolveEmployee(ShiftSessionModel session) {
+        return userRepository.findById(session.getEmployeeId())
+                .orElseThrow(() -> new BusinessException("Session employee not found."));
+    }
+
     private void finalizeClose(ShiftSessionModel session, UserModel user) {
         session.setStatus(ShiftSessionStatus.CLOSED);
         session.setClosedAt(LocalDateTime.now());
@@ -327,6 +393,18 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
 
     private UserModel requireCashier() {
         return requireStaff();
+    }
+
+    private UserModel requireBranchManager() {
+        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+        UserRole role = currentUserProvider.getCurrentUserRole();
+        if (role != UserRole.BRANCH_MANAGER) {
+            throw new BusinessException("Only branch managers can approve cash discrepancies.");
+        }
+        if (currentUser.getBranchId() == null) {
+            throw new BusinessException("Branch manager is not assigned to a branch.");
+        }
+        return currentUser;
     }
 
     private UserModel requireInventoryStaff() {
@@ -403,9 +481,11 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             session.setOpeningFundReceivedAt(shift.getCreatedAt());
             return;
         }
+        // Chỉ ca đã được BM phê duyệt (APPROVED) mới là nguồn bàn giao hợp lệ cho ca sau —
+        // ca đang PENDING_APPROVAL chưa chốt nên không dùng để tính tiền đầu ca.
         Optional<ShiftSessionModel> previousSameDay = sessionRepository
                 .findFirstByBranchIdAndStatusAndRoleOrderByClosedAtDesc(
-                        shift.getBranchId(), ShiftSessionStatus.CLOSED, UserRole.CASHIER);
+                        shift.getBranchId(), ShiftSessionStatus.APPROVED, UserRole.CASHIER);
         if (previousSameDay.isPresent()
                 && previousSameDay.get().getClosedAt() != null
                 && previousSameDay.get().getClosedAt().toLocalDate().equals(shift.getStartTime().toLocalDate())
@@ -451,14 +531,31 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 });
     }
 
+    /**
+     * Expected = tiền đầu ca + doanh thu tiền mặt trong ca − tiền hoàn.
+     *
+     * Doanh thu đọc thẳng từ bảng payments của ca thay vì tin vào số đã lưu trên
+     * session: thu ngân vẫn bán tiếp sau khi mở màn đóng ca, nên số phải được tính
+     * lại ở mọi lần chạm vào (xem closing context, lưu nháp, bàn giao).
+     */
     private void refreshCashierTotals(ShiftSessionModel session) {
         if (session.getRole() != UserRole.CASHIER) {
             return;
         }
+        BigDecimal sales = BigDecimal.ZERO;
+        if (session.getShiftId() != null) {
+            BigDecimal taken = paymentRepository.sumCashTakenInShift(session.getShiftId());
+            sales = taken != null ? taken : BigDecimal.ZERO;
+            session.setTransactionCount(
+                    (int) paymentRepository.countTransactionsInShift(session.getShiftId()));
+        }
+        session.setCashSales(sales);
+
         BigDecimal opening = session.getOpeningFundAmount() != null
                 ? session.getOpeningFundAmount()
                 : BigDecimal.ZERO;
-        BigDecimal sales = session.getCashSales() != null ? session.getCashSales() : BigDecimal.ZERO;
+        // Chưa có luồng hoàn tiền nào trong app nên refunds luôn 0; giữ lại vế trừ
+        // để khi có refund thì chỉ cần điền số vào, không phải sửa công thức.
         BigDecimal refunds = session.getRefundAmount() != null ? session.getRefundAmount() : BigDecimal.ZERO;
         session.setExpectedCash(opening.add(sales).subtract(refunds));
     }
@@ -592,6 +689,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         response.setAdjustedProductsCount(session.getAdjustedProductsCount());
         response.setDamagedProductsCount(session.getDamagedProductsCount());
         response.setMissingProductsCount(session.getMissingProductsCount());
+        response.setReviewNote(session.getReviewNote());
         response.setEmployeeName(formatName(user));
 
         if (session.getOpeningFundReceivedFrom() != null) {
@@ -601,6 +699,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         if (session.getHandoverToEmployeeId() != null) {
             userRepository.findById(session.getHandoverToEmployeeId())
                     .ifPresent(u -> response.setHandoverToEmployeeName(formatName(u)));
+        }
+        if (session.getReviewedBy() != null) {
+            userRepository.findById(session.getReviewedBy())
+                    .ifPresent(u -> response.setReviewedByName(formatName(u)));
         }
 
         branchRepository.findById(session.getBranchId())

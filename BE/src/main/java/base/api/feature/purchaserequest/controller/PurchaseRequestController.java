@@ -14,7 +14,9 @@ import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
 import base.api.feature.purchaserequest.service.IPurchaseRequestService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.enums.PurchaseRequestStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -121,9 +123,12 @@ public class PurchaseRequestController extends BaseAPIController {
     @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping
     public ResponseEntity<TFUResponse<base.api.shared.dto.PageResponseDTO<PurchaseRequestSummaryResponse>>> getRequestHistory(
-            @ModelAttribute PageRequestDTO pageRequest
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) PurchaseRequestStatus status,
+            @RequestParam(required = false) Long branchId
     ) {
-        Page<PurchaseRequestSummaryResponse> page = purchaseRequestService.getRequestHistory(pageRequest);
+        Page<PurchaseRequestSummaryResponse> page = purchaseRequestService.getRequestHistory(
+                pageRequest, status, branchId);
         return successPage(page);
     }
 
@@ -157,5 +162,14 @@ public class PurchaseRequestController extends BaseAPIController {
     @GetMapping("/consolidated")
     public ResponseEntity<TFUResponse<List<ConsolidatedBranchResponse>>> getConsolidatedRequests() {
         return success(purchaseRequestService.getConsolidatedRequests());
+    }
+
+    @Operation(summary = "Get paginated consolidated purchase requests")
+    @PreAuthorize("@permissionChecker.hasAny('APPROVE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS')")
+    @GetMapping("/consolidated/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<ConsolidatedBranchResponse>>> getConsolidatedRequestPage(
+            @ModelAttribute PageRequestDTO pageRequest
+    ) {
+        return successPage(purchaseRequestService.getConsolidatedRequestPage(pageRequest));
     }
 }

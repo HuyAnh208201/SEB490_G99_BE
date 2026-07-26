@@ -13,12 +13,17 @@ import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.entity.WarehouseInventoryModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,6 +34,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.Locale;
 
 @Service
 public class InventoryServiceImpl implements IInventoryService {
@@ -100,6 +106,93 @@ public class InventoryServiceImpl implements IInventoryService {
                 BranchInventoryItemResponse::getProductName,
                 Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         return rows;
+    }
+
+    @Override
+    public Page<WarehouseInventoryItemResponse> getWarehouseInventoryPage(
+            PageRequestDTO pageRequest,
+            boolean lowStockOnly
+    ) {
+        assertCanViewCentralInventory();
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<WarehouseInventoryModel> specification = (root, ignored, cb) -> cb.conjunction();
+        Set<Integer> matchingProductIds = findMatchingProductIds(query.normalizedSearch());
+        if (query.normalizedSearch() != null) {
+            specification = matchingProductIds.isEmpty()
+                    ? specification.and((root, ignored, cb) -> cb.disjunction())
+                    : specification.and((root, ignored, cb) -> root.get("productId").in(matchingProductIds));
+        }
+        if (lowStockOnly) {
+            specification = specification.and((root, ignored, cb) -> cb.and(
+                    cb.greaterThan(root.get("reorderPoint"), 0),
+                    cb.lessThanOrEqualTo(root.get("quantity"), root.get("reorderPoint"))));
+        }
+        Page<WarehouseInventoryModel> page = warehouseInventoryRepository.findAll(
+                specification,
+                query.toPageable(
+                        "id",
+                        Sort.Direction.ASC,
+                        Set.of("id", "productId", "quantity", "reorderPoint")));
+        return new PageImpl<>(mapWarehouseRows(page.getContent()), page.getPageable(), page.getTotalElements());
+    }
+
+    @Override
+    public Page<BranchInventoryItemResponse> getBranchInventoryPage(
+            Long branchId,
+            PageRequestDTO pageRequest
+    ) {
+        assertCanViewBranchInventory(branchId);
+        BranchModel branch = branchRepository.findById(branchId)
+                .orElseThrow(() -> new NotFoundException("Branch not found."));
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<BranchInventoryModel> specification = (root, ignored, cb) ->
+                cb.equal(root.get("branchId"), branchId);
+        Set<Integer> matchingProductIds = findMatchingProductIds(query.normalizedSearch());
+        if (query.normalizedSearch() != null) {
+            specification = matchingProductIds.isEmpty()
+                    ? specification.and((root, ignored, cb) -> cb.disjunction())
+                    : specification.and((root, ignored, cb) -> root.get("productId").in(matchingProductIds));
+        }
+        Page<BranchInventoryModel> page = branchInventoryRepository.findAll(
+                specification,
+                query.toPageable("id", Sort.Direction.ASC, Set.of("id", "productId", "currentStock")));
+        Set<Integer> productIds = page.getContent().stream()
+                .map(BranchInventoryModel::getProductId)
+                .collect(Collectors.toSet());
+        Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
+        List<BranchInventoryItemResponse> rows = page.getContent().stream().map(row -> {
+            ProductModel product = productsById.get(row.getProductId());
+            BranchInventoryItemResponse response = new BranchInventoryItemResponse();
+            response.setInventoryId(row.getId());
+            response.setBranchId(branchId);
+            response.setBranchName(branch.getName());
+            response.setProductId(row.getProductId());
+            response.setProductCode(product == null ? null : product.getCode());
+            response.setProductName(product == null ? null : product.getName());
+            response.setUnit(product == null ? null : product.getUnit());
+            response.setQuantity(safeQty(row.getCurrentStock()));
+            if (product != null) {
+                var topPackaging = productPackagingService.getTopPackaging(product);
+                response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
+                response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
+            }
+            return response;
+        }).toList();
+        return new PageImpl<>(rows, page.getPageable(), page.getTotalElements());
+    }
+
+    private Set<Integer> findMatchingProductIds(String search) {
+        if (search == null) {
+            return Set.of();
+        }
+        String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+        Specification<ProductModel> specification = (root, ignored, cb) -> cb.or(
+                cb.like(cb.lower(root.get("code")), pattern),
+                cb.like(cb.lower(root.get("barcode")), pattern),
+                cb.like(cb.lower(root.get("name")), pattern));
+        return productRepository.findAll(specification).stream()
+                .map(ProductModel::getId)
+                .collect(Collectors.toSet());
     }
 
     private List<WarehouseInventoryItemResponse> mapWarehouseRows(List<WarehouseInventoryModel> inventoryRows) {

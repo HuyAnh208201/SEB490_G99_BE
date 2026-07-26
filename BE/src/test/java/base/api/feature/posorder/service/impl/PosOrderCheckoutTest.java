@@ -1,0 +1,169 @@
+package base.api.feature.posorder.service.impl;
+
+import base.api.feature.auth.service.IUserService;
+import base.api.feature.cashier.service.ICashierService;
+import base.api.feature.posorder.dto.request.CheckoutLineRequest;
+import base.api.feature.posorder.dto.request.CheckoutRequest;
+import base.api.feature.posorder.dto.response.OrderResponse;
+import base.api.feature.posorder.repository.OrderDiscountRepository;
+import base.api.feature.posorder.repository.OrderItemRepository;
+import base.api.feature.posorder.repository.OrderRepository;
+import base.api.feature.posorder.repository.PaymentRepository;
+import base.api.feature.posorder.repository.VoucherCatalogRepository;
+import base.api.feature.posorder.repository.VoucherRepository;
+import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.report.repository.PointTransactionRepository;
+import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
+import base.api.feature.shift.repository.ShiftRepository;
+import base.api.shared.entity.OrderItemModel;
+import base.api.shared.entity.OrderModel;
+import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.UserModel;
+import base.api.shared.enums.UserRole;
+import base.api.shared.exception.BusinessException;
+import base.api.shared.security.CurrentUserProvider;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class PosOrderCheckoutTest {
+
+    private static final Long BRANCH_ID = 10L;
+
+    @Mock private OrderRepository orderRepository;
+    @Mock private OrderItemRepository orderItemRepository;
+    @Mock private OrderDiscountRepository orderDiscountRepository;
+    @Mock private PaymentRepository paymentRepository;
+    @Mock private VoucherRepository voucherRepository;
+    @Mock private VoucherCatalogRepository voucherCatalogRepository;
+    @Mock private IProductRepository productRepository;
+    @Mock private BranchInventoryRepository branchInventoryRepository;
+    @Mock private ShiftRepository shiftRepository;
+    @Mock private IUserService userService;
+    @Mock private ICashierService cashierService;
+    @Mock private PointTransactionRepository pointTransactionRepository;
+    @Mock private CurrentUserProvider currentUserProvider;
+
+    @InjectMocks
+    private PosOrderServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        UserModel cashier = new UserModel();
+        cashier.setId(3L);
+        cashier.setBranchId(BRANCH_ID);
+        cashier.setRole(UserRole.CASHIER);
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.CASHIER);
+        when(shiftRepository
+                .findByBranchIdAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
+                        anyLong(), any(), any()))
+                .thenReturn(List.of());
+        when(orderRepository.save(any())).thenAnswer(call -> {
+            OrderModel order = call.getArgument(0);
+            if (order.getId() == null) order.setId(99L);
+            return order;
+        });
+    }
+
+    @Test
+    void pricesComeFromTheDatabaseNotTheClient() {
+        stubProduct(1, "Sữa tươi", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
+
+        OrderResponse response = service.checkout(cashRequest(1, 2, "100000"));
+
+        // 2 × 12.000 = 24.000, bất kể client gửi gì.
+        assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
+        ArgumentCaptor<List<OrderItemModel>> items = ArgumentCaptor.forClass(List.class);
+        verify(orderItemRepository).saveAll(items.capture());
+        assertEquals(0, new BigDecimal("12000").compareTo(items.getValue().get(0).getUnitPrice()));
+    }
+
+    @Test
+    void outOfStockRejectsTheWholeOrder() {
+        stubProduct(1, "Sữa tươi", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), anyInt())).thenReturn(0);
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.checkout(cashRequest(1, 99, "5000000")));
+
+        assertTrue(error.getMessage().contains("Not enough stock"));
+        // Đơn chưa được ghi và điểm chưa bị đụng vào.
+        verify(orderItemRepository, never()).saveAll(any());
+        verify(paymentRepository, never()).save(any());
+        verify(cashierService, never()).settlePoints(any(), any(), anyLong());
+    }
+
+    @Test
+    void cashBelowTheAmountDueIsRejected() {
+        stubProduct(1, "Sữa tươi", "12000");
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.checkout(cashRequest(1, 2, "1000")));
+
+        assertTrue(error.getMessage().contains("Cash received"));
+        // Chưa trừ kho vì tiền không đủ đã chặn từ trước.
+        verify(branchInventoryRepository, never()).deductStock(anyLong(), anyInt(), anyInt());
+    }
+
+    @Test
+    void duplicateLinesOfTheSameProductAreMergedBeforeTheStockCheck() {
+        stubProduct(1, "Sữa tươi", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(5))).thenReturn(1);
+
+        CheckoutRequest request = cashRequest(1, 2, "100000");
+        request.getLines().add(line(1, 3));
+
+        service.checkout(request);
+
+        // Một lần trừ 5, không phải hai lần trừ 2 và 3 — nếu tách thì mỗi lần đều
+        // lọt qua trong khi tổng đã vượt kho.
+        verify(branchInventoryRepository).deductStock(BRANCH_ID, 1, 5);
+    }
+
+    private void stubProduct(int id, String name, String price) {
+        ProductModel product = new ProductModel();
+        product.setId(id);
+        product.setName(name);
+        product.setDefaultSalePrice(new BigDecimal(price));
+        when(productRepository.findAllById(any())).thenReturn(List.of(product));
+    }
+
+    private CheckoutRequest cashRequest(int productId, int qty, String cashReceived) {
+        CheckoutRequest request = new CheckoutRequest();
+        request.getLines().add(line(productId, qty));
+        request.setPaymentMethod("CASH");
+        request.setCashReceived(new BigDecimal(cashReceived));
+        return request;
+    }
+
+    private CheckoutLineRequest line(int productId, int qty) {
+        CheckoutLineRequest line = new CheckoutLineRequest();
+        line.setProductId(productId);
+        line.setQuantity(qty);
+        return line;
+    }
+}

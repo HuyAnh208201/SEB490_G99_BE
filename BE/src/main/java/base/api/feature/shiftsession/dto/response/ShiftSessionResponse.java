@@ -43,6 +43,10 @@ public class ShiftSessionResponse {
     private Integer damagedProductsCount;
     private Integer missingProductsCount;
 
+    /** BM cash-discrepancy review outcome (set once the session is approved/rejected). */
+    private String reviewNote;
+    private String reviewedByName;
+
     private ShiftBriefResponse shift;
     private String employeeName;
     private String branchName;

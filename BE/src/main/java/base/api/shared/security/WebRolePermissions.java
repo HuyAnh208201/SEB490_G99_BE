@@ -37,7 +37,8 @@ public final class WebRolePermissions {
                 WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
-                WebPermission.VIEW_BRANCH_INVENTORY
+                WebPermission.VIEW_BRANCH_INVENTORY,
+                WebPermission.REPORTS_VIEW
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(
@@ -59,7 +60,8 @@ public final class WebRolePermissions {
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
-                WebPermission.VIEW_BRANCH_INVENTORY
+                WebPermission.VIEW_BRANCH_INVENTORY,
+                WebPermission.REPORTS_VIEW
         ));
 
         map.put(UserRole.BRANCH_MANAGER, EnumSet.of(
@@ -71,13 +73,15 @@ public final class WebRolePermissions {
                 WebPermission.PROMOTION_DETAILS,
                 WebPermission.PROMOTION_MANAGEMENT,
                 WebPermission.APPROVE_CASH_DISCREPANCY,
+                WebPermission.REFUND_APPROVAL,
                 WebPermission.BRANCH_REVENUE_PROMOS,
                 WebPermission.SHIFT_MANAGEMENT,
                 WebPermission.CREATE_IMPORT_REQUEST,
                 WebPermission.VIEW_BRANCH_INVENTORY,
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.INVENTORY_COUNT,
-                WebPermission.MY_SHIFTS
+                WebPermission.MY_SHIFTS,
+                WebPermission.REPORTS_VIEW
         ));
 
         map.put(UserRole.WAREHOUSE_MANAGER, EnumSet.of(
@@ -102,7 +106,9 @@ public final class WebRolePermissions {
         map.put(UserRole.CASHIER, EnumSet.of(
                 WebPermission.CASHIER_ADD_POINTS,
                 WebPermission.CASHIER_CLOSE_SHIFT,
-                WebPermission.MY_SHIFTS
+                WebPermission.MY_SHIFTS,
+                WebPermission.POS_CHECKOUT,
+                WebPermission.REFUND_REQUEST
         ));
 
         return Collections.unmodifiableMap(map);

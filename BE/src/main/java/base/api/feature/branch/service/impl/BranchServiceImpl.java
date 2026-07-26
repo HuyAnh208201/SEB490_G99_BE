@@ -27,15 +27,21 @@ import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import base.api.shared.dto.PageRequestDTO;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.regex.Pattern;
 
 @Service
@@ -148,6 +154,61 @@ public class BranchServiceImpl implements IBranchService {
         }
 
         throw new ForbiddenException("You do not have permission to list branches.");
+    }
+
+    @Override
+    public Page<BranchResponse> getBranchPage(PageRequestDTO pageRequest, String status) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        UserRole role = currentUserProvider.getCurrentUserRole();
+        UserRole webRole = role == null ? null : role.toWebRole();
+
+        if (webRole == UserRole.BRANCH_MANAGER) {
+            UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
+            List<BranchResponse> content = currentUser.getBranchId() == null
+                    ? List.of()
+                    : branchRepository.findById(currentUser.getBranchId()).stream()
+                    .filter(branch -> status == null || status.isBlank()
+                            || branch.getStatus().equalsIgnoreCase(status.trim()))
+                    .filter(branch -> matchesBranchSearch(branch, query.normalizedSearch()))
+                    .map(branch -> branchMapper.toListResponse(branch, resolveManagerName(branch.getManagerId())))
+                    .toList();
+            return new PageImpl<>(content, query.toPageable(), content.size());
+        }
+
+        if (webRole != UserRole.ADMIN && webRole != UserRole.DIRECTOR) {
+            throw new ForbiddenException("You do not have permission to list branches.");
+        }
+
+        Specification<BranchModel> specification = (root, ignored, cb) -> cb.conjunction();
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("name")), pattern),
+                    cb.like(cb.lower(root.get("address")), pattern),
+                    cb.like(cb.lower(root.get("phone")), pattern),
+                    cb.like(cb.lower(root.get("area")), pattern),
+                    cb.like(cb.lower(root.get("route")), pattern)
+            ));
+        }
+        if (status != null && !status.isBlank()) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(cb.lower(root.get("status")), status.trim().toLowerCase(Locale.ROOT)));
+        }
+        return branchRepository.findAll(
+                        specification,
+                        query.toPageable("id", Sort.Direction.ASC, Set.of("id", "name", "status", "area")))
+                .map(branch -> branchMapper.toListResponse(branch, resolveManagerName(branch.getManagerId())));
+    }
+
+    private boolean matchesBranchSearch(BranchModel branch, String search) {
+        if (search == null) {
+            return true;
+        }
+        String normalized = search.toLowerCase(Locale.ROOT);
+        return Stream.of(branch.getName(), branch.getAddress(), branch.getPhone(), branch.getArea(), branch.getRoute())
+                .filter(value -> value != null)
+                .anyMatch(value -> value.toLowerCase(Locale.ROOT).contains(normalized));
     }
 
     @Override

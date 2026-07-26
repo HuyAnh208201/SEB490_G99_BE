@@ -6,6 +6,8 @@ import base.api.feature.supplier.dto.response.SupplierResponse;
 import base.api.feature.supplier.service.ISupplierService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -21,6 +23,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -48,6 +52,15 @@ public class SupplierController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<SupplierResponse>>> getAll() {
         return success(supplierService.getAll());
+    }
+
+    @Operation(summary = "Search, filter and paginate suppliers")
+    @PreAuthorize("@permissionChecker.hasAny('SUPPLIER_MANAGEMENT', 'CHOOSE_EXTERNAL_SUPPLIER')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<SupplierResponse>>> getPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) String status) {
+        return successPage(supplierService.getPage(pageRequest, status));
     }
 
     @Operation(summary = "Get supplier detail")

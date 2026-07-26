@@ -6,6 +6,8 @@ import base.api.feature.product.dto.response.ProductResponse;
 import base.api.feature.product.service.IProductService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -21,6 +23,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -47,6 +51,17 @@ public class ProductController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<ProductResponse>>> getAll() {
         return success(productService.getAll());
+    }
+
+    @Operation(summary = "Search, filter and paginate products")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<ProductResponse>>> getPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String scope,
+            @RequestParam(defaultValue = "false") boolean lowStockOnly) {
+        return successPage(productService.getPage(pageRequest, categoryId, status, scope, lowStockOnly));
     }
 
     @Operation(summary = "Generate unique EAN-13 barcode (893 prefix)")

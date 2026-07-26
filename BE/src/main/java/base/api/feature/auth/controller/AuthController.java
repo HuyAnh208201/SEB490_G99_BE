@@ -14,6 +14,9 @@ import base.api.feature.auth.service.IAuthService;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
+import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
@@ -26,6 +29,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -118,6 +122,19 @@ public class AuthController extends BaseAPIController {
     public ResponseEntity<TFUResponse<Iterable<UserModel>>> getListUsers(){
         Iterable<UserModel> users = userService.getAllUsers();
         return success(users);
+    }
+
+    @Operation(summary = "Search, filter and paginate users")
+    @PreAuthorize("@permissionChecker.has('USER_MANAGEMENT_LIST')")
+    @GetMapping("get-list-users/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<UserDto>>> getUserPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) UserRole role,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String status) {
+        Page<UserDto> page = userService.getUserPage(pageRequest, role, branchId, status)
+                .map(user -> mapper.map(user, UserDto.class));
+        return successPage(page);
     }
 
     @Operation(summary = "Bắt đầu quên mật khẩu", description = "**Public.** Gửi mã xác thực đến email/SĐT. Dùng mã này để hoàn tất đặt lại mật khẩu.")

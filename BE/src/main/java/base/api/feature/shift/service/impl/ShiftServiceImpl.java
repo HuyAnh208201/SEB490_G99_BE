@@ -4,12 +4,11 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.shift.dto.request.AssignEmployeesRequest;
 import base.api.feature.shift.dto.request.AssignSlotRequest;
-import base.api.feature.shift.dto.request.CloseShiftRequest;
 import base.api.feature.shift.dto.request.CreateShiftRequest;
 import base.api.feature.shift.dto.request.ReplaceAssignedEmployeeRequest;
-import base.api.feature.shift.dto.request.ReviewShiftRequest;
 import base.api.feature.shift.dto.request.SetupAndPublishWeekRequest;
 import base.api.feature.shift.dto.request.SetupWeekSlotRequest;
+import base.api.feature.shift.dto.request.UpdateOpeningCashRequest;
 import base.api.feature.shift.dto.request.UpdateShiftRequest;
 import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.AssignedEmployeeResponse;
@@ -38,6 +37,7 @@ import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
@@ -82,6 +82,10 @@ public class ShiftServiceImpl implements IShiftService {
     @Autowired
     private CurrentUserProvider currentUserProvider;
 
+    /** Cash float handed to the first shift of each day when the caller does not supply one. */
+    @Value("${shift.default-opening-cash:2000000}")
+    private BigDecimal defaultOpeningCash;
+
     @Override
     @Transactional
     public ShiftResponse create(CreateShiftRequest request) {
@@ -93,12 +97,18 @@ public class ShiftServiceImpl implements IShiftService {
         validateNonNegativeMoney(request.getOpeningCash(), "Opening cash must be greater than or equal to 0.");
         validateNonNegativeMoney(request.getExpectedCash(), "Expected cash must be greater than or equal to 0.");
 
+        BigDecimal openingCash = request.getOpeningCash();
+        if (openingCash == null
+                && isEarliestShiftOfDay(request.getBranchId(), request.getStartTime())) {
+            openingCash = defaultOpeningCash;
+        }
+
         ShiftModel shift = new ShiftModel();
         shift.setBranchId(request.getBranchId());
         shift.setCreatedBy(currentUser.getId());
         shift.setStartTime(request.getStartTime());
         shift.setEndTime(request.getEndTime());
-        shift.setOpeningCash(request.getOpeningCash());
+        shift.setOpeningCash(openingCash);
         shift.setExpectedCash(request.getExpectedCash());
         shift.setStatus(ShiftStatus.DRAFT);
 
@@ -125,6 +135,20 @@ public class ShiftServiceImpl implements IShiftService {
         shift.setActualCash(request.getActualCash());
         shift.setDifference(calculateDifference(request.getExpectedCash(), request.getActualCash()));
 
+        return toResponse(shiftRepository.save(shift));
+    }
+
+    @Override
+    @Transactional
+    public ShiftResponse updateOpeningCash(Long id, UpdateOpeningCashRequest request) {
+        ShiftModel shift = findShiftOrThrow(id);
+        assertCanManageShift(shift);
+        assertOpeningCashEditable(shift);
+        validateNonNegativeMoney(
+                request.getOpeningCash(),
+                "Opening cash must be greater than or equal to 0.");
+
+        shift.setOpeningCash(request.getOpeningCash());
         return toResponse(shiftRepository.save(shift));
     }
 
@@ -265,9 +289,11 @@ public class ShiftServiceImpl implements IShiftService {
     public ShiftResponse assignToSlot(AssignSlotRequest request) {
         UserModel currentUser = requireBranchManager();
         assertOwnBranch(request.getBranchId(), currentUser);
-        validateBranchExists(request.getBranchId());
+        BranchModel branch = findBranchOrThrow(request.getBranchId());
         validateShiftTime(request.getStartTime(), request.getEndTime());
+        validateNonNegativeMoney(request.getOpeningCash(), "Opening cash must be greater than or equal to 0.");
 
+        boolean firstOfDay = isFirstTemplateSlot(branch, request.getStartTime(), request.getEndTime());
         List<Long> cashiers = normalizeIds(request.getCashiers());
         List<Long> inventoryStaff = normalizeIds(request.getInventoryStaff());
         ensureNoRoleOverlap(cashiers, inventoryStaff);
@@ -289,6 +315,12 @@ public class ShiftServiceImpl implements IShiftService {
                 shiftRepository.delete(shift);
                 return null;
             }
+            // Only overwrite when the caller actually sent a figure — a plain re-save of the
+            // staffing grid must not reset a float the BM already adjusted.
+            if (firstOfDay && request.getOpeningCash() != null) {
+                shift.setOpeningCash(request.getOpeningCash());
+                shift = shiftRepository.save(shift);
+            }
             List<ShiftAssignmentModel> assignments =
                     syncSlotAssignments(shift, cashiers, inventoryStaff);
             return shiftMapper.toResponse(shift, assignments);
@@ -305,7 +337,7 @@ public class ShiftServiceImpl implements IShiftService {
         shift.setCreatedBy(currentUser.getId());
         shift.setStartTime(request.getStartTime());
         shift.setEndTime(request.getEndTime());
-        shift.setOpeningCash(BigDecimal.ZERO);
+        shift.setOpeningCash(resolveOpeningCash(request.getOpeningCash(), firstOfDay));
         shift.setExpectedCash(BigDecimal.ZERO);
         shift.setStatus(ShiftStatus.DRAFT);
         shift = shiftRepository.save(shift);
@@ -363,7 +395,7 @@ public class ShiftServiceImpl implements IShiftService {
     public CopyWeekResponse copyPreviousWeek(WeekScheduleRequest request) {
         UserModel currentUser = requireBranchManager();
         assertOwnBranch(request.getBranchId(), currentUser);
-        validateBranchExists(request.getBranchId());
+        BranchModel branch = findBranchOrThrow(request.getBranchId());
 
         LocalDate targetWeekStart = mondayOf(requireDate(request.getWeekStart(), "Week start is required."));
         LocalDate sourceWeekStart = targetWeekStart.minusDays(7);
@@ -472,7 +504,10 @@ public class ShiftServiceImpl implements IShiftService {
                 draft.setCreatedBy(currentUser.getId());
                 draft.setStartTime(targetStart);
                 draft.setEndTime(targetEndTime);
-                draft.setOpeningCash(BigDecimal.ZERO);
+                // Carry last week's float forward so the copied week does not silently reset to 0.
+                draft.setOpeningCash(resolveOpeningCash(
+                        source.getOpeningCash(),
+                        isFirstTemplateSlot(branch, targetStart, targetEndTime)));
                 draft.setExpectedCash(BigDecimal.ZERO);
                 draft.setStatus(ShiftStatus.DRAFT);
                 draft = shiftRepository.save(draft);
@@ -507,8 +542,7 @@ public class ShiftServiceImpl implements IShiftService {
     public WeekSetupResponse getWeekSetup(Long branchId, LocalDate weekStart) {
         UserModel currentUser = requireBranchManager();
         assertOwnBranch(branchId, currentUser);
-        BranchModel branch = branchRepository.findById(branchId)
-                .orElseThrow(() -> new NotFoundException("Branch not found."));
+        BranchModel branch = findBranchOrThrow(branchId);
 
         LocalDate normalizedWeekStart = mondayOf(requireDate(weekStart, "Week start is required."));
         List<ShiftSlotDeriver.SlotTemplate> templates = ShiftSlotDeriver.derive(branch.getOperatingHours());
@@ -574,6 +608,10 @@ public class ShiftServiceImpl implements IShiftService {
                             .map(shiftMapper::toAssignedEmployeeResponse)
                             .toList();
                     slot.setShiftId(match.getId());
+                    // Show what is stored; legacy rows with no float fall back to the suggestion.
+                    slot.setOpeningCash(match.getOpeningCash() != null
+                            ? match.getOpeningCash()
+                            : resolveOpeningCash(null, template.first()));
                     slot.setStatus(match.getStatus() != null ? match.getStatus().name() : null);
                     slot.setPublished(match.getStatus() == ShiftStatus.PUBLISHED);
                     slot.setReadOnly(match.getStatus() == ShiftStatus.PUBLISHED);
@@ -589,6 +627,7 @@ public class ShiftServiceImpl implements IShiftService {
                 } else {
                     slot.setPublished(false);
                     slot.setReadOnly(false);
+                    slot.setOpeningCash(resolveOpeningCash(null, template.first()));
                 }
                 slots.add(slot);
             }
@@ -602,8 +641,7 @@ public class ShiftServiceImpl implements IShiftService {
     public SetupAndPublishWeekResponse setupAndPublishWeek(SetupAndPublishWeekRequest request) {
         UserModel currentUser = requireBranchManager();
         assertOwnBranch(request.getBranchId(), currentUser);
-        BranchModel branch = branchRepository.findById(request.getBranchId())
-                .orElseThrow(() -> new NotFoundException("Branch not found."));
+        BranchModel branch = findBranchOrThrow(request.getBranchId());
 
         LocalDate weekStart = mondayOf(requireDate(request.getWeekStart(), "Week start is required."));
         List<ShiftSlotDeriver.SlotTemplate> templates = ShiftSlotDeriver.derive(branch.getOperatingHours());
@@ -688,6 +726,9 @@ public class ShiftServiceImpl implements IShiftService {
             List<Long> cashiers = normalizeIds(slotReq.getCashiers());
             List<Long> inventoryStaff = normalizeIds(slotReq.getInventoryStaff());
             ensureNoRoleOverlap(cashiers, inventoryStaff);
+            validateNonNegativeMoney(
+                    slotReq.getOpeningCash(),
+                    "Opening cash must be greater than or equal to 0.");
             int total = cashiers.size() + inventoryStaff.size();
             if (total < 1) {
                 throw new BusinessException(
@@ -732,6 +773,7 @@ public class ShiftServiceImpl implements IShiftService {
             List<Long> inventoryStaff = normalizeIds(slotReq.getInventoryStaff());
 
             ShiftModel shift = virtual.existing();
+            boolean isNewShift = shift == null;
             if (shift == null) {
                 boolean overlaps = weekShifts.stream()
                         .anyMatch(existing -> existing.getStartTime().isBefore(virtual.end())
@@ -744,13 +786,19 @@ public class ShiftServiceImpl implements IShiftService {
                 shift.setCreatedBy(currentUser.getId());
                 shift.setStartTime(virtual.start());
                 shift.setEndTime(virtual.end());
-                shift.setOpeningCash(BigDecimal.ZERO);
                 shift.setExpectedCash(BigDecimal.ZERO);
                 shift.setStatus(ShiftStatus.DRAFT);
                 shift = shiftRepository.save(shift);
                 weekShifts.add(shift);
             } else if (shift.getStatus() != ShiftStatus.DRAFT) {
                 throw new BusinessException("Slot " + slotKey(virtual.start(), virtual.end()) + " is not editable.");
+            }
+            // A new slot gets the resolved float. An existing draft only changes when the caller
+            // sent a figure, so re-publishing never wipes a handover already recorded on it.
+            if (isNewShift) {
+                shift.setOpeningCash(resolveOpeningCash(slotReq.getOpeningCash(), virtual.first()));
+            } else if (virtual.first() && slotReq.getOpeningCash() != null) {
+                shift.setOpeningCash(slotReq.getOpeningCash());
             }
 
             AssignmentChanges changes = planSlotAssignmentSync(
@@ -1046,115 +1094,6 @@ public class ShiftServiceImpl implements IShiftService {
         return shiftMapper.toResponse(shift, assignmentRepository.findByShiftId(shift.getId()));
     }
 
-    // =========================================================================
-    // Đóng ca và đối soát tiền
-    // =========================================================================
-
-    @Override
-    @Transactional
-    public ShiftResponse closeShift(Long shiftId, CloseShiftRequest request) {
-        ShiftModel shift = findShiftOrThrow(shiftId);
-        UserModel currentUser = requireStaffOrCashier();
-
-        validateShiftBelongsToStaffBranch(shift, currentUser);
-        validateShiftCanBeClosed(shift);
-        validateNonNegativeMoney(request.getActualCash(), "Số tiền thực tế không được âm.");
-
-        shift.setActualCash(request.getActualCash());
-        shift.setDifference(calculateDifference(shift.getExpectedCash(), request.getActualCash()));
-        shift.setClosedBy(currentUser.getId());
-        shift.setStaffNote(request.getNote());
-        shift.setStatus(ShiftStatus.CLOSED);
-
-        return toResponse(shiftRepository.save(shift));
-    }
-
-    @Override
-    @Transactional
-    public ShiftResponse approveShift(Long shiftId, ReviewShiftRequest request) {
-        ShiftModel shift = findShiftOrThrow(shiftId);
-        UserModel currentUser = requireBranchManager();
-
-        assertOwnBranch(shift.getBranchId(), currentUser);
-        validateShiftCanBeReviewed(shift);
-
-        shift.setApprovedBy(currentUser.getId());
-        shift.setReviewNote(request.getNote());
-        shift.setStatus(ShiftStatus.APPROVED);
-
-        return toResponse(shiftRepository.save(shift));
-    }
-
-    @Override
-    @Transactional
-    public ShiftResponse rejectShift(Long shiftId, ReviewShiftRequest request) {
-        ShiftModel shift = findShiftOrThrow(shiftId);
-        UserModel currentUser = requireBranchManager();
-
-        assertOwnBranch(shift.getBranchId(), currentUser);
-        validateShiftCanBeReviewed(shift);
-
-        shift.setApprovedBy(currentUser.getId());
-        shift.setReviewNote(request.getNote());
-        shift.setStatus(ShiftStatus.REJECTED);
-
-        return toResponse(shiftRepository.save(shift));
-    }
-
-    // =========================================================================
-    // Private helpers — đóng ca
-    // =========================================================================
-
-    /**
-     * Chỉ cho phép Staff (Cashier hoặc Inventory Staff) đóng ca.
-     */
-    private UserModel requireStaffOrCashier() {
-        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
-        UserRole role = currentUserProvider.getCurrentUserRole();
-
-        boolean isStaff = role == UserRole.CASHIER || role == UserRole.INVENTORY_STAFF;
-        if (!isStaff) {
-            throw new BusinessException("Đóng ca chỉ dành cho Cashier hoặc Inventory Staff.");
-        }
-        if (currentUser.getBranchId() == null) {
-            throw new BusinessException("Staff chưa được phân công vào chi nhánh nào.");
-        }
-        return currentUser;
-    }
-
-    /**
-     * Kiểm tra ca thuộc đúng chi nhánh của staff đang đăng nhập.
-     */
-    private void validateShiftBelongsToStaffBranch(ShiftModel shift, UserModel staff) {
-        if (!shift.getBranchId().equals(staff.getBranchId())) {
-            throw new BusinessException("Ca này không thuộc chi nhánh của bạn.");
-        }
-    }
-
-    /**
-     * Ca chỉ đóng được khi đang PUBLISHED hoặc REJECTED (nộp lại sau khi bị từ chối).
-     */
-    private void validateShiftCanBeClosed(ShiftModel shift) {
-        boolean canClose = shift.getStatus() == ShiftStatus.PUBLISHED
-                || shift.getStatus() == ShiftStatus.REJECTED;
-        if (!canClose) {
-            throw new BusinessException(
-                    "Chỉ đóng được ca đang PUBLISHED hoặc REJECTED. Trạng thái hiện tại: " + shift.getStatus()
-            );
-        }
-    }
-
-    /**
-     * BM chỉ phê duyệt / từ chối được ca đang CLOSED.
-     */
-    private void validateShiftCanBeReviewed(ShiftModel shift) {
-        if (shift.getStatus() != ShiftStatus.CLOSED) {
-            throw new BusinessException(
-                    "Chỉ đối soát được ca đang CLOSED. Trạng thái hiện tại: " + shift.getStatus()
-            );
-        }
-    }
-
     private WeeklyScheduleResponse buildWeeklySchedule(
             Long branchId,
             LocalDate weekStart,
@@ -1312,6 +1251,61 @@ public class ShiftServiceImpl implements IShiftService {
         return actualCash.subtract(expectedCash);
     }
 
+    // =========================================================================
+    // Opening cash float
+    // =========================================================================
+
+    /**
+     * The first slot of the day takes the float the BM supplied, falling back to the
+     * configured default. Later slots start at 0 and are overwritten by the cash handover
+     * recorded on the previous shift session when it is approved (see the shift-session flow).
+     */
+    private BigDecimal resolveOpeningCash(BigDecimal requested, boolean firstOfDay) {
+        if (!firstOfDay) {
+            return BigDecimal.ZERO;
+        }
+        return requested != null ? requested : defaultOpeningCash;
+    }
+
+    /** True when the window matches the branch's first derived slot template of the day. */
+    private boolean isFirstTemplateSlot(
+            BranchModel branch,
+            LocalDateTime startTime,
+            LocalDateTime endTime) {
+
+        List<ShiftSlotDeriver.SlotTemplate> templates =
+                ShiftSlotDeriver.derive(branch.getOperatingHours());
+        if (templates.isEmpty()) {
+            return false;
+        }
+        ShiftSlotDeriver.SlotTemplate first = templates.get(0);
+        return first.start().equals(startTime.toLocalTime())
+                && first.end().equals(endTime.toLocalTime());
+    }
+
+    /**
+     * Manual create path only: slot templates do not apply there, so the day's first shift is
+     * simply the earliest-starting one — the same rule {@link #validatePublishStaffing} uses.
+     */
+    private boolean isEarliestShiftOfDay(Long branchId, LocalDateTime startTime) {
+        LocalDate day = startTime.toLocalDate();
+        return shiftRepository
+                .findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
+                        branchId, day.atStartOfDay(), day.plusDays(1).atStartOfDay())
+                .stream()
+                .noneMatch(existing -> existing.getStartTime().isBefore(startTime));
+    }
+
+    private void assertOpeningCashEditable(ShiftModel shift) {
+        boolean editable = shift.getStatus() == ShiftStatus.DRAFT
+                || shift.getStatus() == ShiftStatus.PUBLISHED;
+        if (!editable) {
+            throw new BusinessException(
+                    "Opening cash can only be changed while the shift is DRAFT or PUBLISHED. "
+                            + "Current status: " + shift.getStatus());
+        }
+    }
+
     private UserModel requireBranchManager() {
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         UserRole role = currentUserProvider.getCurrentUserRole();
@@ -1348,6 +1342,11 @@ public class ShiftServiceImpl implements IShiftService {
         if (!branchRepository.existsById(branchId)) {
             throw new NotFoundException("Branch not found.");
         }
+    }
+
+    private BranchModel findBranchOrThrow(Long branchId) {
+        return branchRepository.findById(branchId)
+                .orElseThrow(() -> new NotFoundException("Branch not found."));
     }
 
     private ShiftModel findShiftOrThrow(Long id) {

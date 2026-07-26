@@ -6,6 +6,8 @@ import base.api.feature.category.dto.response.CategoryResponse;
 import base.api.feature.category.service.ICategoryService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
 
 import java.util.List;
 
@@ -47,6 +50,14 @@ public class CategoryController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<CategoryResponse>>> getAll() {
         return success(categoryService.getAll());
+    }
+
+    @Operation(summary = "Search and paginate categories")
+    @PreAuthorize("@permissionChecker.has('CATEGORY_MANAGEMENT')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<CategoryResponse>>> getPage(
+            @ModelAttribute PageRequestDTO pageRequest) {
+        return successPage(categoryService.getPage(pageRequest));
     }
 
     @Operation(summary = "Get category detail")
