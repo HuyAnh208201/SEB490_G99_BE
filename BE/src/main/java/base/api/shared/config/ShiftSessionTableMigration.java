@@ -76,6 +76,10 @@ public class ShiftSessionTableMigration {
             addColumnIfMissing("shift_sessions", "reviewed_at", "DATETIME NULL");
             dedupeShiftSessions();
             ensureUniqueShiftEmployee();
+            ensureShiftAssignmentColumn();
+            ensureApprovalHistoryTable();
+            ensureManagerApprovalColumns();
+            migrateLegacyStatuses();
             log.info("Ensured shift_sessions tables");
         } catch (Exception ex) {
             log.warn("shift session migration skipped: {}", ex.getMessage());
@@ -133,6 +137,58 @@ public class ShiftSessionTableMigration {
             }
         } catch (Exception ex) {
             log.warn("shift_sessions unique index skipped: {}", ex.getMessage());
+        }
+    }
+
+    private void ensureShiftAssignmentColumn() {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'shift_sessions'
+                      AND COLUMN_NAME = 'shift_assignment_id'
+                    """,
+                    Integer.class);
+            if (exists == null || exists == 0) {
+                jdbcTemplate.execute(
+                        "ALTER TABLE shift_sessions ADD COLUMN shift_assignment_id BIGINT NULL AFTER shift_id");
+            }
+        } catch (Exception ex) {
+            log.warn("shift_assignment_id column skipped: {}", ex.getMessage());
+        }
+    }
+
+    private void ensureApprovalHistoryTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS shift_session_approvals (
+                    id BIGINT NOT NULL AUTO_INCREMENT,
+                    session_id BIGINT NOT NULL,
+                    decision VARCHAR(20) NOT NULL,
+                    note TEXT NOT NULL,
+                    decided_by BIGINT NOT NULL,
+                    decided_at DATETIME NULL,
+                    PRIMARY KEY (id),
+                    KEY idx_shift_session_approval_session (session_id)
+                )
+                """);
+    }
+
+    private void ensureManagerApprovalColumns() {
+        addColumnIfMissing("shift_sessions", "approved_by", "BIGINT NULL");
+        addColumnIfMissing("shift_sessions", "approved_at", "DATETIME NULL");
+        addColumnIfMissing("shift_sessions", "manager_note", "TEXT NULL");
+    }
+
+    /** Map legacy rows to the new status vocabulary. */
+    private void migrateLegacyStatuses() {
+        try {
+            jdbcTemplate.update(
+                    "UPDATE shift_sessions SET status = 'COMPLETED' WHERE status = 'CLOSED'");
+            jdbcTemplate.update(
+                    "UPDATE shift_sessions SET status = 'CLOSING' WHERE status = 'PENDING_HANDOVER'");
+        } catch (Exception ex) {
+            log.warn("shift session status migration skipped: {}", ex.getMessage());
         }
     }
 }

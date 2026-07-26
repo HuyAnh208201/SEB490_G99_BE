@@ -7,5 +7,8 @@ import lombok.Setter;
 @Setter
 public class StartShiftRequest {
 
+    /** Cashier acknowledgement that physical opening fund was received offline. */
+    private Boolean confirmedReceived;
+
     private String note;
 }
