@@ -151,7 +151,8 @@ public class ReportServiceImpl implements ReportService {
     public List<CashDiscrepancyResponse> getCashDiscrepancies(LocalDate from, LocalDate to, Long branchId) {
         Long scopedBranchId = resolveBranchScope(branchId);
         List<CashDiscrepancyRow> rows = reportShiftSessionRepository.findDiscrepancies(
-                UserRole.CASHIER, ShiftSessionStatus.APPROVED,
+                UserRole.CASHIER,
+                List.of(ShiftSessionStatus.COMPLETED, ShiftSessionStatus.APPROVED),
                 scopedBranchId, startOf(from), endExclusive(to), limit());
 
         List<Long> userIds = rows.stream()
@@ -183,7 +184,7 @@ public class ReportServiceImpl implements ReportService {
         Long scopedBranchId = resolveBranchScope(branchId);
         Page<CashDiscrepancyRow> rows = reportShiftSessionRepository.findDiscrepancyPage(
                 UserRole.CASHIER,
-                ShiftSessionStatus.APPROVED,
+                List.of(ShiftSessionStatus.COMPLETED, ShiftSessionStatus.APPROVED),
                 scopedBranchId,
                 startOf(from),
                 endExclusive(to),

@@ -1,10 +1,10 @@
 package base.api.feature.shiftsession.controller;
 
+import base.api.feature.shiftsession.dto.request.ReconcileShiftSessionRequest;
 import base.api.feature.shiftsession.dto.request.CloseInventoryShiftRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmHandoverRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmOpeningFundRequest;
 import base.api.feature.shiftsession.dto.request.ConfirmVerificationRequest;
-import base.api.feature.shiftsession.dto.request.ReviewSessionRequest;
 import base.api.feature.shiftsession.dto.request.SaveClosingDraftRequest;
 import base.api.feature.shiftsession.dto.request.StartShiftRequest;
 import base.api.feature.shiftsession.dto.response.ShiftSessionResponse;
@@ -126,30 +126,38 @@ public class ShiftSessionController extends BaseAPIController {
         return success(shiftSessionService.getHistory());
     }
 
-    @Operation(summary = "Cashier shifts pending cash-discrepancy approval (branch manager)")
-    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
-    @GetMapping("/pending")
-    public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> pendingApprovals() {
-        return success(shiftSessionService.getPendingApprovals());
+    @Operation(summary = "Branch manager: active / pending shift sessions at branch")
+    @PreAuthorize("@permissionChecker.has('SHIFT_MANAGEMENT')")
+    @GetMapping("/branch/monitor")
+    public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> branchMonitor() {
+        return success(shiftSessionService.listBranchSessionsForManager());
     }
 
-    @Operation(summary = "Approve a cashier shift cash discrepancy (branch manager)")
+    @Operation(summary = "Branch manager: cash reconciliation queue")
     @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
-    @PostMapping("/{id}/approve")
-    public ResponseEntity<TFUResponse<ShiftSessionResponse>> approve(
-            @PathVariable Long id,
-            @RequestBody(required = false) ReviewSessionRequest request) {
-        String note = request != null ? request.getNote() : null;
-        return success(shiftSessionService.approveSession(id, note), "Shift session approved.");
+    @GetMapping("/reconciliation/pending")
+    public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> pendingReconciliation() {
+        return success(shiftSessionService.listPendingReconciliation());
     }
 
-    @Operation(summary = "Reject a cashier shift cash discrepancy — cashier recounts (branch manager)")
+    @Operation(summary = "Branch manager: reconciliation detail")
     @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
-    @PostMapping("/{id}/reject")
-    public ResponseEntity<TFUResponse<ShiftSessionResponse>> reject(
-            @PathVariable Long id,
-            @RequestBody(required = false) ReviewSessionRequest request) {
-        String note = request != null ? request.getNote() : null;
-        return success(shiftSessionService.rejectSession(id, note), "Shift session rejected. Cashier must recount.");
+    @GetMapping("/reconciliation/{sessionId}")
+    public ResponseEntity<TFUResponse<ShiftSessionResponse>> reconciliationDetail(
+            @PathVariable Long sessionId) {
+        return success(shiftSessionService.getReconciliationDetail(sessionId));
+    }
+
+    @Operation(summary = "Branch manager: approve or reject cash difference")
+    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
+    @PostMapping("/reconciliation/{sessionId}/decision")
+    public ResponseEntity<TFUResponse<ShiftSessionResponse>> reconciliationDecision(
+            @PathVariable Long sessionId,
+            @Valid @RequestBody ReconcileShiftSessionRequest request) {
+        return success(
+                shiftSessionService.decideReconciliation(sessionId, request),
+                Boolean.TRUE.equals(request.getApproved())
+                        ? "Cash difference approved."
+                        : "Cash difference rejected.");
     }
 }
