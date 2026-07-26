@@ -7,15 +7,20 @@ import base.api.feature.supplier.mapper.SupplierMapper;
 import base.api.feature.supplier.repository.ISupplierRepository;
 import base.api.feature.supplier.service.ISupplierService;
 import base.api.shared.entity.SupplierModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.NotFoundException;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 @Service
@@ -91,6 +96,30 @@ public class SupplierServiceImpl implements ISupplierService {
         return supplierRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
                 .map(supplierMapper::toResponse)
                 .toList();
+    }
+
+    @Override
+    public Page<SupplierResponse> getPage(PageRequestDTO pageRequest, String status) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<SupplierModel> specification = (root, ignored, cb) -> cb.conjunction();
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("name")), pattern),
+                    cb.like(cb.lower(root.get("contactPerson")), pattern),
+                    cb.like(cb.lower(root.get("phone")), pattern),
+                    cb.like(cb.lower(root.get("address")), pattern)
+            ));
+        }
+        if (status != null && !status.isBlank()) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(cb.lower(root.get("status")), status.trim().toLowerCase(Locale.ROOT)));
+        }
+        return supplierRepository.findAll(
+                        specification,
+                        query.toPageable("id", Sort.Direction.ASC, Set.of("id", "name", "status")))
+                .map(supplierMapper::toResponse);
     }
 
     private SupplierModel findSupplierOrThrow(Integer id) {

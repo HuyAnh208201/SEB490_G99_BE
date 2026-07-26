@@ -5,6 +5,7 @@ import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.UserRole;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -40,5 +41,36 @@ public interface ReportShiftSessionRepository extends JpaRepository<ShiftSession
             @Param("branchId") Long branchId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
+            Pageable pageable);
+
+    @Query(value = """
+            SELECT new base.api.feature.report.dto.CashDiscrepancyRow(
+                s.id, s.shiftId, s.employeeId, s.expectedCash, s.actualCash,
+                s.difference, s.reviewedBy, s.reviewNote, s.closedAt)
+            FROM ShiftSessionModel s
+            WHERE s.role = :role
+              AND s.status = :status
+              AND (:branchId IS NULL OR s.branchId = :branchId)
+              AND (:from IS NULL OR s.closedAt >= :from)
+              AND (:to IS NULL OR s.closedAt < :to)
+              AND (:search IS NULL OR LOWER(COALESCE(s.reviewNote, '')) LIKE :search)
+            ORDER BY s.closedAt DESC
+            """, countQuery = """
+            SELECT COUNT(s)
+            FROM ShiftSessionModel s
+            WHERE s.role = :role
+              AND s.status = :status
+              AND (:branchId IS NULL OR s.branchId = :branchId)
+              AND (:from IS NULL OR s.closedAt >= :from)
+              AND (:to IS NULL OR s.closedAt < :to)
+              AND (:search IS NULL OR LOWER(COALESCE(s.reviewNote, '')) LIKE :search)
+            """)
+    Page<CashDiscrepancyRow> findDiscrepancyPage(
+            @Param("role") UserRole role,
+            @Param("status") ShiftSessionStatus status,
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("search") String search,
             Pageable pageable);
 }

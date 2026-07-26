@@ -8,6 +8,9 @@ import base.api.feature.auth.dto.request.UpdateProfileDto;
 import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.enums.UserRole;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -28,6 +31,7 @@ public interface IUserService {
     UserModel registerUser(RegisterDto dto);
     UserModel createUserByAdmin(CreateUserByAdminDto dto, UserModel creator) throws Exception;
     List<UserModel> getAllUsers();
+    Page<UserModel> getUserPage(PageRequestDTO pageRequest, UserRole role, Long branchId, String status);
     InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception;
     void completeForgotPassword(CompleteForgotPasswordDto dto) throws Exception;
     void verifyEmailByToken(String token) throws Exception;

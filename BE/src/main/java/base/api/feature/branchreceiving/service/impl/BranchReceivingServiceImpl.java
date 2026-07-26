@@ -27,6 +27,7 @@ import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.DispatchStatus;
 import base.api.shared.enums.PurchaseRequestStatus;
 import base.api.shared.exception.BadRequestException;
@@ -35,6 +36,11 @@ import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -45,6 +51,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -140,6 +147,27 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
                 ReceivingOrderResponse::getShipmentDate,
                 Comparator.nullsLast(Comparator.reverseOrder())));
         return rows;
+    }
+
+    @Override
+    public Page<ReceivingOrderResponse> getIncomingOrderPage(PageRequestDTO pageRequest, String status) {
+        String search = pageRequest.normalizedSearch();
+        String normalizedSearch = search == null ? null : search.toLowerCase(Locale.ROOT);
+        String normalizedStatus = normalize(status);
+
+        List<ReceivingOrderResponse> filtered = getIncomingOrders().stream()
+                .filter(row -> normalizedStatus == null
+                        || normalizedStatus.equalsIgnoreCase(row.getStatus()))
+                .filter(row -> normalizedSearch == null
+                        || containsIgnoreCase(row.getDispatchNumber(), normalizedSearch)
+                        || containsIgnoreCase(row.getRequestNumber(), normalizedSearch)
+                        || row.getCategories().stream().anyMatch(category -> containsIgnoreCase(category, normalizedSearch)))
+                .toList();
+
+        Pageable pageable = pageRequest.toPageable();
+        int from = Math.min((int) pageable.getOffset(), filtered.size());
+        int to = Math.min(from + pageable.getPageSize(), filtered.size());
+        return new PageImpl<>(filtered.subList(from, to), pageable, filtered.size());
     }
 
     @Override
@@ -248,6 +276,44 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
     public List<ReceivingHistoryResponse> getReceivingHistory() {
         Long branchId = currentBranchId();
         List<GoodsReceiptModel> receipts = goodsReceiptRepository.findByBranchIdOrderByReceivedAtDesc(branchId);
+        return buildHistoryRows(receipts);
+    }
+
+    @Override
+    public Page<ReceivingHistoryResponse> getReceivingHistoryPage(PageRequestDTO pageRequest, String status) {
+        Long branchId = currentBranchId();
+        String search = pageRequest.normalizedSearch();
+        String normalizedStatus = normalize(status);
+        Long searchedId = extractNumericId(search);
+
+        Specification<GoodsReceiptModel> spec = (root, query, cb) -> cb.equal(root.get("branchId"), branchId);
+        if (normalizedStatus != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), normalizedStatus.toUpperCase(Locale.ROOT)));
+        }
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            spec = spec.and((root, query, cb) -> {
+                var statusMatch = cb.like(cb.lower(root.get("status")), pattern);
+                if (searchedId == null) {
+                    return statusMatch;
+                }
+                return cb.or(
+                        statusMatch,
+                        cb.equal(root.get("id"), searchedId),
+                        cb.equal(root.get("purchaseRequestId"), searchedId),
+                        cb.equal(root.get("dispatchOrderId"), searchedId));
+            });
+        }
+
+        Pageable pageable = pageRequest.toPageable(
+                "receivedAt",
+                Sort.Direction.DESC,
+                Set.of("id", "receivedAt", "status"));
+        Page<GoodsReceiptModel> receipts = goodsReceiptRepository.findAll(spec, pageable);
+        return new PageImpl<>(buildHistoryRows(receipts.getContent()), pageable, receipts.getTotalElements());
+    }
+
+    private List<ReceivingHistoryResponse> buildHistoryRows(List<GoodsReceiptModel> receipts) {
         if (receipts.isEmpty()) {
             return List.of();
         }
@@ -533,5 +599,24 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         }
         String trimmed = value.trim();
         return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private boolean containsIgnoreCase(String value, String normalizedSearch) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(normalizedSearch);
+    }
+
+    private Long extractNumericId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String digits = value.replaceAll("\\D+", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(digits);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

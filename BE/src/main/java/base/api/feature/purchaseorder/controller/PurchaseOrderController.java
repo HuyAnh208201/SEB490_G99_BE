@@ -7,6 +7,9 @@ import base.api.feature.purchaseorder.dto.response.RecommendedPurchaseProductRes
 import base.api.feature.purchaseorder.service.IPurchaseOrderService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
+import base.api.shared.enums.PurchaseOrderStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
 
 import java.util.List;
 
@@ -67,6 +71,15 @@ public class PurchaseOrderController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<PurchaseOrderResponse>>> getOrders() {
         return success(purchaseOrderService.getOrders());
+    }
+
+    @Operation(summary = "Search, filter and paginate purchase orders")
+    @PreAuthorize("@permissionChecker.has('CHOOSE_EXTERNAL_SUPPLIER')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<PurchaseOrderResponse>>> getOrderPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) PurchaseOrderStatus status) {
+        return successPage(purchaseOrderService.getOrderPage(pageRequest, status));
     }
 
     @Operation(summary = "Get purchase order detail")

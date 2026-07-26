@@ -16,6 +16,7 @@ import base.api.shared.entity.EmailVerificationTokenModel;
 import base.api.shared.entity.PasswordResetTokenModel;
 import base.api.shared.entity.RoleModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.UserGender;
 import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.enums.UserRole;
@@ -35,9 +36,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 @Slf4j
@@ -231,6 +237,57 @@ public class UserService implements IUserService {
         return all.stream()
                 .filter(u -> isVisibleToBranchManager(u, branchId))
                 .toList();
+    }
+
+    @Override
+    public Page<UserModel> getUserPage(
+            PageRequestDTO pageRequest,
+            UserRole role,
+            Long branchId,
+            String status
+    ) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        UserModel actor = currentUserProvider.getCurrentUserOrThrow();
+        UserRole actorRole = actor.getRole() == null ? null : actor.getRole().toWebRole();
+        if (actorRole != UserRole.ADMIN && actorRole != UserRole.DIRECTOR && actorRole != UserRole.BRANCH_MANAGER) {
+            throw new ForbiddenException("You do not have permission to list users.");
+        }
+
+        Specification<UserModel> specification = (root, ignored, cb) -> cb.conjunction();
+        if (actorRole == UserRole.BRANCH_MANAGER) {
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    root.get("roleEntity").get("name").in(UserRole.ADMIN.name(), UserRole.DIRECTOR.name()),
+                    cb.equal(root.get("branchId"), actor.getBranchId())
+            ));
+        }
+
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            specification = specification.and((root, ignored, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("email")), pattern),
+                    cb.like(cb.lower(root.get("fullName")), pattern),
+                    cb.like(cb.lower(root.get("phone")), pattern)
+            ));
+        }
+        if (role != null) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(root.get("roleEntity").get("name"), role.name()));
+        }
+        if (branchId != null) {
+            specification = specification.and((root, ignored, cb) -> cb.equal(root.get("branchId"), branchId));
+        }
+        if (status != null && !status.isBlank()) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(cb.lower(root.get("status")), status.trim().toLowerCase(Locale.ROOT)));
+        }
+
+        return userRepository.findAll(
+                specification,
+                query.toPageable(
+                        "createdAt",
+                        Sort.Direction.DESC,
+                        Set.of("id", "email", "fullName", "status", "createdAt")));
     }
 
     private boolean isVisibleToBranchManager(UserModel user, Long branchId) {

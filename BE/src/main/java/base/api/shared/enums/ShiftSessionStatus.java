@@ -7,5 +7,6 @@ public enum ShiftSessionStatus {
     PENDING_HANDOVER,
     PENDING_APPROVAL,
     APPROVED,
+    REJECTED,
     CLOSED
 }

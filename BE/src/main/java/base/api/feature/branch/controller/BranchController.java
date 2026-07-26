@@ -13,6 +13,8 @@ import base.api.feature.branch.dto.response.UserResponse;
 import base.api.feature.branch.service.IBranchService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -28,6 +30,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -51,10 +55,19 @@ public class BranchController extends BaseAPIController {
     }
 
     @Operation(summary = "Get branch list")
-    @PreAuthorize("@permissionChecker.hasAny('BRANCH_LIST_ADMIN', 'BRANCH_DASHBOARD')")
+    @PreAuthorize("@permissionChecker.hasAny('BRANCH_LIST_ADMIN', 'BRANCH_LIST_DIRECTOR', 'BRANCH_DASHBOARD')")
     @GetMapping
     public ResponseEntity<TFUResponse<List<BranchResponse>>> getAll() {
         return success(branchService.getAllBranches());
+    }
+
+    @Operation(summary = "Search, filter and paginate branches")
+    @PreAuthorize("@permissionChecker.hasAny('BRANCH_LIST_ADMIN', 'BRANCH_LIST_DIRECTOR', 'BRANCH_DASHBOARD')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<BranchResponse>>> getPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) String status) {
+        return successPage(branchService.getBranchPage(pageRequest, status));
     }
 
     @Operation(summary = "Get branch detail")

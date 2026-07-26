@@ -4,9 +4,12 @@ import base.api.feature.report.dto.CashDiscrepancyResponse;
 import base.api.feature.report.dto.InvoiceRow;
 import base.api.feature.report.dto.PointTransactionResponse;
 import base.api.feature.report.dto.RevenueReportResponse;
+import base.api.feature.report.dto.RevenueRow;
 import base.api.feature.report.service.ReportService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +53,18 @@ public class ReportController extends BaseAPIController {
         return success(reportService.getRevenue(groupBy, from, to, branchId));
     }
 
+    @Operation(summary = "Paginated revenue report")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/revenue/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<RevenueRow>>> revenuePage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false, defaultValue = "shift") String groupBy,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId) {
+        return successPage(reportService.getRevenuePage(groupBy, from, to, branchId, pageRequest));
+    }
+
     @Operation(
             summary = "Lịch sử hoá đơn",
             description = "Danh sách hoá đơn mới nhất trước, lọc theo khoảng ngày và chi nhánh."
@@ -62,6 +77,17 @@ public class ReportController extends BaseAPIController {
             @RequestParam(required = false) Long branchId) {
 
         return success(reportService.getInvoices(from, to, branchId));
+    }
+
+    @Operation(summary = "Paginated invoice history")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/invoices/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<InvoiceRow>>> invoicePage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId) {
+        return successPage(reportService.getInvoicePage(from, to, branchId, pageRequest));
     }
 
     @Operation(
@@ -78,6 +104,17 @@ public class ReportController extends BaseAPIController {
         return success(reportService.getCashDiscrepancies(from, to, branchId));
     }
 
+    @Operation(summary = "Paginated cash discrepancy history")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/cash-discrepancies/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<CashDiscrepancyResponse>>> cashDiscrepancyPage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId) {
+        return successPage(reportService.getCashDiscrepancyPage(from, to, branchId, pageRequest));
+    }
+
     @Operation(
             summary = "Lịch sử tích điểm",
             description = "Các giao dịch cộng/trừ điểm của khách. Khi lọc theo chi nhánh, giao dịch "
@@ -91,5 +128,16 @@ public class ReportController extends BaseAPIController {
             @RequestParam(required = false) Long branchId) {
 
         return success(reportService.getPointTransactions(from, to, branchId));
+    }
+
+    @Operation(summary = "Paginated loyalty point history")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/point-transactions/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<PointTransactionResponse>>> pointTransactionPage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId) {
+        return successPage(reportService.getPointTransactionPage(from, to, branchId, pageRequest));
     }
 }

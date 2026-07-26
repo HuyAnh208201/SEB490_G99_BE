@@ -7,6 +7,9 @@ import base.api.feature.dispatch.dto.response.DispatchOrderResponse;
 import base.api.feature.dispatch.service.IDispatchService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
+import base.api.shared.enums.DispatchStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -21,6 +24,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -37,6 +42,16 @@ public class DispatchController extends BaseAPIController {
     @GetMapping("/approved-requests")
     public ResponseEntity<TFUResponse<List<DispatchApprovedRequestResponse>>> getApprovedRequests() {
         return success(dispatchService.getApprovedRequests());
+    }
+
+    @Operation(summary = "Search, filter and paginate approved requests")
+    @PreAuthorize("@permissionChecker.has('MANAGE_DISPATCH_ORDERS')")
+    @GetMapping("/approved-requests/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<DispatchApprovedRequestResponse>>> getApprovedRequestPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) String area,
+            @RequestParam(required = false) String route) {
+        return successPage(dispatchService.getApprovedRequestPage(pageRequest, area, route));
     }
 
     @Operation(summary = "Create a dispatch order from selected approved requests")
@@ -57,6 +72,15 @@ public class DispatchController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<DispatchOrderResponse>>> getDispatchOrders() {
         return success(dispatchService.getDispatchOrders());
+    }
+
+    @Operation(summary = "Search, filter and paginate dispatch orders")
+    @PreAuthorize("@permissionChecker.has('MANAGE_DISPATCH_ORDERS')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<DispatchOrderResponse>>> getDispatchOrderPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) DispatchStatus status) {
+        return successPage(dispatchService.getDispatchOrderPage(pageRequest, status));
     }
 
     @Operation(summary = "Get dispatch order detail")

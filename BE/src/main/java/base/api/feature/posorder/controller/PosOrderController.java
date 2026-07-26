@@ -6,6 +6,8 @@ import base.api.feature.posorder.dto.response.VoucherResponse;
 import base.api.feature.posorder.service.IPosOrderService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -61,6 +63,18 @@ public class PosOrderController extends BaseAPIController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
 
         return success(posOrderService.getOrders(from, to));
+    }
+
+    @Operation(summary = "Paginated order history of the current cashier's branch")
+    @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<OrderResponse>>> getOrderPage(
+            PageRequestDTO pageRequest,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String paymentMethod) {
+
+        return successPage(posOrderService.getOrderPage(pageRequest, from, to, paymentMethod));
     }
 
     @Operation(summary = "Chi tiết một đơn")

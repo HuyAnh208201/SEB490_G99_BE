@@ -6,6 +6,8 @@ import base.api.feature.inventorycount.dto.response.InventoryCountSheetResponse;
 import base.api.feature.inventorycount.service.IInventoryCountService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -19,6 +21,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -51,6 +55,15 @@ public class InventoryCountController extends BaseAPIController {
     @GetMapping
     public ResponseEntity<TFUResponse<List<InventoryCountSessionResponse>>> getHistory() {
         return success(inventoryCountService.getHistory());
+    }
+
+    @Operation(summary = "Search, filter and paginate inventory count history")
+    @PreAuthorize("@permissionChecker.has('INVENTORY_COUNT')")
+    @GetMapping("/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<InventoryCountSessionResponse>>> getHistoryPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) String status) {
+        return successPage(inventoryCountService.getHistoryPage(pageRequest, status));
     }
 
     @Operation(summary = "Inventory count session detail")

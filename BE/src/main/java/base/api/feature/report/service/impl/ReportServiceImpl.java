@@ -14,6 +14,7 @@ import base.api.feature.report.repository.ReportOrderRepository;
 import base.api.feature.report.repository.ReportShiftSessionRepository;
 import base.api.feature.report.service.ReportService;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
@@ -21,6 +22,8 @@ import base.api.shared.exception.ForbiddenException;
 import base.api.shared.security.CurrentUserProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -90,6 +94,29 @@ public class ReportServiceImpl implements ReportService {
         return new RevenueReportResponse(mode, result);
     }
 
+    @Override
+    public Page<RevenueRow> getRevenuePage(
+            String groupBy,
+            LocalDate from,
+            LocalDate to,
+            Long branchId,
+            PageRequestDTO pageRequest
+    ) {
+        List<RevenueRow> rows = getRevenue(groupBy, from, to, branchId).rows();
+        String search = pageRequest.normalizedSearch();
+        if (search != null) {
+            String normalized = search.toLowerCase(Locale.ROOT);
+            rows = rows.stream()
+                    .filter(row -> (row.name() != null && row.name().toLowerCase(Locale.ROOT).contains(normalized))
+                            || String.valueOf(row.id()).contains(normalized))
+                    .toList();
+        }
+        Pageable pageable = pageRequest.toPageable();
+        int start = Math.min((int) pageable.getOffset(), rows.size());
+        int end = Math.min(start + pageable.getPageSize(), rows.size());
+        return new PageImpl<>(rows.subList(start, end), pageable, rows.size());
+    }
+
     // =========================================================================
     // Lịch sử hoá đơn
     // =========================================================================
@@ -98,6 +125,22 @@ public class ReportServiceImpl implements ReportService {
     public List<InvoiceRow> getInvoices(LocalDate from, LocalDate to, Long branchId) {
         Long scopedBranchId = resolveBranchScope(branchId);
         return reportOrderRepository.findInvoices(scopedBranchId, startOf(from), endExclusive(to), limit());
+    }
+
+    @Override
+    public Page<InvoiceRow> getInvoicePage(
+            LocalDate from,
+            LocalDate to,
+            Long branchId,
+            PageRequestDTO pageRequest
+    ) {
+        Long scopedBranchId = resolveBranchScope(branchId);
+        return reportOrderRepository.findInvoicePage(
+                scopedBranchId,
+                startOf(from),
+                endExclusive(to),
+                searchPattern(pageRequest),
+                pageRequest.toPageable());
     }
 
     // =========================================================================
@@ -130,6 +173,41 @@ public class ReportServiceImpl implements ReportService {
                 .toList();
     }
 
+    @Override
+    public Page<CashDiscrepancyResponse> getCashDiscrepancyPage(
+            LocalDate from,
+            LocalDate to,
+            Long branchId,
+            PageRequestDTO pageRequest
+    ) {
+        Long scopedBranchId = resolveBranchScope(branchId);
+        Page<CashDiscrepancyRow> rows = reportShiftSessionRepository.findDiscrepancyPage(
+                UserRole.CASHIER,
+                ShiftSessionStatus.APPROVED,
+                scopedBranchId,
+                startOf(from),
+                endExclusive(to),
+                searchPattern(pageRequest),
+                pageRequest.toPageable());
+        List<Long> userIds = rows.getContent().stream()
+                .flatMap(row -> java.util.stream.Stream.of(row.employeeId(), row.reviewedBy()))
+                .toList();
+        Map<Long, String> nameById = resolveUserNames(userIds);
+        List<CashDiscrepancyResponse> content = rows.getContent().stream()
+                .map(row -> new CashDiscrepancyResponse(
+                        row.sessionId(),
+                        row.shiftId(),
+                        nameById.get(row.employeeId()),
+                        row.expectedCash(),
+                        row.actualCash(),
+                        row.difference(),
+                        row.reviewedBy() == null ? null : nameById.get(row.reviewedBy()),
+                        row.reviewNote(),
+                        row.closedAt()))
+                .toList();
+        return new PageImpl<>(content, rows.getPageable(), rows.getTotalElements());
+    }
+
     // =========================================================================
     // Lịch sử tích điểm
     // =========================================================================
@@ -153,6 +231,35 @@ public class ReportServiceImpl implements ReportService {
                         row.type(),
                         row.createdAt()))
                 .toList();
+    }
+
+    @Override
+    public Page<PointTransactionResponse> getPointTransactionPage(
+            LocalDate from,
+            LocalDate to,
+            Long branchId,
+            PageRequestDTO pageRequest
+    ) {
+        Long scopedBranchId = resolveBranchScope(branchId);
+        Page<PointTransactionRow> rows = pointTransactionRepository.findHistoryPage(
+                scopedBranchId,
+                startOf(from),
+                endExclusive(to),
+                searchPattern(pageRequest),
+                pageRequest.toPageable());
+        Map<Long, String> nameById = resolveUserNames(
+                rows.getContent().stream().map(PointTransactionRow::customerId).toList());
+        List<PointTransactionResponse> content = rows.getContent().stream()
+                .map(row -> new PointTransactionResponse(
+                        row.id(),
+                        row.customerId(),
+                        nameById.get(row.customerId()),
+                        row.orderId(),
+                        row.points(),
+                        row.type(),
+                        row.createdAt()))
+                .toList();
+        return new PageImpl<>(content, rows.getPageable(), rows.getTotalElements());
     }
 
     // =========================================================================
@@ -226,5 +333,10 @@ public class ReportServiceImpl implements ReportService {
 
     private Pageable limit() {
         return PageRequest.of(0, LIST_LIMIT);
+    }
+
+    private String searchPattern(PageRequestDTO pageRequest) {
+        String search = pageRequest.normalizedSearch();
+        return search == null ? null : "%" + search.toLowerCase(Locale.ROOT) + "%";
     }
 }

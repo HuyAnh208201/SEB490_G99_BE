@@ -4,6 +4,7 @@ import base.api.feature.report.dto.InvoiceRow;
 import base.api.feature.report.dto.RevenueAggRow;
 import base.api.shared.entity.OrderModel;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -83,5 +84,30 @@ public interface ReportOrderRepository extends JpaRepository<OrderModel, Long> {
             @Param("branchId") Long branchId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
+            Pageable pageable);
+
+    @Query(value = """
+            SELECT new base.api.feature.report.dto.InvoiceRow(
+                o.id, o.invoiceCode, o.branchId, o.cashierId, o.customerId,
+                o.total, o.status, o.createdAt)
+            FROM OrderModel o
+            WHERE (:branchId IS NULL OR o.branchId = :branchId)
+              AND (:from IS NULL OR o.createdAt >= :from)
+              AND (:to IS NULL OR o.createdAt < :to)
+              AND (:search IS NULL OR LOWER(o.invoiceCode) LIKE :search OR LOWER(o.status) LIKE :search)
+            ORDER BY o.createdAt DESC
+            """, countQuery = """
+            SELECT COUNT(o)
+            FROM OrderModel o
+            WHERE (:branchId IS NULL OR o.branchId = :branchId)
+              AND (:from IS NULL OR o.createdAt >= :from)
+              AND (:to IS NULL OR o.createdAt < :to)
+              AND (:search IS NULL OR LOWER(o.invoiceCode) LIKE :search OR LOWER(o.status) LIKE :search)
+            """)
+    Page<InvoiceRow> findInvoicePage(
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("search") String search,
             Pageable pageable);
 }

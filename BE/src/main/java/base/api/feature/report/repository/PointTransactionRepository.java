@@ -3,6 +3,7 @@ package base.api.feature.report.repository;
 import base.api.feature.report.dto.PointTransactionRow;
 import base.api.shared.entity.PointTransactionModel;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -36,5 +37,31 @@ public interface PointTransactionRepository extends JpaRepository<PointTransacti
             @Param("branchId") Long branchId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
+            Pageable pageable);
+
+    @Query(value = """
+            SELECT new base.api.feature.report.dto.PointTransactionRow(
+                pt.id, pt.customerId, pt.orderId, pt.points, pt.type, pt.createdAt)
+            FROM PointTransactionModel pt
+            LEFT JOIN OrderModel o ON o.id = pt.orderId
+            WHERE (:branchId IS NULL OR o.branchId = :branchId)
+              AND (:from IS NULL OR pt.createdAt >= :from)
+              AND (:to IS NULL OR pt.createdAt < :to)
+              AND (:search IS NULL OR LOWER(pt.type) LIKE :search)
+            ORDER BY pt.createdAt DESC
+            """, countQuery = """
+            SELECT COUNT(pt)
+            FROM PointTransactionModel pt
+            LEFT JOIN OrderModel o ON o.id = pt.orderId
+            WHERE (:branchId IS NULL OR o.branchId = :branchId)
+              AND (:from IS NULL OR pt.createdAt >= :from)
+              AND (:to IS NULL OR pt.createdAt < :to)
+              AND (:search IS NULL OR LOWER(pt.type) LIKE :search)
+            """)
+    Page<PointTransactionRow> findHistoryPage(
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("search") String search,
             Pageable pageable);
 }

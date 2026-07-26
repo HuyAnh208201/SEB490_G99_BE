@@ -10,6 +10,8 @@ import base.api.feature.branch.dto.request.UpdateBranchRequest;
 import base.api.feature.branch.dto.request.UpdateBranchStatusRequest;
 import base.api.feature.branch.dto.response.BranchResponse;
 import base.api.feature.branch.dto.response.UserResponse;
+import base.api.shared.dto.PageRequestDTO;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -22,6 +24,8 @@ public interface IBranchService {
     BranchResponse getBranch(Long id);
 
     List<BranchResponse> getAllBranches();
+
+    Page<BranchResponse> getBranchPage(PageRequestDTO pageRequest, String status);
 
     BranchResponse suspendBranch(Long id, UpdateBranchStatusRequest request);
 

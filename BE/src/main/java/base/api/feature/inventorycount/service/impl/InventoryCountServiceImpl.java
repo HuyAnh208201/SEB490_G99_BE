@@ -17,6 +17,7 @@ import base.api.shared.entity.InventoryCountItemModel;
 import base.api.shared.entity.InventoryCountSessionModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
@@ -24,6 +25,10 @@ import base.api.shared.security.CurrentUserProvider;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -36,6 +41,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class InventoryCountServiceImpl implements IInventoryCountService {
@@ -163,6 +170,51 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         }
         Map<Long, String> userNames = resolveUserNames(sessions);
         return sessions.stream().map(session -> buildSummary(session, userNames)).toList();
+    }
+
+    @Override
+    public Page<InventoryCountSessionResponse> getHistoryPage(PageRequestDTO pageRequest, String status) {
+        Long branchId = requireBranch(currentUserProvider.getCurrentUserOrThrow());
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
+        Specification<InventoryCountSessionModel> specification = (root, ignored, cb) ->
+                cb.equal(root.get("branchId"), branchId);
+        if (status != null && !status.isBlank()) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(cb.upper(root.get("status")), status.trim().toUpperCase(Locale.ROOT)));
+        }
+        String search = query.normalizedSearch();
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            Long requestedId = parseSessionId(search);
+            specification = specification.and((root, ignored, cb) -> requestedId == null
+                    ? cb.like(cb.lower(root.get("note")), pattern)
+                    : cb.or(
+                            cb.equal(root.get("id"), requestedId),
+                            cb.like(cb.lower(root.get("note")), pattern)));
+        }
+        Page<InventoryCountSessionModel> page = sessionRepository.findAll(
+                specification,
+                query.toPageable(
+                        "createdAt",
+                        Sort.Direction.DESC,
+                        Set.of("id", "countDate", "status", "totalProducts", "createdAt", "reviewedAt")));
+        Map<Long, String> userNames = resolveUserNames(page.getContent());
+        List<InventoryCountSessionResponse> content = page.getContent().stream()
+                .map(session -> buildSummary(session, userNames))
+                .toList();
+        return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
+    }
+
+    private Long parseSessionId(String search) {
+        String digits = search.replaceAll("\\D", "");
+        if (digits.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(digits);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     @Override

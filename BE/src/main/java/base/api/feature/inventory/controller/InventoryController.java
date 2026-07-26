@@ -5,6 +5,8 @@ import base.api.feature.inventory.dto.response.WarehouseInventoryItemResponse;
 import base.api.feature.inventory.service.IInventoryService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
+import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.dto.PageResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +16,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -32,6 +36,15 @@ public class InventoryController extends BaseAPIController {
         return success(inventoryService.getWarehouseInventory());
     }
 
+    @Operation(summary = "Search, filter and paginate central warehouse inventory")
+    @PreAuthorize("@permissionChecker.has('VIEW_CENTRAL_INVENTORY')")
+    @GetMapping("/warehouse/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<WarehouseInventoryItemResponse>>> getWarehouseInventoryPage(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(defaultValue = "false") boolean lowStockOnly) {
+        return successPage(inventoryService.getWarehouseInventoryPage(pageRequest, lowStockOnly));
+    }
+
     @Operation(summary = "List central warehouse low-stock items")
     @PreAuthorize("@permissionChecker.has('VIEW_CENTRAL_INVENTORY')")
     @GetMapping("/warehouse/low-stock")
@@ -45,5 +58,14 @@ public class InventoryController extends BaseAPIController {
     public ResponseEntity<TFUResponse<List<BranchInventoryItemResponse>>> getBranchInventory(
             @PathVariable Long branchId) {
         return success(inventoryService.getBranchInventory(branchId));
+    }
+
+    @Operation(summary = "Search and paginate branch inventory")
+    @PreAuthorize("@permissionChecker.hasAny('VIEW_BRANCH_INVENTORY', 'SUPPLY_IMPORT_RECEIPT_APPROVE', 'BRANCH_DASHBOARD')")
+    @GetMapping("/branches/{branchId}/page")
+    public ResponseEntity<TFUResponse<PageResponseDTO<BranchInventoryItemResponse>>> getBranchInventoryPage(
+            @PathVariable Long branchId,
+            @ModelAttribute PageRequestDTO pageRequest) {
+        return successPage(inventoryService.getBranchInventoryPage(branchId, pageRequest));
     }
 }
