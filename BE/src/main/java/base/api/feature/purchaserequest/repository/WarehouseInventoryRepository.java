@@ -3,6 +3,7 @@ package base.api.feature.purchaserequest.repository;
 import base.api.shared.entity.WarehouseInventoryModel;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
@@ -15,4 +16,11 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
     Optional<WarehouseInventoryModel> findByProductId(Integer productId);
 
     List<WarehouseInventoryModel> findByProductIdIn(Collection<Integer> productIds);
+
+    @Query("""
+            SELECT w FROM WarehouseInventoryModel w
+            WHERE COALESCE(w.reorderPoint, 0) > 0
+              AND COALESCE(w.quantity, 0) < COALESCE(w.reorderPoint, 0)
+            """)
+    List<WarehouseInventoryModel> findBelowReorderPoint();
 }

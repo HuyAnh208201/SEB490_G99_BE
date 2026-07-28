@@ -8,6 +8,7 @@ import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
+import base.api.feature.purchaserequest.dto.response.PurchaseRequestBranchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
 import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
@@ -40,6 +41,8 @@ public interface IPurchaseRequestService {
             PageRequestDTO pageRequest,
             PurchaseRequestStatus status,
             Long branchId);
+
+    List<PurchaseRequestBranchResponse> getWarehouseFilterBranches();
 
     List<RecommendedProductResponse> getRecommendedProducts();
 

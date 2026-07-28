@@ -29,7 +29,6 @@ public class DispatchTableMigration {
                     CREATE TABLE IF NOT EXISTS dispatch_orders (
                         id BIGINT NOT NULL AUTO_INCREMENT,
                         status VARCHAR(30) NOT NULL DEFAULT 'PREPARING',
-                        vehicle VARCHAR(100) NULL,
                         delivery_area VARCHAR(100) NULL,
                         route VARCHAR(100) NULL,
                         created_by BIGINT NULL,

@@ -10,6 +10,7 @@ import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.WarehouseInventoryModel;
 import base.api.shared.enums.PurchaseRequestStatus;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -115,6 +116,35 @@ public class WarehouseStockAllocationHelper {
             }
         }
         return result;
+    }
+
+    /**
+     * Demote APPROVED requests that cannot actually be dispatched (insufficient warehouse stock
+     * after TOP→BASE conversion) to AWAITING_STOCK so Incoming and PO recommendations stay in sync.
+     *
+     * @return number of requests demoted
+     */
+    @Transactional
+    public int reconcileApprovedStockStatus() {
+        List<PurchaseRequestModel> approved = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED);
+        if (approved.isEmpty()) {
+            return 0;
+        }
+        Set<Long> dispatchableIds = filterDispatchableApproved(approved).stream()
+                .map(PurchaseRequestModel::getId)
+                .collect(Collectors.toSet());
+
+        List<PurchaseRequestModel> demoted = new ArrayList<>();
+        for (PurchaseRequestModel pr : approved) {
+            if (!dispatchableIds.contains(pr.getId())) {
+                pr.setStatus(PurchaseRequestStatus.AWAITING_STOCK);
+                demoted.add(pr);
+            }
+        }
+        if (!demoted.isEmpty()) {
+            purchaseRequestRepository.saveAll(demoted);
+        }
+        return demoted.size();
     }
 
     private Map<Integer, Integer> workingStockExcludingRequest(Long excludeRequestId) {
