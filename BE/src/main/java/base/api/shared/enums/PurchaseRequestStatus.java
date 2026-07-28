@@ -27,7 +27,8 @@ public enum PurchaseRequestStatus {
     }
 
     public boolean isReceivable() {
-        return this == APPROVED;
+        // Branch receive goes through dispatch flow (IN_TRANSIT) via branch-receiving API.
+        return false;
     }
 
     /** Yêu cầu đã duyệt, đủ tồn kho tổng → có thể gom đơn vận chuyển. */

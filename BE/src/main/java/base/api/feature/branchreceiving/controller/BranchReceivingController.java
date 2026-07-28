@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -71,18 +72,18 @@ public class BranchReceivingController extends BaseAPIController {
     ) {
         return success(
                 branchReceivingService.receiveShipment(dispatchOrderId, requestId, request),
-                "Shipment received successfully.");
+                "Receipt submitted for branch manager approval.");
     }
 
-    @Operation(summary = "Receiving history for the staff's branch")
-    @PreAuthorize("@permissionChecker.has('RECEIVE_SHIPMENT')")
+    @Operation(summary = "Receiving history for the branch")
+    @PreAuthorize("@permissionChecker.hasAny('RECEIVE_SHIPMENT', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping("/receipts")
     public ResponseEntity<TFUResponse<List<ReceivingHistoryResponse>>> getReceivingHistory() {
         return success(branchReceivingService.getReceivingHistory());
     }
 
-    @Operation(summary = "Paginated receiving history for the staff's branch")
-    @PreAuthorize("@permissionChecker.has('RECEIVE_SHIPMENT')")
+    @Operation(summary = "Paginated receiving history for the branch")
+    @PreAuthorize("@permissionChecker.hasAny('RECEIVE_SHIPMENT', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping("/receipts/page")
     public ResponseEntity<TFUResponse<PageResponseDTO<ReceivingHistoryResponse>>> getReceivingHistoryPage(
             PageRequestDTO pageRequest,
@@ -92,11 +93,29 @@ public class BranchReceivingController extends BaseAPIController {
     }
 
     @Operation(summary = "Receiving receipt detail")
-    @PreAuthorize("@permissionChecker.has('RECEIVE_SHIPMENT')")
+    @PreAuthorize("@permissionChecker.hasAny('RECEIVE_SHIPMENT', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping("/receipts/{receiptId}")
     public ResponseEntity<TFUResponse<ReceivingReceiptDetailResponse>> getReceiptDetail(
             @PathVariable Long receiptId
     ) {
         return success(branchReceivingService.getReceiptDetail(receiptId));
+    }
+
+    @Operation(summary = "Approve a pending goods receipt (branch manager)")
+    @PreAuthorize("@permissionChecker.has('SUPPLY_IMPORT_RECEIPT_APPROVE')")
+    @PatchMapping("/receipts/{receiptId}/approve")
+    public ResponseEntity<TFUResponse<ReceivingHistoryResponse>> approveReceipt(
+            @PathVariable Long receiptId
+    ) {
+        return success(branchReceivingService.approveReceipt(receiptId), "Receipt approved and stock updated.");
+    }
+
+    @Operation(summary = "Reject a pending goods receipt (branch manager)")
+    @PreAuthorize("@permissionChecker.has('SUPPLY_IMPORT_RECEIPT_APPROVE')")
+    @PatchMapping("/receipts/{receiptId}/reject")
+    public ResponseEntity<TFUResponse<ReceivingHistoryResponse>> rejectReceipt(
+            @PathVariable Long receiptId
+    ) {
+        return success(branchReceivingService.rejectReceipt(receiptId), "Receipt rejected.");
     }
 }

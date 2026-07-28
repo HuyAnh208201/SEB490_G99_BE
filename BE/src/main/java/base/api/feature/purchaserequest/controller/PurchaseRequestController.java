@@ -8,6 +8,7 @@ import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
+import base.api.feature.purchaserequest.dto.response.PurchaseRequestBranchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
 import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
@@ -130,6 +131,13 @@ public class PurchaseRequestController extends BaseAPIController {
         Page<PurchaseRequestSummaryResponse> page = purchaseRequestService.getRequestHistory(
                 pageRequest, status, branchId);
         return successPage(page);
+    }
+
+    @Operation(summary = "List branches that have warehouse-visible purchase requests (for filters)")
+    @PreAuthorize("@permissionChecker.hasAny('MANAGE_BRANCH_IMPORT_REQUESTS', 'APPROVE_IMPORT_REQUEST')")
+    @GetMapping("/branches")
+    public ResponseEntity<TFUResponse<List<PurchaseRequestBranchResponse>>> getWarehouseFilterBranches() {
+        return success(purchaseRequestService.getWarehouseFilterBranches());
     }
 
     @Operation(summary = "Get purchase request detail")

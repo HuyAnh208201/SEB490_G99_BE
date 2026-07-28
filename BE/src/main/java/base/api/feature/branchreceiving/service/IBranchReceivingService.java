@@ -29,4 +29,8 @@ public interface IBranchReceivingService {
     Page<ReceivingHistoryResponse> getReceivingHistoryPage(PageRequestDTO pageRequest, String status);
 
     ReceivingReceiptDetailResponse getReceiptDetail(Long receiptId);
+
+    ReceivingHistoryResponse approveReceipt(Long receiptId);
+
+    ReceivingHistoryResponse rejectReceipt(Long receiptId);
 }

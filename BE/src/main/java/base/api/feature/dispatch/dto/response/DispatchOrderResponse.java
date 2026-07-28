@@ -16,7 +16,6 @@ public class DispatchOrderResponse {
     private Long id;
     private String dispatchNumber;
     private String status;
-    private String vehicle;
     private String deliveryArea;
     private String route;
     private LocalDateTime createdAt;

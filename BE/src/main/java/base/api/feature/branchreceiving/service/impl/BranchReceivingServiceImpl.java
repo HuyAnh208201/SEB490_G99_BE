@@ -12,6 +12,7 @@ import base.api.feature.dispatch.mapper.DispatchMapper;
 import base.api.feature.dispatch.repository.DispatchOrderRepository;
 import base.api.feature.dispatch.repository.DispatchOrderRequestRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.purchaserequest.repository.GoodsReceiptItemRepository;
 import base.api.feature.purchaserequest.repository.GoodsReceiptRepository;
@@ -19,6 +20,7 @@ import base.api.feature.purchaserequest.repository.PurchaseRequestDetailReposito
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.shared.entity.BranchInventoryModel;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.CategoryModel;
 import base.api.shared.entity.DispatchOrderModel;
 import base.api.shared.entity.DispatchOrderRequestModel;
 import base.api.shared.entity.GoodsReceiptItemModel;
@@ -55,12 +57,19 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import jakarta.persistence.criteria.Predicate;
 
 @Service
 public class BranchReceivingServiceImpl implements IBranchReceivingService {
 
     private static final String STATUS_PENDING = "PENDING_APPROVAL";
+    private static final String STATUS_APPROVED = "APPROVED";
+    private static final String STATUS_REJECTED = "REJECTED";
     private static final DateTimeFormatter RECEIPT_DATE = DateTimeFormatter.ofPattern("yyyy-MMdd");
+    private static final List<PurchaseRequestStatus> TRACKING_STATUSES = List.of(
+            PurchaseRequestStatus.DISPATCHING,
+            PurchaseRequestStatus.IN_TRANSIT,
+            PurchaseRequestStatus.RECEIVED);
 
     @Autowired
     private PurchaseRequestRepository purchaseRequestRepository;
@@ -98,12 +107,116 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
     @Autowired
     private CurrentUserProvider currentUserProvider;
 
+    @Autowired
+    private ProductPackagingService productPackagingService;
+
     @Override
     public List<ReceivingOrderResponse> getIncomingOrders() {
         Long branchId = currentBranchId();
         List<PurchaseRequestModel> requests = purchaseRequestRepository.findByBranchIdAndStatusIn(
                 branchId,
-                List.of(PurchaseRequestStatus.DISPATCHING, PurchaseRequestStatus.IN_TRANSIT, PurchaseRequestStatus.RECEIVED));
+                TRACKING_STATUSES);
+        return buildIncomingOrderRows(requests);
+    }
+
+    @Override
+    public Page<ReceivingOrderResponse> getIncomingOrderPage(PageRequestDTO pageRequest, String status) {
+        Long branchId = currentBranchId();
+        String normalizedStatus = normalize(status);
+        String search = pageRequest.normalizedSearch();
+
+        Specification<PurchaseRequestModel> specification = incomingOrderSpecification(
+                branchId, normalizedStatus, search);
+        Pageable pageable = pageRequest.toPageable(
+                "createdAt",
+                Sort.Direction.DESC,
+                Set.of("id", "createdAt", "status", "branchId"));
+        Page<PurchaseRequestModel> requestPage = purchaseRequestRepository.findAll(specification, pageable);
+        List<ReceivingOrderResponse> rows = buildIncomingOrderRows(requestPage.getContent());
+        return new PageImpl<>(rows, pageable, requestPage.getTotalElements());
+    }
+
+    private Specification<PurchaseRequestModel> incomingOrderSpecification(
+            Long branchId,
+            String trackingStatus,
+            String search
+    ) {
+        Specification<PurchaseRequestModel> specification = (root, ignored, cb) ->
+                cb.equal(root.get("branchId"), branchId);
+        specification = specification.and((root, ignored, cb) -> root.get("status").in(TRACKING_STATUSES));
+        specification = specification.and((root, query, cb) -> {
+            var linkSubquery = query.subquery(Long.class);
+            var link = linkSubquery.from(DispatchOrderRequestModel.class);
+            linkSubquery.select(link.get("purchaseRequestId"))
+                    .where(cb.equal(link.get("purchaseRequestId"), root.get("id")));
+            return cb.exists(linkSubquery);
+        });
+
+        if (trackingStatus != null) {
+            specification = specification.and(trackingStatusSpecification(trackingStatus));
+        }
+
+        if (search != null) {
+            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            Long searchedId = extractNumericId(search);
+            specification = specification.and((root, query, cb) -> {
+                List<Predicate> predicates = new ArrayList<>();
+
+                if (searchedId != null) {
+                    predicates.add(cb.equal(root.get("id"), searchedId));
+                    var dispatchLinkSubquery = query.subquery(Long.class);
+                    var dispatchLink = dispatchLinkSubquery.from(DispatchOrderRequestModel.class);
+                    dispatchLinkSubquery.select(dispatchLink.get("purchaseRequestId"))
+                            .where(
+                                    cb.equal(dispatchLink.get("purchaseRequestId"), root.get("id")),
+                                    cb.equal(dispatchLink.get("dispatchOrderId"), searchedId));
+                    predicates.add(cb.exists(dispatchLinkSubquery));
+                }
+
+                var categorySubquery = query.subquery(Long.class);
+                var detail = categorySubquery.from(PurchaseRequestDetailModel.class);
+                var product = categorySubquery.from(ProductModel.class);
+                var category = categorySubquery.from(CategoryModel.class);
+                categorySubquery.select(detail.get("purchaseRequestId"))
+                        .where(
+                                cb.equal(detail.get("purchaseRequestId"), root.get("id")),
+                                cb.equal(detail.get("productId"), product.get("id")),
+                                cb.equal(product.get("category"), category),
+                                cb.like(cb.lower(category.get("name")), pattern));
+                predicates.add(cb.exists(categorySubquery));
+
+                return cb.or(predicates.toArray(Predicate[]::new));
+            });
+        }
+
+        return specification;
+    }
+
+    private Specification<PurchaseRequestModel> trackingStatusSpecification(String trackingStatus) {
+        String normalized = trackingStatus.toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "PREPARING" -> (root, ignored, cb) ->
+                    cb.equal(root.get("status"), PurchaseRequestStatus.DISPATCHING);
+            case "DELIVERING" -> (root, ignored, cb) ->
+                    cb.equal(root.get("status"), PurchaseRequestStatus.IN_TRANSIT);
+            case "RECEIVED" -> (root, ignored, cb) ->
+                    cb.equal(root.get("status"), PurchaseRequestStatus.RECEIVED);
+            case "REDELIVERY" -> (root, query, cb) -> {
+                var linkSubquery = query.subquery(Long.class);
+                var link = linkSubquery.from(DispatchOrderRequestModel.class);
+                var order = linkSubquery.from(DispatchOrderModel.class);
+                linkSubquery.select(link.get("purchaseRequestId"))
+                        .where(
+                                cb.equal(link.get("purchaseRequestId"), root.get("id")),
+                                cb.equal(link.get("dispatchOrderId"), order.get("id")),
+                                cb.equal(order.get("status"), DispatchStatus.REDELIVERY));
+                return cb.exists(linkSubquery);
+            };
+            default -> (root, ignored, cb) -> cb.conjunction();
+        };
+    }
+
+    private List<ReceivingOrderResponse> buildIncomingOrderRows(List<PurchaseRequestModel> requests) {
         if (requests.isEmpty()) {
             return List.of();
         }
@@ -119,6 +232,10 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
                 .collect(Collectors.toMap(DispatchOrderModel::getId, o -> o, (a, b) -> a));
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
         Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
+        Set<Long> pendingRequestIds = goodsReceiptRepository
+                .findByPurchaseRequestIdInAndStatus(requestIds, STATUS_PENDING).stream()
+                .map(GoodsReceiptModel::getPurchaseRequestId)
+                .collect(Collectors.toSet());
 
         List<ReceivingOrderResponse> rows = new ArrayList<>();
         for (PurchaseRequestModel pr : requests) {
@@ -140,34 +257,14 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
             row.setStatus(mapTrackingStatus(order, pr.getStatus()));
             row.setCanReceive(pr.getStatus() == PurchaseRequestStatus.IN_TRANSIT
                     && order != null
-                    && order.getStatus() == DispatchStatus.DELIVERING);
+                    && order.getStatus() == DispatchStatus.DELIVERING
+                    && !pendingRequestIds.contains(pr.getId()));
             rows.add(row);
         }
         rows.sort(Comparator.comparing(
                 ReceivingOrderResponse::getShipmentDate,
                 Comparator.nullsLast(Comparator.reverseOrder())));
         return rows;
-    }
-
-    @Override
-    public Page<ReceivingOrderResponse> getIncomingOrderPage(PageRequestDTO pageRequest, String status) {
-        String search = pageRequest.normalizedSearch();
-        String normalizedSearch = search == null ? null : search.toLowerCase(Locale.ROOT);
-        String normalizedStatus = normalize(status);
-
-        List<ReceivingOrderResponse> filtered = getIncomingOrders().stream()
-                .filter(row -> normalizedStatus == null
-                        || normalizedStatus.equalsIgnoreCase(row.getStatus()))
-                .filter(row -> normalizedSearch == null
-                        || containsIgnoreCase(row.getDispatchNumber(), normalizedSearch)
-                        || containsIgnoreCase(row.getRequestNumber(), normalizedSearch)
-                        || row.getCategories().stream().anyMatch(category -> containsIgnoreCase(category, normalizedSearch)))
-                .toList();
-
-        Pageable pageable = pageRequest.toPageable();
-        int from = Math.min((int) pageable.getOffset(), filtered.size());
-        int to = Math.min(from + pageable.getPageSize(), filtered.size());
-        return new PageImpl<>(filtered.subList(from, to), pageable, filtered.size());
     }
 
     @Override
@@ -193,7 +290,9 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         response.setStoreName(branch == null ? null : branch.getName());
         response.setSource("Warehouse Stock");
         response.setStatus(receivingStatus(pr.getStatus()));
-        response.setCanReceive(pr.getStatus() == PurchaseRequestStatus.IN_TRANSIT);
+        response.setCanReceive(pr.getStatus() == PurchaseRequestStatus.IN_TRANSIT
+                && order.getStatus() == DispatchStatus.DELIVERING
+                && !hasPendingReceipt(dispatchOrderId, requestId));
 
         for (PurchaseRequestDetailModel detail : details) {
             ProductModel product = productsById.get(detail.getProductId());
@@ -222,6 +321,9 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         if (pr.getStatus() != PurchaseRequestStatus.IN_TRANSIT) {
             throw new BadRequestException("Only shipments in transit can be received.");
         }
+        if (hasPendingReceipt(dispatchOrderId, requestId)) {
+            throw new BadRequestException("A receipt for this shipment is already pending branch manager approval.");
+        }
 
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(requestId);
         Map<Integer, PurchaseRequestDetailModel> detailByProduct = details.stream()
@@ -246,30 +348,93 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         receipt.setStatus(STATUS_PENDING);
         GoodsReceiptModel savedReceipt = goodsReceiptRepository.save(receipt);
 
+        Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(
+                details.stream().map(PurchaseRequestDetailModel::getProductId).collect(Collectors.toSet())
+        ).stream().collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+
         List<GoodsReceiptItemModel> receiptItems = new ArrayList<>();
         for (PurchaseRequestDetailModel detail : details) {
             ReceiveShipmentRequest.Item input = inputByProduct.get(detail.getProductId());
-            int ordered = dispatchQuantity(detail);
-            int received = input == null || input.getReceivedQuantity() == null ? ordered : safe(input.getReceivedQuantity());
+            ProductModel product = productsById.get(detail.getProductId());
+            int orderedTop = dispatchQuantity(detail);
+            int receivedTop = input == null || input.getReceivedQuantity() == null ? orderedTop : safe(input.getReceivedQuantity());
+            int orderedBase = productPackagingService.toBaseQty(orderedTop, product);
+            int receivedBase = productPackagingService.toBaseQty(receivedTop, product);
 
             GoodsReceiptItemModel receiptItem = new GoodsReceiptItemModel();
             receiptItem.setGoodsReceiptId(savedReceipt.getId());
             receiptItem.setProductId(detail.getProductId());
-            receiptItem.setOrderedQuantity(ordered);
-            receiptItem.setReceivedQuantity(received);
+            receiptItem.setOrderedQuantity(orderedBase);
+            receiptItem.setReceivedQuantity(receivedBase);
             receiptItem.setNote(input == null ? null : normalize(input.getNote()));
             receiptItems.add(receiptItem);
-
-            increaseBranchStock(branchId, detail.getProductId(), received);
         }
         goodsReceiptItemRepository.saveAll(receiptItems);
+
+        return buildHistoryRow(savedReceipt, receiptItems.size(), staff.getFullName(), pr);
+    }
+
+    @Override
+    @Transactional
+    public ReceivingHistoryResponse approveReceipt(Long receiptId) {
+        Long branchId = currentBranchId();
+        GoodsReceiptModel receipt = loadBranchReceipt(receiptId, branchId);
+        if (!STATUS_PENDING.equals(normalizeReceiptStatus(receipt.getStatus()))) {
+            throw new BadRequestException("Only pending receipts can be approved.");
+        }
+
+        PurchaseRequestModel pr = purchaseRequestRepository.findById(receipt.getPurchaseRequestId())
+                .orElseThrow(() -> new NotFoundException("Purchase request not found."));
+        if (pr.getStatus() != PurchaseRequestStatus.IN_TRANSIT) {
+            throw new BadRequestException("Purchase request is not awaiting receipt approval.");
+        }
+
+        List<GoodsReceiptItemModel> receiptItems = goodsReceiptItemRepository.findByGoodsReceiptId(receiptId);
+        for (GoodsReceiptItemModel item : receiptItems) {
+            increaseBranchStock(receipt.getBranchId(), item.getProductId(), safe(item.getReceivedQuantity()));
+        }
+
+        receipt.setStatus(STATUS_APPROVED);
+        goodsReceiptRepository.save(receipt);
 
         pr.setStatus(PurchaseRequestStatus.RECEIVED);
         purchaseRequestRepository.save(pr);
 
-        markDispatchReceivedIfComplete(dispatchOrderId);
+        if (receipt.getDispatchOrderId() != null) {
+            markDispatchReceivedIfComplete(receipt.getDispatchOrderId());
+        }
 
-        return buildHistoryRow(savedReceipt, receiptItems.size(), staff.getFullName(), pr);
+        UserModel staff = receipt.getStockStaffId() == null ? null
+                : userRepository.findById(receipt.getStockStaffId()).orElse(null);
+        return buildHistoryRow(
+                receipt,
+                receiptItems.size(),
+                staff == null ? null : staff.getFullName(),
+                pr);
+    }
+
+    @Override
+    @Transactional
+    public ReceivingHistoryResponse rejectReceipt(Long receiptId) {
+        Long branchId = currentBranchId();
+        GoodsReceiptModel receipt = loadBranchReceipt(receiptId, branchId);
+        if (!STATUS_PENDING.equals(normalizeReceiptStatus(receipt.getStatus()))) {
+            throw new BadRequestException("Only pending receipts can be rejected.");
+        }
+
+        receipt.setStatus(STATUS_REJECTED);
+        goodsReceiptRepository.save(receipt);
+
+        PurchaseRequestModel pr = purchaseRequestRepository.findById(receipt.getPurchaseRequestId())
+                .orElseThrow(() -> new NotFoundException("Purchase request not found."));
+        List<GoodsReceiptItemModel> receiptItems = goodsReceiptItemRepository.findByGoodsReceiptId(receiptId);
+        UserModel staff = receipt.getStockStaffId() == null ? null
+                : userRepository.findById(receipt.getStockStaffId()).orElse(null);
+        return buildHistoryRow(
+                receipt,
+                receiptItems.size(),
+                staff == null ? null : staff.getFullName(),
+                pr);
     }
 
     @Override
@@ -471,6 +636,20 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         }
     }
 
+    private GoodsReceiptModel loadBranchReceipt(Long receiptId, Long branchId) {
+        GoodsReceiptModel receipt = goodsReceiptRepository.findById(receiptId)
+                .orElseThrow(() -> new NotFoundException("Receipt not found."));
+        if (!branchId.equals(receipt.getBranchId())) {
+            throw new ForbiddenException("Access denied.");
+        }
+        return receipt;
+    }
+
+    private boolean hasPendingReceipt(Long dispatchOrderId, Long requestId) {
+        return goodsReceiptRepository.existsByDispatchOrderIdAndPurchaseRequestIdAndStatus(
+                dispatchOrderId, requestId, STATUS_PENDING);
+    }
+
     private Map<Long, List<PurchaseRequestDetailModel>> loadDetailsByRequest(List<Long> requestIds) {
         if (requestIds.isEmpty()) {
             return Map.of();
@@ -599,10 +778,6 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         }
         String trimmed = value.trim();
         return trimmed.isBlank() ? null : trimmed;
-    }
-
-    private boolean containsIgnoreCase(String value, String normalizedSearch) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(normalizedSearch);
     }
 
     private Long extractNumericId(String value) {
