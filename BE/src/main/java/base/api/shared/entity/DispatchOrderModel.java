@@ -17,7 +17,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 /**
- * Lô vận chuyển (dispatch order) gom nhiều yêu cầu nhập hàng đã duyệt để giao về chi nhánh.
+ * Lô vận chuyển — một dispatch order gắn với một yêu cầu nhập hàng đã duyệt.
  */
 @Getter
 @Setter
@@ -32,9 +32,6 @@ public class DispatchOrderModel {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     private DispatchStatus status = DispatchStatus.PREPARING;
-
-    @Column(name = "vehicle", length = 100)
-    private String vehicle;
 
     @Column(name = "delivery_area", length = 100)
     private String deliveryArea;

@@ -65,7 +65,12 @@ class ReportScopeTest {
         verify(reportOrderRepository).revenueByShift(eq(BM_BRANCH), any(), any());
         verify(reportOrderRepository).findInvoices(eq(BM_BRANCH), any(), any(), any());
         verify(reportShiftSessionRepository).findDiscrepancies(
-                eq(UserRole.CASHIER), eq(ShiftSessionStatus.APPROVED), eq(BM_BRANCH), any(), any(), any());
+                eq(UserRole.CASHIER),
+                eq(List.of(ShiftSessionStatus.COMPLETED, ShiftSessionStatus.APPROVED)),
+                eq(BM_BRANCH),
+                any(),
+                any(),
+                any());
         verify(pointTransactionRepository).findHistory(eq(BM_BRANCH), any(), any(), any());
     }
 

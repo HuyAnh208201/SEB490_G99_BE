@@ -54,7 +54,7 @@ public class DispatchController extends BaseAPIController {
         return successPage(dispatchService.getApprovedRequestPage(pageRequest, area, route));
     }
 
-    @Operation(summary = "Create a dispatch order from selected approved requests")
+    @Operation(summary = "Create a dispatch order for one approved request")
     @PreAuthorize("@permissionChecker.has('MANAGE_DISPATCH_ORDERS')")
     @PostMapping
     public ResponseEntity<TFUResponse<DispatchOrderResponse>> createDispatchOrder(

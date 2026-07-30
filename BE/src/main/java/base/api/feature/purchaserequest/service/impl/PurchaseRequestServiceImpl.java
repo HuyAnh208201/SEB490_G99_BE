@@ -14,6 +14,7 @@ import base.api.feature.purchaserequest.dto.request.SaveDraftRequest;
 import base.api.feature.purchaserequest.dto.request.SubmitPurchaseRequestRequest;
 import base.api.feature.purchaserequest.dto.response.ConsolidatedBranchResponse;
 import base.api.feature.purchaserequest.dto.response.ProductSearchResponse;
+import base.api.feature.purchaserequest.dto.response.PurchaseRequestBranchResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestResponse;
 import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryResponse;
 import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
@@ -278,6 +279,24 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     }
 
     @Override
+    public List<PurchaseRequestBranchResponse> getWarehouseFilterBranches() {
+        List<Long> branchIds = purchaseRequestRepository.findDistinctBranchIdsByStatusIn(WAREHOUSE_VISIBLE_STATUSES);
+        if (branchIds.isEmpty()) {
+            return List.of();
+        }
+        return branchRepository.findAllById(branchIds).stream()
+                .sorted(Comparator.comparing(BranchModel::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .map(branch -> {
+                    PurchaseRequestBranchResponse row = new PurchaseRequestBranchResponse();
+                    row.setId(branch.getId());
+                    row.setName(branch.getName());
+                    row.setAddress(branch.getAddress());
+                    return row;
+                })
+                .toList();
+    }
+
+    @Override
     public List<RecommendedProductResponse> getRecommendedProducts() {
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         Long branchId = resolveBranchManagerBranchId(currentUser);
@@ -472,7 +491,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         purchaseRequest.setApprovedBy(currentUser.getId());
         purchaseRequest.setApprovedAt(LocalDateTime.now());
         purchaseRequest.setRejectReason(null);
-        return buildResponse(purchaseRequestRepository.save(purchaseRequest));
+        PurchaseRequestModel saved = purchaseRequestRepository.save(purchaseRequest);
+        warehouseStockAllocationHelper.reconcileApprovedStockStatus();
+        return buildResponse(saved);
     }
 
     private Map<Integer, Integer> loadWarehouseStock(List<PurchaseRequestDetailModel> details) {
@@ -536,7 +557,8 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         PurchaseRequestModel purchaseRequest = findRequestOrThrow(id);
         assertCanReceive(purchaseRequest, currentUser);
         if (purchaseRequest.getStatus() == null || !purchaseRequest.getStatus().isReceivable()) {
-            throw new BadRequestException("Only approved requests can be received.");
+            throw new BadRequestException(
+                    "Direct receive is disabled. Use Order Tracking to receive shipments in transit.");
         }
 
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(id);

@@ -31,6 +31,9 @@ public class ShiftSessionModel {
     @Column(name = "shift_id", nullable = false)
     private Long shiftId;
 
+    @Column(name = "shift_assignment_id")
+    private Long shiftAssignmentId;
+
     @Column(name = "employee_id", nullable = false)
     private Long employeeId;
 
@@ -108,14 +111,14 @@ public class ShiftSessionModel {
     @Column(name = "missing_products_count")
     private Integer missingProductsCount;
 
-    @Column(name = "review_note", columnDefinition = "TEXT")
-    private String reviewNote;
+    @Column(name = "approved_by")
+    private Long approvedBy;
 
-    @Column(name = "reviewed_by")
-    private Long reviewedBy;
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
 
-    @Column(name = "reviewed_at")
-    private LocalDateTime reviewedAt;
+    @Column(name = "manager_note", columnDefinition = "TEXT")
+    private String managerNote;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

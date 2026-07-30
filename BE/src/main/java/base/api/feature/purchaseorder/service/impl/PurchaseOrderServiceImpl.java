@@ -2,6 +2,7 @@ package base.api.feature.purchaseorder.service.impl;
 
 import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaseorder.dto.request.CreatePurchaseOrderRequest;
 import base.api.feature.purchaseorder.dto.response.PurchaseOrderResponse;
 import base.api.feature.purchaseorder.dto.response.PurchaseProductOptionResponse;
@@ -85,23 +86,24 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
     @Autowired
     private WarehouseStockAllocationHelper warehouseStockAllocationHelper;
 
+    @Autowired
+    private ProductPackagingService productPackagingService;
+
     @Override
     public List<RecommendedPurchaseProductResponse> getRecommendedProducts() {
-        Map<Integer, WarehouseInventoryModel> stockByProduct = warehouseInventoryRepository.findAll().stream()
-                .collect(Collectors.toMap(WarehouseInventoryModel::getProductId, inv -> inv, (a, b) -> a));
-
-        // Nhu cầu từ các yêu cầu đang chờ tồn kho (AWAITING_STOCK).
-        Map<Integer, Integer> demandByProduct = demandForAwaitingStock();
+        Map<Integer, Integer> demandByProduct = demandForWarehouseShortfall();
 
         Set<Integer> productIds = new LinkedHashSet<>(demandByProduct.keySet());
-        for (WarehouseInventoryModel inv : stockByProduct.values()) {
-            if (safe(inv.getQuantity()) < safe(inv.getReorderPoint())) {
-                productIds.add(inv.getProductId());
-            }
+        for (WarehouseInventoryModel inv : warehouseInventoryRepository.findBelowReorderPoint()) {
+            productIds.add(inv.getProductId());
         }
         if (productIds.isEmpty()) {
             return List.of();
         }
+
+        Map<Integer, WarehouseInventoryModel> stockByProduct = warehouseInventoryRepository
+                .findByProductIdIn(productIds).stream()
+                .collect(Collectors.toMap(WarehouseInventoryModel::getProductId, inv -> inv, (a, b) -> a));
 
         Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(productIds).stream()
                 .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
@@ -113,12 +115,19 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
                 continue;
             }
             WarehouseInventoryModel inv = stockByProduct.get(productId);
-            int current = inv == null ? 0 : safe(inv.getQuantity());
-            int reorder = inv == null ? 0 : safe(inv.getReorderPoint());
-            int demand = demandByProduct.getOrDefault(productId, 0);
-            int required = Math.max(demand, reorder);
-            int suggested = Math.max(required - current, 0);
-            if (suggested <= 0) {
+            int currentBase = inv == null ? 0 : safe(inv.getQuantity());
+            int reorderBase = inv == null ? 0 : safe(inv.getReorderPoint());
+            int demandBase = demandByProduct.getOrDefault(productId, 0);
+            int requiredBase = Math.max(demandBase, reorderBase);
+            int suggestedBase = Math.max(requiredBase - currentBase, 0);
+            if (suggestedBase <= 0) {
+                continue;
+            }
+
+            int conversion = productPackagingService.topConversionQty(product);
+            int requiredTop = toTopUnits(requiredBase, conversion);
+            int suggestedTop = toTopUnits(suggestedBase, conversion);
+            if (suggestedTop <= 0) {
                 continue;
             }
 
@@ -127,10 +136,14 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
             row.setProductCode(product.getCode());
             row.setProductName(product.getName());
             row.setCategoryName(product.getCategory() == null ? null : product.getCategory().getName());
-            row.setUnit(product.getUnit());
-            row.setCurrentQty(current);
-            row.setRequiredQty(required);
-            row.setSuggestedQty(suggested);
+            row.setUnit(productPackagingService.topLabel(product));
+            row.setTopPackagingLabel(productPackagingService.topLabel(product));
+            row.setCurrentQty(currentBase);
+            row.setCurrentQtyBase(currentBase);
+            row.setRequiredQty(requiredTop);
+            row.setRequiredQtyBase(requiredBase);
+            row.setSuggestedQty(suggestedTop);
+            row.setSuggestedQtyBase(suggestedBase);
             row.setReferencePrice(product.getReferenceImportPrice());
             result.add(row);
         }
@@ -282,9 +295,15 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
             throw new BadRequestException("Purchase order has no items to receive.");
         }
 
-        // Nhập kho tổng: cộng tồn kho KHO TỔNG cho từng sản phẩm.
+        Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(
+                items.stream().map(PurchaseOrderItemModel::getProductId).collect(Collectors.toSet())
+        ).stream().collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+
+        // PO quantities are in TOP packaging units; warehouse_inventory is kept in BASE units.
         for (PurchaseOrderItemModel item : items) {
-            increaseWarehouseStock(item.getProductId(), safe(item.getQuantity()));
+            ProductModel product = productsById.get(item.getProductId());
+            int baseQty = productPackagingService.toBaseQty(safe(item.getQuantity()), product);
+            increaseWarehouseStock(item.getProductId(), baseQty);
         }
 
         order.setStatus(PurchaseOrderStatus.RECEIVED);
@@ -319,57 +338,97 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
      */
     private void reevaluateAwaitingStock() {
         List<PurchaseRequestModel> awaiting = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.AWAITING_STOCK);
-        if (awaiting.isEmpty()) {
-            return;
-        }
-        awaiting.sort(Comparator.comparing(
-                PurchaseRequestModel::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+        if (!awaiting.isEmpty()) {
+            awaiting.sort(Comparator.comparing(
+                    PurchaseRequestModel::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
 
-        Map<Integer, Integer> workingStock = new HashMap<>(warehouseStockAllocationHelper.workingStockAfterApprovedReservations());
-        List<Long> requestIds = awaiting.stream().map(PurchaseRequestModel::getId).toList();
-        Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = detailRepository.findByPurchaseRequestIdIn(requestIds).stream()
-                .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
+            Map<Integer, Integer> workingStock = new HashMap<>(warehouseStockAllocationHelper.workingStockAfterApprovedReservations());
+            List<Long> requestIds = awaiting.stream().map(PurchaseRequestModel::getId).toList();
+            Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = detailRepository.findByPurchaseRequestIdIn(requestIds).stream()
+                    .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
 
-        List<PurchaseRequestModel> promoted = new ArrayList<>();
-        for (PurchaseRequestModel pr : awaiting) {
-            List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
-            Map<Integer, Integer> needByProduct = new HashMap<>();
-            for (PurchaseRequestDetailModel detail : details) {
-                int qty = approvedQuantity(detail);
-                if (qty > 0 && detail.getProductId() != null) {
-                    needByProduct.merge(detail.getProductId(), qty, Integer::sum);
+            Set<Integer> productIds = detailsByRequest.values().stream()
+                    .flatMap(List::stream)
+                    .map(PurchaseRequestDetailModel::getProductId)
+                    .filter(id -> id != null)
+                    .collect(Collectors.toSet());
+            Map<Integer, ProductModel> productsById = productIds.isEmpty()
+                    ? Map.of()
+                    : productRepository.findByIdInWithCategory(productIds).stream()
+                            .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+
+            List<PurchaseRequestModel> promoted = new ArrayList<>();
+            for (PurchaseRequestModel pr : awaiting) {
+                List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
+                Map<Integer, Integer> needByProduct = new HashMap<>();
+                for (PurchaseRequestDetailModel detail : details) {
+                    int needBase = needBaseUnits(detail, productsById);
+                    if (needBase > 0 && detail.getProductId() != null) {
+                        needByProduct.merge(detail.getProductId(), needBase, Integer::sum);
+                    }
                 }
-            }
 
-            boolean enough = needByProduct.entrySet().stream()
-                    .allMatch(e -> workingStock.getOrDefault(e.getKey(), 0) >= e.getValue());
-            if (!enough) {
-                continue;
+                boolean enough = needByProduct.entrySet().stream()
+                        .allMatch(e -> workingStock.getOrDefault(e.getKey(), 0) >= e.getValue());
+                if (!enough) {
+                    continue;
+                }
+                needByProduct.forEach((productId, qty) ->
+                        workingStock.merge(productId, -qty, Integer::sum));
+                pr.setStatus(PurchaseRequestStatus.APPROVED);
+                promoted.add(pr);
             }
-            needByProduct.forEach((productId, qty) ->
-                    workingStock.merge(productId, -qty, Integer::sum));
-            pr.setStatus(PurchaseRequestStatus.APPROVED);
-            promoted.add(pr);
+            if (!promoted.isEmpty()) {
+                purchaseRequestRepository.saveAll(promoted);
+            }
         }
-        if (!promoted.isEmpty()) {
-            purchaseRequestRepository.saveAll(promoted);
-        }
+        warehouseStockAllocationHelper.reconcileApprovedStockStatus();
     }
 
-    private Map<Integer, Integer> demandForAwaitingStock() {
-        List<PurchaseRequestModel> awaiting = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.AWAITING_STOCK);
-        if (awaiting.isEmpty()) {
+    private Map<Integer, Integer> demandForWarehouseShortfall() {
+        return new HashMap<>(demandFromRequests(
+                purchaseRequestRepository.findByStatus(PurchaseRequestStatus.AWAITING_STOCK)));
+    }
+
+    private Map<Integer, Integer> demandFromRequests(List<PurchaseRequestModel> requests) {
+        if (requests.isEmpty()) {
             return Map.of();
         }
-        List<Long> requestIds = awaiting.stream().map(PurchaseRequestModel::getId).toList();
+        List<Long> requestIds = requests.stream().map(PurchaseRequestModel::getId).toList();
+        List<PurchaseRequestDetailModel> allDetails = detailRepository.findByPurchaseRequestIdIn(requestIds);
+        Set<Integer> productIds = allDetails.stream()
+                .map(PurchaseRequestDetailModel::getProductId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        Map<Integer, ProductModel> productsById = productIds.isEmpty()
+                ? Map.of()
+                : productRepository.findByIdInWithCategory(productIds).stream()
+                        .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+
         Map<Integer, Integer> demand = new HashMap<>();
-        for (PurchaseRequestDetailModel detail : detailRepository.findByPurchaseRequestIdIn(requestIds)) {
-            int qty = approvedQuantity(detail);
-            if (qty > 0 && detail.getProductId() != null) {
-                demand.merge(detail.getProductId(), qty, Integer::sum);
+        for (PurchaseRequestDetailModel detail : allDetails) {
+            int needBase = needBaseUnits(detail, productsById);
+            if (needBase > 0 && detail.getProductId() != null) {
+                demand.merge(detail.getProductId(), needBase, Integer::sum);
             }
         }
         return demand;
+    }
+
+    private int toTopUnits(int baseQty, int conversionQty) {
+        if (baseQty <= 0) {
+            return 0;
+        }
+        int conversion = Math.max(conversionQty, 1);
+        return (baseQty + conversion - 1) / conversion;
+    }
+
+    private int needBaseUnits(PurchaseRequestDetailModel detail, Map<Integer, ProductModel> productsById) {
+        int topUnits = approvedQuantity(detail);
+        if (topUnits <= 0 || detail.getProductId() == null) {
+            return 0;
+        }
+        return productPackagingService.toBaseQty(topUnits, productsById.get(detail.getProductId()));
     }
 
     private Map<Integer, Integer> warehouseStockMap() {

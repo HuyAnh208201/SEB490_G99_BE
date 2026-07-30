@@ -4,11 +4,15 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shift.repository.ShiftRepository;
+import base.api.feature.shiftsession.dto.request.ReconcileShiftSessionRequest;
 import base.api.feature.shiftsession.dto.response.ShiftSessionResponse;
+import base.api.feature.shiftsession.repository.ShiftSessionApprovalRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionHighValueItemRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionRepository;
+import base.api.shared.entity.ShiftSessionApprovalModel;
 import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.enums.ShiftSessionApprovalDecision;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
@@ -27,6 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,6 +49,9 @@ class ShiftSessionApprovalTest {
 
     @Mock
     private ShiftSessionHighValueItemRepository highValueItemRepository;
+
+    @Mock
+    private ShiftSessionApprovalRepository approvalRepository;
 
     @Mock
     private ShiftAssignmentRepository assignmentRepository;
@@ -63,59 +72,77 @@ class ShiftSessionApprovalTest {
     private ShiftSessionServiceImpl service;
 
     @Test
-    void approveMovesSessionFromPendingApprovalToApproved() {
+    void approveMovesSessionFromPendingApprovalToCompleted() {
         signedInAsManager(BRANCH_ID);
         ShiftSessionModel session = pendingSession();
         when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session));
         when(userRepository.findById(EMPLOYEE_ID)).thenReturn(Optional.of(employee()));
+        when(userRepository.findById(MANAGER_ID)).thenReturn(Optional.of(managerUser()));
 
-        ShiftSessionResponse response = service.approveSession(SESSION_ID, "Verified, difference within limit.");
+        ReconcileShiftSessionRequest request = new ReconcileShiftSessionRequest();
+        request.setApproved(true);
+        request.setNote("Verified, difference within limit.");
 
-        assertEquals(ShiftSessionStatus.APPROVED, session.getStatus());
-        assertEquals(MANAGER_ID, session.getReviewedBy());
-        assertNotNull(session.getReviewedAt());
-        assertEquals("Verified, difference within limit.", session.getReviewNote());
-        assertEquals(ShiftSessionStatus.APPROVED, response.getStatus());
-        assertEquals("Verified, difference within limit.", response.getReviewNote());
+        ShiftSessionResponse response = service.decideReconciliation(SESSION_ID, request);
+
+        assertEquals(ShiftSessionStatus.COMPLETED, session.getStatus());
+        assertEquals(MANAGER_ID, session.getApprovedBy());
+        assertNotNull(session.getApprovedAt());
+        assertEquals("Verified, difference within limit.", session.getManagerNote());
+        assertEquals(ShiftSessionStatus.COMPLETED, response.getStatus());
+        verify(approvalRepository).save(any(ShiftSessionApprovalModel.class));
     }
 
     @Test
-    void rejectSendsSessionBackToPendingHandoverAndClearsHandoverFlag() {
+    void rejectSendsSessionBackToRejectedAndClearsHandoverFlag() {
         signedInAsManager(BRANCH_ID);
         ShiftSessionModel session = pendingSession();
         when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session));
         when(userRepository.findById(EMPLOYEE_ID)).thenReturn(Optional.of(employee()));
 
-        service.rejectSession(SESSION_ID, "Difference too large, recount.");
+        ReconcileShiftSessionRequest request = new ReconcileShiftSessionRequest();
+        request.setApproved(false);
+        request.setNote("Difference too large, recount.");
 
-        assertEquals(ShiftSessionStatus.PENDING_HANDOVER, session.getStatus());
+        service.decideReconciliation(SESSION_ID, request);
+
+        assertEquals(ShiftSessionStatus.REJECTED, session.getStatus());
         assertFalse(session.getHandoverConfirmed());
-        assertEquals(MANAGER_ID, session.getReviewedBy());
-        assertEquals("Difference too large, recount.", session.getReviewNote());
+        assertEquals(MANAGER_ID, session.getApprovedBy());
+        assertEquals("Difference too large, recount.", session.getManagerNote());
     }
 
     @Test
     void managerCannotReviewSessionFromAnotherBranch() {
         signedInAsManager(OTHER_BRANCH_ID);
-        ShiftSessionModel session = pendingSession(); // branch 10, manager is branch 20
+        ShiftSessionModel session = pendingSession();
         when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session));
+
+        ReconcileShiftSessionRequest request = new ReconcileShiftSessionRequest();
+        request.setApproved(true);
+        request.setNote("x");
 
         BusinessException error = assertThrows(
                 BusinessException.class,
-                () -> service.approveSession(SESSION_ID, "x"));
+                () -> service.decideReconciliation(SESSION_ID, request));
 
-        assertTrue(error.getMessage().contains("own branch"));
+        assertTrue(error.getMessage().contains("another branch"));
         assertEquals(ShiftSessionStatus.PENDING_APPROVAL, session.getStatus());
     }
 
-    // ---------------------------------------------------------------------
-
     private void signedInAsManager(Long branchId) {
-        UserModel manager = new UserModel();
-        manager.setId(MANAGER_ID);
+        UserModel manager = managerUser();
         manager.setBranchId(branchId);
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(manager);
         when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.BRANCH_MANAGER);
+    }
+
+    private UserModel managerUser() {
+        UserModel manager = new UserModel();
+        manager.setId(MANAGER_ID);
+        manager.setBranchId(BRANCH_ID);
+        manager.setRole(UserRole.BRANCH_MANAGER);
+        return manager;
     }
 
     private ShiftSessionModel pendingSession() {
