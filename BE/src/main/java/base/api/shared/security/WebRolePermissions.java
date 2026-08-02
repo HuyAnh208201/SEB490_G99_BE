@@ -81,7 +81,6 @@ public final class WebRolePermissions {
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.INVENTORY_COUNT,
                 WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE,
-                WebPermission.MY_SHIFTS,
                 WebPermission.REPORTS_VIEW
         ));
 

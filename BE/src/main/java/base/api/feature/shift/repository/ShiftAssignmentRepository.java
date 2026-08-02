@@ -101,4 +101,18 @@ public interface ShiftAssignmentRepository extends JpaRepository<ShiftAssignment
             @Param("dayStart") LocalDateTime dayStart,
             @Param("nextDayStart") LocalDateTime nextDayStart,
             @Param("published") ShiftStatus published);
+
+    @Query("""
+            SELECT a FROM ShiftAssignmentModel a
+            JOIN FETCH a.shift s
+            JOIN FETCH a.staff st
+            WHERE st.id = :staffId
+              AND s.status = :published
+              AND s.endTime >= :from
+            ORDER BY s.startTime ASC
+            """)
+    List<ShiftAssignmentModel> findPublishedAssignmentsFrom(
+            @Param("staffId") Long staffId,
+            @Param("from") LocalDateTime from,
+            @Param("published") ShiftStatus published);
 }

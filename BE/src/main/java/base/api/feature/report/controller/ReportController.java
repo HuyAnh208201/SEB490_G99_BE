@@ -3,8 +3,11 @@ package base.api.feature.report.controller;
 import base.api.feature.report.dto.CashDiscrepancyResponse;
 import base.api.feature.report.dto.InvoiceRow;
 import base.api.feature.report.dto.PointTransactionResponse;
+import base.api.feature.report.dto.ReportSummaryResponse;
 import base.api.feature.report.dto.RevenueReportResponse;
 import base.api.feature.report.dto.RevenueRow;
+import base.api.feature.report.dto.TopProductRow;
+import base.api.feature.report.dto.TrendPoint;
 import base.api.feature.report.service.ReportService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
@@ -63,6 +66,40 @@ public class ReportController extends BaseAPIController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) Long branchId) {
         return successPage(reportService.getRevenuePage(groupBy, from, to, branchId, pageRequest));
+    }
+
+    @Operation(summary = "Revenue dashboard KPIs")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/summary")
+    public ResponseEntity<TFUResponse<ReportSummaryResponse>> summary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) Long shiftId) {
+        return success(reportService.getSummary(from, to, branchId, shiftId));
+    }
+
+    @Operation(summary = "Daily revenue trend")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/trend")
+    public ResponseEntity<TFUResponse<List<TrendPoint>>> trend(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) Long shiftId) {
+        return success(reportService.getTrend(from, to, branchId, shiftId));
+    }
+
+    @Operation(summary = "Top-selling products by revenue")
+    @PreAuthorize("@permissionChecker.has('REPORTS_VIEW')")
+    @GetMapping("/top-products")
+    public ResponseEntity<TFUResponse<List<TopProductRow>>> topProducts(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) Long shiftId,
+            @RequestParam(required = false, defaultValue = "5") int limit) {
+        return success(reportService.getTopProducts(from, to, branchId, shiftId, limit));
     }
 
     @Operation(

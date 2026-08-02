@@ -41,6 +41,7 @@ import base.api.shared.enums.ShiftStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
 import base.api.shared.security.CurrentUserProvider;
+import base.api.shared.security.DemoAccounts;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -174,7 +175,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             throw new BusinessException(
                     "You must confirm that you have received the opening fund before opening the shift.");
         }
-        assertNoOtherOpenSessionInBranch(session.getBranchId(), user.getId());
+        assertNoOtherOpenSessionInBranch(session.getBranchId(), user.getId(), user);
         populateOpeningFund(session, assignment.getShift());
         session.setOpeningConfirmed(true);
         if (request != null && request.getNote() != null && !request.getNote().isBlank()) {
@@ -509,7 +510,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 .orElseThrow(() -> new BusinessException("No open shift session. Start your shift first."));
     }
 
-    private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId) {
+    private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId, UserModel actor) {
+        if (actor != null && DemoAccounts.isDemoBypassEmail(actor.getEmail())) {
+            return;
+        }
         sessionRepository
                 .findFirstByBranchIdAndStatusOrderByOpenedAtDesc(branchId, ShiftSessionStatus.OPEN)
                 .ifPresent(open -> {
@@ -517,6 +521,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                         throw new BusinessException(BRANCH_ALREADY_OPEN_MESSAGE);
                     }
                 });
+    }
+
+    private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId) {
+        assertNoOtherOpenSessionInBranch(branchId, employeeId, null);
     }
 
     private Optional<ShiftAssignmentModel> resolveCurrentAssignment(UserModel user) {
@@ -542,7 +550,55 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                         today.atStartOfDay(),
                         today.plusDays(1).atStartOfDay(),
                         ShiftStatus.PUBLISHED);
-        return todayAssignments.stream().findFirst();
+        Optional<ShiftAssignmentModel> assignedToday = todayAssignments.stream().findFirst();
+        if (assignedToday.isPresent()) {
+            return assignedToday;
+        }
+        if (DemoAccounts.isDemoBypassEmail(user.getEmail())) {
+            return Optional.of(ensureDemoAssignment(user));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Demo cashiers may open a POS shift without a BM-published assignment.
+     * Creates (or reuses) a published same-day slot covering "now".
+     */
+    private ShiftAssignmentModel ensureDemoAssignment(UserModel user) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        LocalDateTime dayStart = today.atTime(6, 0);
+        LocalDateTime dayEnd = today.atTime(23, 0);
+        List<ShiftModel> dayShifts = shiftRepository
+                .findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
+                        user.getBranchId(), today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        ShiftModel shift = dayShifts.stream()
+                .filter(s -> s.getStatus() == ShiftStatus.PUBLISHED)
+                .filter(s -> !s.getEndTime().isBefore(now) && !s.getStartTime().isAfter(now.plusMinutes(30)))
+                .findFirst()
+                .orElse(null);
+        if (shift == null) {
+            shift = new ShiftModel();
+            shift.setBranchId(user.getBranchId());
+            shift.setCreatedBy(user.getId());
+            shift.setStartTime(dayStart);
+            shift.setEndTime(dayEnd);
+            shift.setOpeningCash(STANDARD_OPENING_FUND);
+            shift.setExpectedCash(BigDecimal.ZERO);
+            shift.setStatus(ShiftStatus.PUBLISHED);
+            shift.setApprovedBy(user.getId());
+            shift = shiftRepository.save(shift);
+        }
+        Optional<ShiftAssignmentModel> existing =
+                assignmentRepository.findFirstByShiftIdAndStaffIdOrderByIdDesc(shift.getId(), user.getId());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        ShiftAssignmentModel assignment = new ShiftAssignmentModel();
+        assignment.setShift(shift);
+        assignment.setStaff(user);
+        assignment.setAssignedRole(UserRole.CASHIER);
+        return assignmentRepository.save(assignment);
     }
 
     private ShiftAssignmentModel requireCurrentAssignment(UserModel user) {

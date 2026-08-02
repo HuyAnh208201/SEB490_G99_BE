@@ -6,7 +6,8 @@ import java.time.LocalDateTime;
 /**
  * Một dòng lịch sử hoá đơn (projection trực tiếp từ orders).
  *
- * Bao gồm mọi trạng thái (COMPLETED/REFUNDED...) để người xem thấy cả đơn đã hoàn.
+ * Invoice history for completed / cancelled / refunded orders only
+ * (excludes unpaid drafts such as PENDING_PAYMENT).
  */
 public record InvoiceRow(
         Long id,
