@@ -29,6 +29,7 @@ public class ProductResponse {
     private Long branchId;
     private String branchName;
     private Integer branchStock;
+    private Integer branchReorderPoint;
     private Integer warehouseStock;
     private Integer warehouseReorderPoint;
     private Boolean lowStock;

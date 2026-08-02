@@ -4,6 +4,8 @@ import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderResponse;
 import base.api.feature.posorder.dto.response.VoucherResponse;
 import base.api.feature.posorder.service.IPosOrderService;
+import base.api.feature.product.dto.response.PosCatalogItemResponse;
+import base.api.feature.product.service.IProductService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
 import base.api.shared.dto.PageRequestDTO;
@@ -34,6 +36,9 @@ public class PosOrderController extends BaseAPIController {
 
     @Autowired
     private IPosOrderService posOrderService;
+
+    @Autowired
+    private IProductService productService;
 
     @Operation(
             summary = "Chốt đơn tại quầy",
@@ -75,6 +80,13 @@ public class PosOrderController extends BaseAPIController {
             @RequestParam(required = false) String paymentMethod) {
 
         return successPage(posOrderService.getOrderPage(pageRequest, from, to, paymentMethod));
+    }
+
+    @Operation(summary = "Lightweight POS catalog (minimal fields + branch stock)")
+    @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
+    @GetMapping("/catalog")
+    public ResponseEntity<TFUResponse<List<PosCatalogItemResponse>>> getCatalog() {
+        return success(productService.getPosCatalog());
     }
 
     @Operation(summary = "Chi tiết một đơn")
