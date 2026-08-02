@@ -159,9 +159,13 @@ public class PurchaseRequestController extends BaseAPIController {
     @GetMapping("/search-products")
     public ResponseEntity<TFUResponse<base.api.shared.dto.PageResponseDTO<ProductSearchResponse>>> searchProducts(
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) Boolean lowStockOnly,
+            @RequestParam(required = false) String stockSort,
             @ModelAttribute PageRequestDTO pageRequest
     ) {
-        Page<ProductSearchResponse> page = purchaseRequestService.searchProducts(keyword, pageRequest);
+        Page<ProductSearchResponse> page = purchaseRequestService.searchProducts(
+                keyword, pageRequest, categoryId, lowStockOnly, stockSort);
         return successPage(page);
     }
 
