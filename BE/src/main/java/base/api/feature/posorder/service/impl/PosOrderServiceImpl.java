@@ -180,6 +180,8 @@ public class PosOrderServiceImpl implements IPosOrderService {
             throw new BusinessException("Discount code was just used on another order.");
         }
 
+        boolean isPayOS = "PAYOS".equalsIgnoreCase(request.getPaymentMethod());
+
         OrderModel order = new OrderModel();
         order.setBranchId(branchId);
         order.setShiftId(findOpenShiftId(branchId, now));
@@ -190,7 +192,8 @@ public class PosOrderServiceImpl implements IPosOrderService {
         order.setTotal(total);
         order.setPointsRedeemed(pointsToRedeem);
         order.setPointsEarned(pointsEarned);
-        order.setStatus("COMPLETED");
+        // PAYOS: chờ thanh toán QR → webhook sẽ chuyển sang COMPLETED
+        order.setStatus(isPayOS ? "PENDING_PAYMENT" : "COMPLETED");
         order.setCreatedAt(now);
         order = orderRepository.save(order);
         order.setInvoiceCode(buildInvoiceCode(order.getId(), now));
@@ -427,11 +430,14 @@ public class PosOrderServiceImpl implements IPosOrderService {
     private PaymentModel buildPayment(
             CheckoutRequest request, Long orderId, BigDecimal total, LocalDateTime now) {
 
+        boolean isPayOS = "PAYOS".equalsIgnoreCase(request.getPaymentMethod());
+
         PaymentModel payment = new PaymentModel();
         payment.setOrderId(orderId);
         payment.setMethod(request.getPaymentMethod().toUpperCase());
         payment.setAmount(total);
-        payment.setStatus("SUCCESS");
+        // PAYOS: chờ webhook xác nhận → PENDING; CASH: thành công ngay.
+        payment.setStatus(isPayOS ? "PENDING" : "SUCCESS");
         payment.setCreatedAt(now);
         if ("CASH".equalsIgnoreCase(request.getPaymentMethod())) {
             payment.setCashReceived(request.getCashReceived());
@@ -519,6 +525,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
             response.setPaymentMethod(payment.getMethod());
             response.setCashReceived(payment.getCashReceived());
             response.setChangeAmount(payment.getChangeAmount());
+            response.setPaymentStatus(payment.getStatus());
         }
         return response;
     }
