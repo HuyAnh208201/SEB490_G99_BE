@@ -394,7 +394,11 @@ public class PosOrderServiceImpl implements IPosOrderService {
         if (phone == null || phone.isBlank()) {
             return null;
         }
-        UserModel customer = userService.getOrCreateGuestByPhone(phone, request.getCustomerName());
+        String normalized = phone.trim().replaceAll("\\s+", "");
+        if (!normalized.matches("^[0-9+][0-9]{7,19}$")) {
+            throw new BusinessException("Customer phone format is invalid.");
+        }
+        UserModel customer = userService.getOrCreateGuestByPhone(normalized, request.getCustomerName());
         if (customer.getRole() != UserRole.CUSTOMER) {
             throw new BusinessException(
                     "This phone belongs to a staff account, not a customer.");

@@ -76,6 +76,20 @@ public class CashierServiceImpl implements ICashierService {
 
         // SĐT có thể đã thuộc một tài khoản nhân viên — không được biến họ thành khách.
         validateIsCustomerRole(customer);
+
+        String email = request.getEmail() == null ? null : request.getEmail().trim();
+        if (email != null && !email.isEmpty()) {
+            // Chỉ gắn email thật khi tài khoản vẫn đang dùng email walk-in hệ thống sinh.
+            String current = customer.getEmail();
+            if (current == null || current.endsWith("@guest.chainstore.com")) {
+                if (userRepository.findByEmail(email).filter(u -> !u.getId().equals(customer.getId())).isPresent()) {
+                    throw new BadRequestException("This email is already in use.");
+                }
+                customer.setEmail(email);
+                userRepository.save(customer);
+            }
+        }
+
         return toCustomerLookupResponse(customer);
     }
 

@@ -6,13 +6,15 @@ import lombok.Data;
 
 @Data
 public class ChangePasswordDto {
-    @NotBlank(message = "Mật khẩu cũ không được để trống")
+    @NotBlank(message = "Current password is required.")
+    @Size(max = 128, message = "Current password must be at most 128 characters.")
     private String oldPassword;
 
-    @NotBlank(message = "Mật khẩu mới không được để trống")
-    @Size(min = 6, message = "Mật khẩu phải có ít nhất 6 ký tự")
+    @NotBlank(message = "New password is required.")
+    @Size(min = 6, max = 128, message = "Password must be between 6 and 128 characters.")
     private String newPassword;
 
-    @NotBlank(message = "Xác nhận mật khẩu không được để trống")
+    @NotBlank(message = "Password confirmation is required.")
+    @Size(max = 128, message = "Password confirmation must be at most 128 characters.")
     private String confirmNewPassword;
 }

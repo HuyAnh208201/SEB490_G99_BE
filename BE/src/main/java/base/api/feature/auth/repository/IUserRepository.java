@@ -78,14 +78,13 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
     List<UserModel> findByRoleName(@Param("roleName") String roleName);
 
     /**
-     * POS quick search: partial match on phone, email or name, customers only.
+     * POS quick search: partial match on phone or name only (not email).
      * Cashier thường chỉ nhớ vài số cuối nên không thể bắt gõ đủ SĐT.
      */
     @Query("""
             SELECT u FROM UserModel u
             WHERE u.roleEntity.name = 'CUSTOMER'
               AND (u.phone LIKE CONCAT('%', :keyword, '%')
-                   OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%'))
                    OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%')))
             ORDER BY u.fullName ASC
             """)

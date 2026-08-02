@@ -32,21 +32,21 @@ public class AuthServiceImpl implements IAuthService {
                     new UsernamePasswordAuthenticationToken(normalizedLogin, dto.getPassword())
             );
         } catch (Exception ex) {
-            throw new IllegalArgumentException("Sai tên đăng nhập hoặc mật khẩu");
+            throw new IllegalArgumentException("Incorrect username or password");
         }
 
         UserModel user = userService.findByUserName(normalizedLogin);
         if (user == null) {
-            throw new IllegalArgumentException("Không tìm thấy user");
+            throw new IllegalArgumentException("User not found");
         }
         if (!user.isVerified()) {
-            throw new IllegalArgumentException("Vui lòng xác thực email trước khi đăng nhập");
+            throw new IllegalArgumentException("Please verify your email before signing in");
         }
         if (!user.isActive()) {
-            throw new IllegalArgumentException("Tài khoản đã bị vô hiệu hóa");
+            throw new IllegalArgumentException("Account has been disabled");
         }
         if (!user.getRole().toWebRole().isWebRole()) {
-            throw new IllegalArgumentException("Tài khoản không có quyền truy cập Web System");
+            throw new IllegalArgumentException("Account does not have access to the Web System");
         }
 
         AuthResponse authResponse = new AuthResponse();
@@ -57,7 +57,7 @@ public class AuthServiceImpl implements IAuthService {
     @Override
     public void logout(String token) {
         if (token == null || token.isBlank()) {
-            throw new IllegalArgumentException("Token không hợp lệ");
+            throw new IllegalArgumentException("Invalid token");
         }
 
         jwtUtil.extractExpiration(token);

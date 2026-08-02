@@ -5,6 +5,6 @@ import lombok.Data;
 
 @Data
 public class InitiateForgotPasswordDto {
-    @NotBlank(message = "Thông tin liên hệ (email hoặc tên đăng nhập) không được để trống")
-    private String contactInfo; // email hoặc username
+    @NotBlank(message = "Contact information (email or username) is required.")
+    private String contactInfo;
 }

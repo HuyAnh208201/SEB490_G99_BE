@@ -3,30 +3,38 @@ package base.api.feature.auth.dto.request;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 @Data
 public class UpdateProfileDto {
-    
-    @NotBlank(message = "Họ không được để trống")
+
+    @NotBlank(message = "First name is required.")
+    @Size(max = 50, message = "First name must be at most 50 characters.")
     private String firstName;
-    
-    @NotBlank(message = "Tên không được để trống")
+
+    @NotBlank(message = "Last name is required.")
+    @Size(max = 50, message = "Last name must be at most 50 characters.")
     private String lastName;
 
     private String avatar;
 
-    @NotBlank(message = "Email không được để trống")
-    @Email(message = "Email không hợp lệ")
+    @NotBlank(message = "Email is required.")
+    @Email(message = "Email is invalid.")
+    @Size(max = 255, message = "Email must be at most 255 characters.")
     private String email;
 
-    @Pattern(regexp = "^(0|\\+84)[0-9]{9,10}$", message = "Số điện thoại không hợp lệ (VD: 0912345678 hoặc +84912345678)")
+    /** Optional: blank/null = keep current phone. */
+    @Pattern(
+            regexp = "^$|^(0|\\+84)[0-9]{9,10}$",
+            message = "Phone number is invalid (e.g. 0912345678 or +84912345678).")
+    @Size(max = 20, message = "Phone number must be at most 20 characters.")
     private String phone;
-    
+
     private LocalDateTime birthDate;
-    
-    @Pattern(regexp = "^(MALE|FEMALE|OTHER)$", message = "Giới tính không hợp lệ")
+
+    @Pattern(regexp = "^(MALE|FEMALE|OTHER)$", message = "Gender is invalid.")
     private String gender;
 }

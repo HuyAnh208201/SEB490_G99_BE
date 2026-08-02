@@ -180,8 +180,7 @@ public class ProductServiceImpl implements IProductService {
                 .map(product -> {
                     ProductResponse response = enrichList(
                             productMapper.toListResponse(product), branchStock, warehouseStock, visibility);
-                    ProductPackagingModel top = topPackagings.getOrDefault(
-                            product.getId(), productPackagingService.getTopPackaging(product));
+                    ProductPackagingModel top = productPackagingService.resolveTopPackaging(product, topPackagings);
                     applyTopPackaging(response, top);
                     return response;
                 })
@@ -257,8 +256,7 @@ public class ProductServiceImpl implements IProductService {
         return products.map(product -> {
             ProductResponse response = enrichList(
                     productMapper.toListResponse(product), branchStock, warehouseStock, visibility);
-            ProductPackagingModel top = topPackagings.getOrDefault(
-                    product.getId(), productPackagingService.getTopPackaging(product));
+            ProductPackagingModel top = productPackagingService.resolveTopPackaging(product, topPackagings);
             applyTopPackaging(response, top);
             return response;
         });

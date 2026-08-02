@@ -2,6 +2,7 @@ package base.api.feature.posorder.dto.request;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -35,7 +36,14 @@ public class CheckoutRequest {
     @DecimalMin(value = "0", message = "Cash received must be greater than or equal to 0.")
     private BigDecimal cashReceived;
 
-    /** SĐT khách; bỏ trống nghĩa là khách vãng lai không tích điểm. */
+    /**
+     * SĐT khách; bỏ trống = khách vãng lai.
+     * Format được kiểm tra chặt khi tạo khách mới (service); số đã lưu trong DB
+     * vẫn checkout được dù lệch pattern đăng ký mới.
+     */
+    @Pattern(
+            regexp = "^$|^[0-9+][0-9]{7,19}$",
+            message = "Customer phone format is invalid.")
     @Size(max = 20, message = "Phone number is too long.")
     private String customerPhone;
 
@@ -44,10 +52,12 @@ public class CheckoutRequest {
     private String customerName;
 
     /** Mã giảm giá cashier gõ, bỏ trống nếu không có. */
+    @Pattern(regexp = "^$|^[A-Za-z0-9_-]{1,64}$", message = "Discount code format is invalid.")
     @Size(max = 64, message = "Discount code is too long.")
     private String voucherCode;
 
     /** Số điểm khách muốn đổi; server tự chặn trên theo giá trị đơn. */
     @Min(value = 0, message = "Redeemed points must be greater than or equal to 0.")
+    @Max(value = 10000000, message = "Redeemed points value is too large.")
     private Long pointsToRedeem;
 }

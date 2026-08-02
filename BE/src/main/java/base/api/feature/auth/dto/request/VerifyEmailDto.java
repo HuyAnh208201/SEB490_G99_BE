@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class VerifyEmailDto {
-    @NotBlank(message = "Token xác thực không được để trống")
+    @NotBlank(message = "Verification token is required.")
     private String verificationToken;
 
     private String verificationCode;

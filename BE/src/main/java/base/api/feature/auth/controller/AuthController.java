@@ -33,7 +33,7 @@ import org.springframework.data.domain.Page;
 
 @RestController
 @RequestMapping("/api/auth")
-@Tag(name = "Xác thực (Auth)", description = "Đăng nhập, đăng ký, quên mật khẩu, xác thực email và quản lý tài khoản")
+@Tag(name = "Authentication (Auth)", description = "Login, register, forgot password, email verification, and account management")
 public class AuthController extends BaseAPIController {
 
     @Autowired
@@ -48,7 +48,7 @@ public class AuthController extends BaseAPIController {
     @Value("${url.client-url:http://localhost:3000}")
     private String clientBaseUrl;
 
-    @Operation(summary = "Đăng nhập", description = "**Public.** Xác thực tên đăng nhập và mật khẩu, trả về JWT token. Cần xác thực email trước khi đăng nhập.")
+    @Operation(summary = "Login", description = "**Public.** Authenticate username and password, return a JWT token. Email verification is required before login.")
     @SecurityRequirements
     @PostMapping("login")
     public ResponseEntity<TFUResponse<AuthResponse>> login(@Valid @RequestBody AuthRequest dto) {
@@ -59,29 +59,29 @@ public class AuthController extends BaseAPIController {
         }
     }
 
-    @Operation(summary = "Đăng xuất", description = "**Cần đăng nhập.** Thu hồi JWT token hiện tại để không thể dùng lại.")
+    @Operation(summary = "Logout", description = "**Requires login.** Revoke the current JWT token so it cannot be reused.")
     @PostMapping("logout")
     public ResponseEntity<TFUResponse<String>> logout() {
         String authHeader = request.getHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return unauthorized("Chưa đăng nhập");
+            return unauthorized("Not authenticated");
         }
 
         try {
             authService.logout(authHeader.substring(7));
-            return success("Đăng xuất thành công");
+            return success("Logged out successfully");
         } catch (IllegalArgumentException ex) {
             return badRequest(ex.getMessage());
         }
     }
 
-    @Operation(summary = "Đăng ký", description = "**Public.** Tạo tài khoản mới. Sau khi đăng ký cần xác thực email qua link gửi đến hộp thư.")
+    @Operation(summary = "Register", description = "**Public.** Create a new account. After registration, verify email via the link sent to the inbox.")
     @PostMapping("register")
     public ResponseEntity<TFUResponse<UserModel>> register(@Valid @RequestBody RegisterDto dto){
        try{
            UserModel user = userService.registerUser(dto);
            if(user == null ){
-               return badRequest("Không tạo được user");
+               return badRequest("Unable to create user");
            }
            return success(user);
        }
@@ -91,24 +91,24 @@ public class AuthController extends BaseAPIController {
     }
 
 
-    @Operation(summary = "Lấy user theo ID", description = "**USER_MANAGEMENT_LIST** — Admin, Director, Branch Manager.")
+    @Operation(summary = "Get user by ID", description = "**USER_MANAGEMENT_LIST** — Admin, Director, Branch Manager.")
     @PreAuthorize("@permissionChecker.has('USER_MANAGEMENT_LIST')")
     @GetMapping("get-user-by-id")
     public ResponseEntity<TFUResponse<UserModel>> getUserById(
-            @Parameter(description = "ID của user") @RequestParam Long id){
+            @Parameter(description = "User ID") @RequestParam Long id){
         UserModel user = userService.findById(id);
         if(user == null){
-            return badRequest("Không tìm thấy user");
+            return badRequest("User not found");
         }
         return success(user);
     }
 
-    @Operation(summary = "Thông tin tài khoản hiện tại", description = "**Cần đăng nhập.** Lấy thông tin user đang đăng nhập từ JWT token.")
+    @Operation(summary = "Current account info", description = "**Requires login.** Get the currently authenticated user from the JWT token.")
     @GetMapping("me")
     public ResponseEntity<TFUResponse<UserDto>> getUserInfo(){
         UserModel user = userService.findById(getCurrentUserId());
         if(user == null){
-            return badRequest("Không tìm thấy user");
+            return badRequest("User not found");
         }
 
         UserDto userDto = mapper.map(user, UserDto.class);
@@ -116,7 +116,7 @@ public class AuthController extends BaseAPIController {
         return success(userDto);
     }
 
-    @Operation(summary = "Danh sách tất cả user", description = "**USER_MANAGEMENT_LIST** — Admin, Director, Branch Manager.")
+    @Operation(summary = "List all users", description = "**USER_MANAGEMENT_LIST** — Admin, Director, Branch Manager.")
     @PreAuthorize("@permissionChecker.has('USER_MANAGEMENT_LIST')")
     @GetMapping("get-list-users")
     public ResponseEntity<TFUResponse<Iterable<UserModel>>> getListUsers(){
@@ -137,7 +137,7 @@ public class AuthController extends BaseAPIController {
         return successPage(page);
     }
 
-    @Operation(summary = "Bắt đầu quên mật khẩu", description = "**Public.** Gửi mã xác thực đến email/SĐT. Dùng mã này để hoàn tất đặt lại mật khẩu.")
+    @Operation(summary = "Initiate forgot password", description = "**Public.** Send a verification code to email/phone. Use this code to complete password reset.")
     @PostMapping("forgot-password/initiate")
     public ResponseEntity<TFUResponse<InitiateForgotPasswordResponse>> initiateForgotPassword(
             @Valid @RequestBody InitiateForgotPasswordDto dto) {
@@ -149,22 +149,22 @@ public class AuthController extends BaseAPIController {
         }
     }
 
-    @Operation(summary = "Hoàn tất đặt lại mật khẩu", description = "**Public.** Dùng mã OTP và mật khẩu mới để đổi mật khẩu.")
+    @Operation(summary = "Complete password reset", description = "**Public.** Use the OTP and new password to reset the password.")
     @PostMapping("forgot-password/complete")
     public ResponseEntity<TFUResponse<String>> completeForgotPassword(
             @Valid @RequestBody CompleteForgotPasswordDto dto) {
         try {
             userService.completeForgotPassword(dto);
-            return success("Đặt lại mật khẩu thành công");
+            return success("Password reset successfully");
         } catch (Exception e) {
             return badRequest(e.getMessage());
         }
     }
 
-    @Operation(summary = "Xác thực email", description = "**Public.** Xác thực tài khoản qua link trong email sau khi đăng ký. Thành công: redirect `/email/verify-success`; lỗi: `/email/verify-failed`.")
+    @Operation(summary = "Verify email", description = "**Public.** Verify the account via the email link after registration. Success: redirect `/email/verify-success`; failure: `/email/verify-failed`.")
     @GetMapping("verify-email")
     public ResponseEntity<Void> verifyEmail(
-            @Parameter(description = "Token xác thực từ email") @RequestParam String token) {
+            @Parameter(description = "Verification token from email") @RequestParam String token) {
         try {
             userService.verifyEmailByToken(token);
             return ResponseEntity.status(HttpStatus.FOUND)
@@ -177,19 +177,19 @@ public class AuthController extends BaseAPIController {
         }
     }
 
-    @Operation(summary = "Gửi lại email xác thực", description = "**Public.** Dùng khi user chưa verify email và muốn nhận lại link xác thực. Nhận email hoặc tên đăng nhập.")
+    @Operation(summary = "Resend verification email", description = "**Public.** Used when the user has not verified email and wants another verification link. Accepts email or username.")
     @PostMapping("resend-verification")
     public ResponseEntity<TFUResponse<String>> resendVerification(
             @Valid @RequestBody InitiateForgotPasswordDto dto) {
         try {
             userService.resendVerificationEmail(dto.getContactInfo());
-            return success("Đã gửi lại email xác thực. Vui lòng kiểm tra hộp thư.");
+            return success("Verification email resent. Please check your inbox.");
         } catch (Exception e) {
             return badRequest(e.getMessage());
         }
     }
 
-    @Operation(summary = "Cập nhật hồ sơ", description = "**Cần đăng nhập.** Cập nhật thông tin cá nhân (tên, email, SĐT,...) của user hiện tại.")
+    @Operation(summary = "Update profile", description = "**Requires login.** Update the current user profile (name, email, phone, etc.).")
     @PostMapping("update-profile")
     public ResponseEntity<TFUResponse<UserModel>> updateProfile(@Valid @RequestBody UpdateProfileDto dto) {
         try {
@@ -200,23 +200,23 @@ public class AuthController extends BaseAPIController {
         }
     }
 
-    @Operation(summary = "Tạo tài khoản", description = "**USER_DETAILS_EDIT** — Admin, Director, Branch Manager (theo quy tắc gán role).")
+    @Operation(summary = "Create account", description = "**USER_DETAILS_EDIT** — Admin, Director, Branch Manager (according to role assignment rules).")
     @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
     @PostMapping("admin/create-user")
     public ResponseEntity<TFUResponse<UserModel>> createUserByAdmin(@Valid @RequestBody CreateUserByAdminDto dto) {
         try {
             UserModel creator = userService.findById(getCurrentUserId());
             if (creator == null) {
-                return unauthorized("Chưa đăng nhập");
+                return unauthorized("Not authenticated");
             }
             if (!creator.getRole().canManageUsers()) {
-                return forbidden("Không có quyền quản lý user");
+                return forbidden("You do not have permission to manage users");
             }
             if (!creator.getRole().canAssignRole(dto.getRole())) {
-                return forbidden("Không được phép gán role này");
+                return forbidden("You are not allowed to assign this role");
             }
             UserModel user = userService.createUserByAdmin(dto, creator);
-            return success(user, "Tạo tài khoản thành công. Mật khẩu tạm đã được gửi qua email.");
+            return success(user, "Account created successfully. A temporary password has been sent by email.");
         } catch (BadRequestException | ConflictException | ForbiddenException | NotFoundException e) {
             throw e;
         } catch (Exception e) {
@@ -224,18 +224,18 @@ public class AuthController extends BaseAPIController {
         }
     }
 
-    @Operation(summary = "Đổi mật khẩu", description = "**Cần đăng nhập.** Đổi mật khẩu khi đã biết mật khẩu cũ.")
+    @Operation(summary = "Change password", description = "**Requires login.** Change password when the current password is known.")
     @PostMapping("change-password")
     public ResponseEntity<TFUResponse<String>> changePassword(@Valid @RequestBody ChangePasswordDto dto) {
         try {
             userService.changePassword(getCurrentUserId(), dto);
-            return success("Đổi mật khẩu thành công");
+            return success("Password changed successfully");
         } catch (Exception e) {
             return badRequest(e.getMessage());
         }
     }
 
-    @Operation(summary = "Cập nhật trạng thái user", description = "**USER_DETAILS_EDIT** — Admin/Director/BM theo quyền.")
+    @Operation(summary = "Update user status", description = "**USER_DETAILS_EDIT** — Admin/Director/BM by permission.")
     @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
     @PatchMapping("admin/users/{id}/status")
     public ResponseEntity<TFUResponse<UserModel>> updateUserStatus(
@@ -243,7 +243,7 @@ public class AuthController extends BaseAPIController {
             @Valid @RequestBody UpdateUserStatusDto dto) {
         UserModel actor = userService.findById(getCurrentUserId());
         if (actor == null) {
-            return unauthorized("Chưa đăng nhập");
+            return unauthorized("Not authenticated");
         }
         UserModel updated = userService.updateUserStatus(
                 id,
@@ -251,7 +251,7 @@ public class AuthController extends BaseAPIController {
                 actor,
                 dto.getEmail(),
                 dto.getVerificationCode());
-        return success(updated, "Cập nhật trạng thái thành công.");
+        return success(updated, "Status updated successfully.");
     }
 
     @Operation(summary = "Send critical user action verification code")
@@ -262,7 +262,7 @@ public class AuthController extends BaseAPIController {
             @Valid @RequestBody SendCriticalUserActionCodeRequest request) {
         UserModel actor = userService.findById(getCurrentUserId());
         if (actor == null) {
-            return unauthorized("Chưa đăng nhập");
+            return unauthorized("Not authenticated");
         }
         userService.sendCriticalUserActionCode(id, request.getEmail(), request.getActionType(), actor);
         return success("Verification code sent to your email.");
@@ -275,7 +275,7 @@ public class AuthController extends BaseAPIController {
         return success(userService.getCriticalRoleSlots());
     }
 
-    @Operation(summary = "Xóa user", description = "**USER_DETAILS_EDIT** — Admin/Director/BM theo quyền.")
+    @Operation(summary = "Delete user", description = "**USER_DETAILS_EDIT** — Admin/Director/BM by permission.")
     @PreAuthorize("@permissionChecker.has('USER_DETAILS_EDIT')")
     @DeleteMapping("admin/users/{id}")
     public ResponseEntity<TFUResponse<String>> deleteUser(
@@ -283,13 +283,13 @@ public class AuthController extends BaseAPIController {
             @RequestBody(required = false) CriticalUserActionRequest request) {
         UserModel actor = userService.findById(getCurrentUserId());
         if (actor == null) {
-            return unauthorized("Chưa đăng nhập");
+            return unauthorized("Not authenticated");
         }
         if (request == null) {
             userService.deleteUser(id, actor);
         } else {
             userService.deleteUser(id, actor, request.getEmail(), request.getVerificationCode());
         }
-        return success("Xóa tài khoản thành công.");
+        return success("Account deleted successfully.");
     }
 }

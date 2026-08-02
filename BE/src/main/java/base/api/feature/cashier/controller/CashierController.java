@@ -67,7 +67,7 @@ public class CashierController extends BaseAPIController {
      */
     @Operation(
             summary = "Tìm khách hàng (gõ một phần)",
-            description = "Khớp một phần SĐT, email hoặc tên. Trả về tối đa 10 gợi ý, "
+            description = "Khớp một phần SĐT hoặc tên. Trả về tối đa 10 gợi ý, "
                     + "danh sách rỗng nếu không khớp ai (không phải lỗi 404)."
     )
     @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")

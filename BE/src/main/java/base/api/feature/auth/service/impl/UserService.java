@@ -25,8 +25,8 @@ import base.api.feature.auth.repository.IPasswordResetTokenRepository;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
 import base.api.shared.config.EmailService;
-import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.exception.BadRequestException;
+import base.api.shared.exception.BusinessException;
 import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
@@ -76,8 +76,14 @@ public class UserService implements IUserService {
     @Autowired
     private CurrentUserProvider currentUserProvider;
 
-    @Value("${url.api-url:http://localhost:1328}")
+    @Value("${url.api-url:http://localhost:4313}")
     private String apiBaseUrl;
+
+    @Value("${url.client-url:http://localhost:5175}")
+    private String clientBaseUrl;
+
+    private static final java.util.regex.Pattern VN_PHONE =
+            java.util.regex.Pattern.compile("^(0|\\+84)[0-9]{9,10}$");
 
     @Override
     public UserModel createUser(UserModel model) {
@@ -104,14 +110,23 @@ public class UserService implements IUserService {
     @Transactional
     public UserModel getOrCreateGuestByPhone(String phone, String fullName) {
         if (phone == null || phone.trim().isEmpty()) {
-            throw new IllegalArgumentException("Số điện thoại không được để trống");
+            throw new BusinessException("Phone number is required.");
         }
         String normalized = phone.trim().replaceAll("\\s+", "");
         String name = fullName == null || fullName.isBlank()
-                ? "Khách vãng lai"
+                ? "Walk-in customer"
                 : fullName.trim();
+        if (name.length() > 100) {
+            throw new BusinessException("Customer name must be at most 100 characters.");
+        }
+
         return userRepository.findByPhone(normalized)
                 .orElseGet(() -> {
+                    // Strict format only when CREATING a new guest — existing DB phones remain usable.
+                    if (!VN_PHONE.matcher(normalized).matches()) {
+                        throw new BusinessException(
+                                "Enter a valid phone number (e.g. 0912345678 or +84912345678).");
+                    }
                     UserModel guest = new UserModel();
                     guest.setUserName("walkin_" + normalized);
                     guest.setPhone(normalized);
@@ -129,7 +144,7 @@ public class UserService implements IUserService {
     @Transactional
     public UserModel registerUser(RegisterDto dto) {
         if (dto.getPhone() == null || dto.getPhone().trim().isEmpty()) {
-            throw new IllegalArgumentException("Số điện thoại không được để trống");
+            throw new IllegalArgumentException("Phone number is required.");
         }
 
         String normalizedUserName = normalizeLogin(dto.getUserName());
@@ -137,10 +152,10 @@ public class UserService implements IUserService {
         String normalizedPhone = dto.getPhone().trim().replaceAll("\\s+", "");
 
         if (userRepository.existsByUserName(normalizedUserName)) {
-            throw new IllegalArgumentException("Username đã tồn tại");
+            throw new IllegalArgumentException("Username already exists.");
         }
         if (userRepository.existsByEmail(normalizedEmail)) {
-            throw new IllegalArgumentException("Email đã được sử dụng");
+            throw new IllegalArgumentException("Email is already in use.");
         }
 
         UserModel newUser = new UserModel();
@@ -167,7 +182,7 @@ public class UserService implements IUserService {
         tokenModel.setExpiresAt(java.time.LocalDateTime.now().plusHours(48));
         emailVerificationTokenRepository.save(tokenModel);
         try {
-            String subject = "Chúc mừng đăng ký và xác thực tài khoản";
+            String subject = "Welcome — please verify your account";
             String fullName = (dto.getFirstName() != null ? dto.getFirstName() : "") +
                     (dto.getLastName() != null ? " " + dto.getLastName() : "");
             if (fullName.trim().isEmpty()) {
@@ -181,21 +196,21 @@ public class UserService implements IUserService {
                             "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
                             "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
                             "<div style='text-align: center; margin-bottom: 30px;'>" +
-                            "<h1 style='color: #0f172a; margin: 0;'>Chúc mừng bạn đã đăng ký!</h1>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Registration successful!</h1>" +
                             "</div>" +
-                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                            "<p>Cảm ơn bạn đã đăng ký tài khoản. Để hoàn tất và có thể đăng nhập, vui lòng xác thực email bằng cách click nút bên dưới.</p>" +
+                            "<h2 style='color: #0f172a;'>Hello %s!</h2>" +
+                            "<p>Thank you for registering. To finish setup and sign in, please verify your email using the button below.</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Xác nhận tài khoản</a>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Confirm account</a>" +
                             "</div>" +
-                            "<p style='color: #666; font-size: 14px;'>Link xác thực sẽ hết hạn sau 48 giờ.</p>" +
+                            "<p style='color: #666; font-size: 14px;'>This verification link expires in 48 hours.</p>" +
                             "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                            "<h3 style='color: #0f172a; margin-top: 0;'>Thông tin tài khoản:</h3>" +
-                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<h3 style='color: #0f172a; margin-top: 0;'>Account information:</h3>" +
+                            "<p><strong>Username:</strong> %s</p>" +
                             "<p><strong>Email:</strong> %s</p>" +
                             "</div>" +
                             "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                            "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Bạn cần xác thực email để có thể đăng nhập vào hệ thống.</p>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Note:</strong> You must verify your email before signing in.</p>" +
                             "</div>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
                             "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
@@ -211,7 +226,7 @@ public class UserService implements IUserService {
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send verification email to {}: {}", savedUser.getEmail(), e.getMessage(), e);
-            throw new RuntimeException("Không thể gửi email xác thực. Vui lòng thử lại sau.", e);
+            throw new RuntimeException("Unable to send verification email. Please try again later.", e);
         }
 
         return savedUser;
@@ -302,7 +317,7 @@ public class UserService implements IUserService {
     @Transactional
     public InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception {
         if (contactInfo == null || contactInfo.trim().isEmpty()) {
-            throw new IllegalArgumentException("Thông tin liên hệ không được để trống");
+            throw new IllegalArgumentException("Contact information is required.");
         }
         String normalized = contactInfo.trim().toLowerCase();
         UserModel user;
@@ -313,7 +328,7 @@ public class UserService implements IUserService {
         }
 
         if (user == null) {
-            throw new Exception("Không tìm thấy tài khoản với thông tin này");
+            throw new Exception("No account found with this information.");
         }
 
         passwordResetTokenRepository.deleteByUserId(user.getId());
@@ -327,30 +342,30 @@ public class UserService implements IUserService {
         tokenModel.setExpiresAt(java.time.LocalDateTime.now().plusHours(1));
         passwordResetTokenRepository.save(tokenModel);
         try {
-            String subject = "Đặt lại mật khẩu";
+            String subject = "Reset password";
             String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
                     (user.getLastName() != null ? " " + user.getLastName() : "");
             if (fullName.trim().isEmpty()) {
                 fullName = user.getUserName();
             }
 
-            String resetUrl = "https://localhost:5173/reset-password?token=" + resetToken;
+            String resetUrl = clientBaseUrl + "/reset-password?token=" + resetToken;
 
             String body = String.format(
                     "<html>" +
                             "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
                             "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
                             "<div style='text-align: center; margin-bottom: 30px;'>" +
-                            "<h1 style='color: #0f172a; margin: 0;'>Đặt lại mật khẩu</h1>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Reset password</h1>" +
                             "</div>" +
-                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                            "<p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>" +
-                            "<p>Bạn có thể click vào nút bên dưới để đặt lại mật khẩu. Link này sẽ hết hạn sau 1 giờ.</p>" +
+                            "<h2 style='color: #0f172a;'>Hello %s!</h2>" +
+                            "<p>We received a request to reset the password for your account.</p>" +
+                            "<p>Click the button below to reset your password. This link expires in 1 hour.</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Đặt lại mật khẩu</a>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Reset password</a>" +
                             "</div>" +
                             "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                            "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.</p>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Note:</strong> If you did not request a password reset, please ignore this email.</p>" +
                             "</div>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
                             "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
@@ -364,11 +379,11 @@ public class UserService implements IUserService {
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send reset password email to {}: {}", user.getEmail(), e.getMessage(), e);
-            throw new Exception("Không thể gửi email. Vui lòng thử lại sau.");
+            throw new Exception("Unable to send email. Please try again later.");
         }
 
         InitiateForgotPasswordResponse response = new InitiateForgotPasswordResponse();
-        response.setMessage("Link đặt lại mật khẩu đã được gửi đến email của bạn");
+        response.setMessage("A password reset link has been sent to your email.");
         return response;
     }
 
@@ -376,27 +391,27 @@ public class UserService implements IUserService {
     @Transactional
     public void completeForgotPassword(CompleteForgotPasswordDto dto) throws Exception {
         if (!dto.getNewPassword().equals(dto.getConfirmNewPassword())) {
-            throw new Exception("Mật khẩu xác nhận không khớp");
+            throw new Exception("Password confirmation does not match.");
         }
 
         if (dto.getNewPassword().length() < 6) {
-            throw new Exception("Mật khẩu phải có ít nhất 6 ký tự");
+            throw new Exception("Password must be at least 6 characters.");
         }
 
         PasswordResetTokenModel tokenModel = passwordResetTokenRepository
                 .findByResetToken(dto.getResetToken())
-                .orElseThrow(() -> new Exception("Token không hợp lệ"));
+                .orElseThrow(() -> new Exception("Invalid token."));
 
         if (tokenModel.isUsed()) {
-            throw new Exception("Token đã được sử dụng");
+            throw new Exception("Token has already been used.");
         }
 
         if (tokenModel.isExpired()) {
-            throw new Exception("Token đã hết hạn");
+            throw new Exception("Token has expired.");
         }
 
         UserModel user = userRepository.findById(tokenModel.getUserId())
-                .orElseThrow(() -> new Exception("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new Exception("User not found."));
 
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         userRepository.save(user);
@@ -405,7 +420,7 @@ public class UserService implements IUserService {
         passwordResetTokenRepository.save(tokenModel);
 
         try {
-            String subject = "Mật khẩu đã được thay đổi thành công";
+            String subject = "Password changed successfully";
             String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
                     (user.getLastName() != null ? " " + user.getLastName() : "");
             if (fullName.trim().isEmpty()) {
@@ -417,13 +432,13 @@ public class UserService implements IUserService {
                             "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
                             "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
                             "<div style='text-align: center; margin-bottom: 30px;'>" +
-                            "<h1 style='color: #4caf50; margin: 0;'>Mật khẩu đã được thay đổi</h1>" +
+                            "<h1 style='color: #4caf50; margin: 0;'>Your password has been changed</h1>" +
                             "</div>" +
-                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                            "<p>Mật khẩu tài khoản của bạn đã được thay đổi thành công.</p>" +
-                            "<p>Nếu bạn không thực hiện thay đổi này, vui lòng liên hệ hỗ trợ ngay lập tức.</p>" +
+                            "<h2 style='color: #0f172a;'>Hello %s!</h2>" +
+                            "<p>Your account password was changed successfully.</p>" +
+                            "<p>If you did not make this change, please contact support immediately.</p>" +
                             "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<p><strong>Username:</strong> %s</p>" +
                             "<p><strong>Email:</strong> %s</p>" +
                             "</div>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
@@ -447,18 +462,18 @@ public class UserService implements IUserService {
     public void verifyEmailByToken(String token) throws Exception {
         EmailVerificationTokenModel tokenModel = emailVerificationTokenRepository
                 .findByVerificationToken(token)
-                .orElseThrow(() -> new Exception("Token không hợp lệ"));
+                .orElseThrow(() -> new Exception("Invalid token."));
 
         if (tokenModel.isUsed()) {
-            throw new Exception("Token đã được sử dụng");
+            throw new Exception("Token has already been used.");
         }
 
         if (tokenModel.isExpired()) {
-            throw new Exception("Token đã hết hạn");
+            throw new Exception("Token has expired.");
         }
 
         UserModel user = userRepository.findById(tokenModel.getUserId())
-                .orElseThrow(() -> new Exception("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new Exception("User not found."));
 
         user.setVerified(true);
         userRepository.save(user);
@@ -466,7 +481,7 @@ public class UserService implements IUserService {
         tokenModel.setUsed(true);
         emailVerificationTokenRepository.save(tokenModel);
         try {
-            String subject = "Chào mừng bạn!";
+            String subject = "Welcome!";
             String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
                     (user.getLastName() != null ? " " + user.getLastName() : "");
             if (fullName.trim().isEmpty()) {
@@ -478,22 +493,22 @@ public class UserService implements IUserService {
                             "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
                             "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
                             "<div style='text-align: center; margin-bottom: 30px;'>" +
-                            "<h1 style='color: #0f172a; margin: 0;'>Chào mừng bạn!</h1>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Welcome!</h1>" +
                             "</div>" +
-                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                            "<p>Email của bạn đã được xác thực thành công! 🎉</p>" +
-                            "<p>Cảm ơn bạn đã đăng ký tài khoản!</p>" +
+                            "<h2 style='color: #0f172a;'>Hello %s!</h2>" +
+                            "<p>Your email has been verified successfully!</p>" +
+                            "<p>Thank you for registering!</p>" +
                             "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                            "<h3 style='color: #0f172a; margin-top: 0;'>Thông tin tài khoản:</h3>" +
-                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
+                            "<h3 style='color: #0f172a; margin-top: 0;'>Account information:</h3>" +
+                            "<p><strong>Username:</strong> %s</p>" +
                             "<p><strong>Email:</strong> %s</p>" +
-                            "<p><strong>Trạng thái:</strong> <span style='color: #4caf50; font-weight: bold;'>✓ Đã xác thực</span></p>" +
+                            "<p><strong>Status:</strong> <span style='color: #4caf50; font-weight: bold;'>✓ Verified</span></p>" +
                             "</div>" +
-                            "<p>Bạn có thể bắt đầu sử dụng hệ thống ngay bây giờ!</p>" +
+                            "<p>You can start using the system now!</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='https://localhost:5173/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
+                            "<a href='" + clientBaseUrl + "/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Open the system</a>" +
                             "</div>" +
-                            "<p style='color: #666; font-size: 14px;'>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>" +
+                            "<p style='color: #666; font-size: 14px;'>If you have any questions, feel free to contact us.</p>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
                             "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
                             "</div>" +
@@ -514,7 +529,7 @@ public class UserService implements IUserService {
     @Transactional
     public void resendVerificationEmail(String contactInfo) throws Exception {
         if (contactInfo == null || contactInfo.trim().isEmpty()) {
-            throw new IllegalArgumentException("Vui lòng nhập email hoặc tên đăng nhập");
+            throw new IllegalArgumentException("Please enter an email or username.");
         }
         String normalized = contactInfo.trim();
         UserModel user;
@@ -524,10 +539,10 @@ public class UserService implements IUserService {
             user = userRepository.findByUserName(normalizeLogin(normalized)).orElse(null);
         }
         if (user == null) {
-            throw new Exception("Không tìm thấy tài khoản với thông tin này");
+            throw new Exception("No account found with this information.");
         }
         if (user.isVerified()) {
-            throw new IllegalArgumentException("Tài khoản đã được xác thực, không cần gửi lại email");
+            throw new IllegalArgumentException("Account is already verified. No need to resend the email.");
         }
 
         emailVerificationTokenRepository.deleteByEmail(user.getEmail());
@@ -556,16 +571,16 @@ public class UserService implements IUserService {
                         "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
                         "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
                         "<div style='text-align: center; margin-bottom: 30px;'>" +
-                        "<h1 style='color: #0f172a; margin: 0;'>Xác thực email tài khoản</h1>" +
+                        "<h1 style='color: #0f172a; margin: 0;'>Verify your account email</h1>" +
                         "</div>" +
-                        "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                        "<p>Bạn vừa yêu cầu gửi lại email xác thực. Vui lòng click nút bên dưới để xác thực tài khoản.</p>" +
+                        "<h2 style='color: #0f172a;'>Hello %s!</h2>" +
+                        "<p>You requested another verification email. Please click the button below to verify your account.</p>" +
                         "<div style='text-align: center; margin: 30px 0;'>" +
-                        "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Xác nhận tài khoản</a>" +
+                        "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Confirm account</a>" +
                         "</div>" +
-                        "<p style='color: #666; font-size: 14px;'>Link xác thực sẽ hết hạn sau 48 giờ.</p>" +
+                        "<p style='color: #666; font-size: 14px;'>This verification link expires in 48 hours.</p>" +
                         "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                        "<p style='margin: 0; color: #856404;'><strong>Lưu ý:</strong> Nếu bạn không yêu cầu gửi lại email này, vui lòng bỏ qua.</p>" +
+                        "<p style='margin: 0; color: #856404;'><strong>Note:</strong> If you did not request this email, please ignore it.</p>" +
                         "</div>" +
                         "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
                         "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
@@ -577,10 +592,10 @@ public class UserService implements IUserService {
         );
 
         try {
-            emailService.sendHtmlEmail(user.getEmail(), "Gửi lại email xác thực tài khoản", body);
+            emailService.sendHtmlEmail(user.getEmail(), "Resend account verification email", body);
         } catch (Exception e) {
             log.error("Failed to resend verification email to {}: {}", user.getEmail(), e.getMessage(), e);
-            throw new RuntimeException("Không thể gửi email xác thực. Vui lòng thử lại sau.", e);
+            throw new RuntimeException("Unable to send verification email. Please try again later.", e);
         }
     }
 
@@ -588,28 +603,38 @@ public class UserService implements IUserService {
     @Transactional
     public UserModel updateProfile(Long userId, UpdateProfileDto dto) {
         UserModel user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new RuntimeException("User not found."));
 
         String normalizedEmail = normalizeEmail(dto.getEmail());
         if (normalizedEmail == null || normalizedEmail.isEmpty()) {
-            throw new IllegalArgumentException("Email không được để trống");
+            throw new IllegalArgumentException("Email is required.");
         }
         if (!normalizedEmail.equalsIgnoreCase(user.getEmail()) && userRepository.existsByEmail(normalizedEmail)) {
-            throw new RuntimeException("Email đã được sử dụng bởi tài khoản khác");
+            throw new RuntimeException("Email is already used by another account.");
         }
 
         if (dto.getPhone() != null && !dto.getPhone().trim().isEmpty()) {
             String normalizedPhone = dto.getPhone().trim().replaceAll("\\s+", "");
+            if (!VN_PHONE.matcher(normalizedPhone).matches()) {
+                throw new IllegalArgumentException(
+                        "Phone number is invalid (e.g. 0912345678 or +84912345678).");
+            }
+            if (!normalizedPhone.equals(user.getPhone()) && userRepository.existsByPhone(normalizedPhone)) {
+                throw new RuntimeException("Phone number is already used by another account.");
+            }
             user.setPhone(normalizedPhone);
         }
 
-        user.setFirstName(dto.getFirstName());
-        user.setLastName(dto.getLastName());
+        user.setFirstName(dto.getFirstName().trim());
+        user.setLastName(dto.getLastName().trim());
         user.setEmail(normalizedEmail);
         user.setAvatar(dto.getAvatar());
+        if (dto.getBirthDate() != null && dto.getBirthDate().isAfter(java.time.LocalDateTime.now())) {
+            throw new IllegalArgumentException("Birth date cannot be in the future.");
+        }
         user.setBirthDate(dto.getBirthDate());
 
-        if (dto.getGender() != null) {
+        if (dto.getGender() != null && !dto.getGender().isBlank()) {
             user.setGender(UserGender.valueOf(dto.getGender()));
         }
 
@@ -620,18 +645,22 @@ public class UserService implements IUserService {
     @Transactional
     public void changePassword(Long userId, ChangePasswordDto dto) throws Exception {
         UserModel user = userRepository.findById(userId)
-                .orElseThrow(() -> new Exception("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new Exception("User not found."));
 
         if (!passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
-            throw new Exception("Mật khẩu cũ không đúng");
+            throw new Exception("Current password is incorrect.");
         }
 
         if (!dto.getNewPassword().equals(dto.getConfirmNewPassword())) {
-            throw new Exception("Mật khẩu xác nhận không khớp");
+            throw new Exception("Password confirmation does not match.");
         }
 
-        if (dto.getNewPassword().length() < 6) {
-            throw new Exception("Mật khẩu phải có ít nhất 6 ký tự");
+        if (dto.getNewPassword().length() < 6 || dto.getNewPassword().length() > 128) {
+            throw new Exception("Password must be between 6 and 128 characters.");
+        }
+
+        if (passwordEncoder.matches(dto.getNewPassword(), user.getPassword())) {
+            throw new Exception("New password must be different from the current password.");
         }
 
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
@@ -646,34 +675,34 @@ public class UserService implements IUserService {
         String normalizedPhone = dto.getPhone() == null ? null : dto.getPhone().trim().replaceAll("\\s+", "");
 
         if (creator == null) {
-            throw new BadRequestException("Không xác định được người tạo tài khoản");
+            throw new BadRequestException("Unable to identify the account creator.");
         }
 
         if (normalizedUserName != null
                 && !normalizedUserName.equals(normalizedEmail)
                 && userRepository.existsByUserName(normalizedUserName)) {
-            throw new IllegalArgumentException("Username đã tồn tại");
+            throw new IllegalArgumentException("Username already exists.");
         }
         if (userRepository.existsByEmail(normalizedEmail)) {
-            throw new IllegalArgumentException("Email đã được sử dụng");
+            throw new IllegalArgumentException("Email is already in use.");
         }
         if (normalizedPhone != null && userRepository.existsByPhone(normalizedPhone)) {
-            throw new ConflictException("Số điện thoại đã được sử dụng");
+            throw new ConflictException("Phone number is already in use.");
         }
 
         UserRole targetRole = dto.getRole();
         UserRole persistedRole = targetRole.toWebRole();
         RoleModel roleEntity = roleRepository.findByName(persistedRole.name())
-                .orElseThrow(() -> new BadRequestException("Role không tồn tại"));
+                .orElseThrow(() -> new BadRequestException("Role does not exist."));
 
         Long targetBranchId = resolveTargetBranchId(targetRole, dto.getBranchId(), creator);
         BranchModel targetBranch = null;
         if (targetBranchId != null) {
             targetBranch = branchRepository.findById(targetBranchId)
-                    .orElseThrow(() -> new NotFoundException("Không tìm thấy chi nhánh"));
+                    .orElseThrow(() -> new NotFoundException("Branch not found."));
         }
         if (persistedRole == UserRole.BRANCH_MANAGER && targetBranch != null && targetBranch.getManagerId() != null) {
-            throw new ConflictException("Chi nhánh đã có quản lý");
+            throw new ConflictException("This branch already has a manager.");
         }
         validateCriticalRoleSlot(persistedRole, null);
 
@@ -705,28 +734,27 @@ public class UserService implements IUserService {
                 fullName = dto.getUserName();
             }
 
-            String subject = "Tài khoản ChainStore của bạn đã được tạo";
+            String subject = "Your ChainStore account has been created";
             String body = String.format(
                     "<html>" +
                             "<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>" +
                             "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;'>" +
                             "<div style='text-align: center; margin-bottom: 30px;'>" +
-                            "<h1 style='color: #0f172a; margin: 0;'>Chào mừng đến với ChainStore</h1>" +
+                            "<h1 style='color: #0f172a; margin: 0;'>Welcome to ChainStore</h1>" +
                             "</div>" +
-                            "<h2 style='color: #0f172a;'>Xin chào %s!</h2>" +
-                            "<p>Quản trị viên đã tạo tài khoản cho bạn với vai trò <strong>%s</strong>. " +
-                            "Dưới đây là thông tin đăng nhập tạm thời:</p>" +
+                            "<h2 style='color: #0f172a;'>Hello %s!</h2>" +
+                            "<p>An administrator created an account for you with the role <strong>%s</strong>. " +
+                            "Here are your temporary login details:</p>" +
                             "<div style='background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;'>" +
-                            "<p><strong>Tên đăng nhập:</strong> %s</p>" +
-                            "<p><strong>Email:</strong> %s</p>" +
-                            "<p><strong>Mật khẩu tạm:</strong> <span style='font-family: monospace; background:#fff3cd; padding:4px 8px; border-radius:4px;'>%s</span></p>" +
-                            "<p><strong>Vai trò:</strong> %s</p>" +
+                            "<p><strong>Login email:</strong> %s</p>" +
+                            "<p><strong>Temporary password:</strong> <span style='font-family: monospace; background:#fff3cd; padding:4px 8px; border-radius:4px;'>%s</span></p>" +
+                            "<p><strong>Role:</strong> %s</p>" +
                             "</div>" +
                             "<div style='background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;'>" +
-                            "<p style='margin: 0; color: #856404;'><strong>Quan trọng:</strong> Vì lý do bảo mật, vui lòng đăng nhập và đổi mật khẩu ngay sau lần đăng nhập đầu tiên.</p>" +
+                            "<p style='margin: 0; color: #856404;'><strong>Important:</strong> For security, please sign in and change your password immediately after the first login.</p>" +
                             "</div>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Đăng nhập ngay</a>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Sign in now</a>" +
                             "</div>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
                             "<p style='color: #999; font-size: 12px; text-align: center;'>© 2024 ChainStore. All rights reserved.</p>" +
@@ -735,23 +763,22 @@ public class UserService implements IUserService {
                             "</html>",
                     fullName,
                     dto.getRole().name(),
-                    dto.getUserName(),
-                    dto.getEmail(),
+                    savedUser.getEmail(),
                     tempPassword,
                     dto.getRole().name(),
-                    "https://localhost:5173/login"
+                    clientBaseUrl + "/login"
             );
 
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send temp password email to {}: {}", savedUser.getEmail(), e.getMessage(), e);
-            throw new Exception("Không thể gửi email mật khẩu tạm. Vui lòng thử lại.");
+            throw new Exception("Unable to send temporary password email. Please try again.");
         }
 
         return savedUser;
     }
 
-    // TODO: [Giang] deactivateUser — cần bổ sung findManagedTargetUser() và clearManagedBranchIfNeeded() để compile
+    // TODO: [Giang] deactivateUser — add findManagedTargetUser() and clearManagedBranchIfNeeded() to compile
     // @Override
     // @Transactional
     // public UserModel deactivateUser(Long targetUserId, UserModel actor) {
@@ -763,23 +790,23 @@ public class UserService implements IUserService {
 
     private Long resolveTargetBranchId(UserRole targetRole, Long requestedBranchId, UserModel creator) {
         if (targetRole == null) {
-            throw new BadRequestException("Role không được để trống");
+            throw new BadRequestException("Role is required.");
         }
 
         if (!targetRole.requiresBranch()) {
             if (requestedBranchId != null) {
-                throw new BadRequestException("Role này không cần gán chi nhánh");
+                throw new BadRequestException("This role does not require a branch assignment.");
             }
             return null;
         }
 
         if (requestedBranchId == null) {
-            throw new BadRequestException("Vui lòng chọn chi nhánh");
+            throw new BadRequestException("Please select a branch.");
         }
 
         UserRole creatorRole = creator.getRole();
         if (creatorRole == null) {
-            throw new ForbiddenException("Không xác định được quyền của người tạo");
+            throw new ForbiddenException("Unable to identify the creator permissions.");
         }
 
         if (creatorRole.toWebRole() != UserRole.BRANCH_MANAGER) {
@@ -788,10 +815,10 @@ public class UserService implements IUserService {
 
         Long creatorBranchId = creator.getBranchId();
         if (creatorBranchId == null) {
-            throw new BadRequestException("Branch manager chưa được gán chi nhánh");
+            throw new BadRequestException("Branch manager has not been assigned to a branch.");
         }
         if (!creatorBranchId.equals(requestedBranchId)) {
-            throw new ForbiddenException("Chỉ được tạo nhân viên cho chi nhánh của mình");
+            throw new ForbiddenException("You can only create staff for your own branch.");
         }
         return creatorBranchId;
     }
@@ -844,7 +871,7 @@ public class UserService implements IUserService {
     public UserModel updateUserStatus(Long targetUserId, boolean active, UserModel actor, String email, String verificationCode) {
         assertCanManageTargetUser(actor, targetUserId);
         UserModel target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new NotFoundException("User not found."));
 
         if (!active && isCriticalRole(target.getRole())) {
             verifyCriticalUserAction(targetUserId, actor, "DEACTIVATE", email, verificationCode);
@@ -865,16 +892,16 @@ public class UserService implements IUserService {
     public void deleteUser(Long targetUserId, UserModel actor, String email, String verificationCode) {
         assertCanManageTargetUser(actor, targetUserId);
         if (actor.getId().equals(targetUserId)) {
-            throw new BadRequestException("Không thể xóa tài khoản của chính mình.");
+            throw new BadRequestException("You cannot delete your own account.");
         }
         UserModel target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new NotFoundException("User not found."));
 
         UserRole targetRole = target.getRole();
         if (isCriticalRole(targetRole)) {
             verifyCriticalUserAction(targetUserId, actor, "DELETE", email, verificationCode);
         } else if (targetRole == UserRole.ADMIN) {
-            throw new ForbiddenException("Không thể xóa tài khoản Admin.");
+            throw new ForbiddenException("Admin accounts cannot be deleted.");
         }
 
         if (targetRole == UserRole.BRANCH_MANAGER && target.getBranchId() != null) {
@@ -894,7 +921,7 @@ public class UserService implements IUserService {
     public void sendCriticalUserActionCode(Long targetUserId, String email, String actionType, UserModel actor) {
         assertCanManageTargetUser(actor, targetUserId);
         UserModel target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new NotFoundException("User not found."));
         if (!isCriticalRole(target.getRole())) {
             throw new BadRequestException("This account does not require verification.");
         }
@@ -1004,38 +1031,38 @@ public class UserService implements IUserService {
 
     private void assertCanManageTargetUser(UserModel actor, Long targetUserId) {
         if (actor == null || actor.getRole() == null) {
-            throw new ForbiddenException("Không xác định được quyền của người thực hiện.");
+            throw new ForbiddenException("Unable to identify the actor permissions.");
         }
         if (!actor.getRole().canManageUsers()) {
-            throw new ForbiddenException("Không có quyền quản lý user");
+            throw new ForbiddenException("You do not have permission to manage users.");
         }
         if (actor.getId().equals(targetUserId)) {
-            throw new BadRequestException("Không thể thao tác trên tài khoản của chính mình.");
+            throw new BadRequestException("You cannot perform this action on your own account.");
         }
 
         UserModel target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new NotFoundException("User not found."));
         UserRole actorRole = actor.getRole().toWebRole();
         UserRole targetRole = target.getRole() != null ? target.getRole().toWebRole() : null;
 
         if (actorRole == UserRole.ADMIN || actorRole == UserRole.DIRECTOR) {
             if (targetRole == UserRole.ADMIN && actorRole != UserRole.ADMIN) {
-                throw new ForbiddenException("Director không thể quản lý tài khoản Admin.");
+                throw new ForbiddenException("Director cannot manage Admin accounts.");
             }
             return;
         }
 
         if (actorRole == UserRole.BRANCH_MANAGER) {
             if (targetRole != UserRole.CASHIER && targetRole != UserRole.INVENTORY_STAFF) {
-                throw new ForbiddenException("Branch manager chỉ được quản lý Cashier và Inventory staff.");
+                throw new ForbiddenException("Branch manager can only manage Cashier and Inventory staff.");
             }
             if (actor.getBranchId() == null || target.getBranchId() == null
                     || !actor.getBranchId().equals(target.getBranchId())) {
-                throw new ForbiddenException("Chỉ được quản lý nhân viên tại chi nhánh của mình.");
+                throw new ForbiddenException("You can only manage staff in your own branch.");
             }
             return;
         }
 
-        throw new ForbiddenException("Không có quyền quản lý user");
+        throw new ForbiddenException("You do not have permission to manage users.");
     }
 }

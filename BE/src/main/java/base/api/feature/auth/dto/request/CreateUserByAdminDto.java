@@ -9,23 +9,25 @@ import lombok.Data;
 
 @Data
 public class CreateUserByAdminDto {
-    @NotBlank(message = "Tên đăng nhập không được để trống")
+    @NotBlank(message = "Username is required.")
     private String userName;
 
-    @NotBlank(message = "Email không được để trống")
-    @Email(message = "Email không hợp lệ")
+    @NotBlank(message = "Email is required.")
+    @Email(message = "Email is invalid.")
     private String email;
 
-    @NotBlank(message = "Họ không được để trống")
+    @NotBlank(message = "First name is required.")
     private String firstName;
 
     private String lastName;
 
-    @NotBlank(message = "Số điện thoại không được để trống")
-    @Pattern(regexp = "^(0|\\+84)[0-9]{9,10}$", message = "Số điện thoại không hợp lệ (VD: 0912345678 hoặc +84912345678)")
+    @NotBlank(message = "Phone number is required.")
+    @Pattern(
+            regexp = "^(0|\\+84)[0-9]{9,10}$",
+            message = "Phone number is invalid (e.g. 0912345678 or +84912345678).")
     private String phone;
 
-    @NotNull(message = "Role không được để trống")
+    @NotNull(message = "Role is required.")
     private UserRole role;
 
     private Long branchId;

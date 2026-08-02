@@ -26,12 +26,12 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = ex.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(
                         FieldError::getField,
-                        fe -> fe.getDefaultMessage() == null ? "Giá trị không hợp lệ" : fe.getDefaultMessage(),
+                        fe -> fe.getDefaultMessage() == null ? "Invalid value" : fe.getDefaultMessage(),
                         (a, b) -> a,
                         LinkedHashMap::new
                 ));
 
-        String firstMessage = errors.values().stream().findFirst().orElse("Dữ liệu không hợp lệ");
+        String firstMessage = errors.values().stream().findFirst().orElse("Invalid request data");
         log.warn("[{}] Validation failed: {}", req.getDescription(false), errors);
 
         TFUResponse<Map<String, String>> body = TFUResponse.<Map<String, String>>builder()
@@ -50,6 +50,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<TFUResponse<Void>> handleBusiness(BusinessException ex, WebRequest req) {
+        return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<TFUResponse<Void>> handleIllegalArgument(IllegalArgumentException ex, WebRequest req) {
         return buildErrorResponse(ex, req, HttpStatus.BAD_REQUEST);
     }
 

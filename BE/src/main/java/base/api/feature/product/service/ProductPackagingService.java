@@ -53,6 +53,24 @@ public class ProductPackagingService {
         return result;
     }
 
+    /**
+     * In-memory TOP packaging when list endpoints already bulk-loaded DB rows.
+     * Avoids N+1: never hit the DB again per product in a catalog response.
+     */
+    public ProductPackagingModel resolveTopPackaging(
+            ProductModel product, Map<Integer, ProductPackagingModel> preloaded) {
+        if (product == null || product.getId() == null) {
+            return null;
+        }
+        if (preloaded != null) {
+            ProductPackagingModel fromDb = preloaded.get(product.getId());
+            if (fromDb != null) {
+                return fromDb;
+            }
+        }
+        return fallbackTopPackaging(product);
+    }
+
     /** How many BASE units one TOP unit contains for this product (>= 1). */
     public int topConversionQty(ProductModel product) {
         ProductPackagingModel top = getTopPackaging(product);

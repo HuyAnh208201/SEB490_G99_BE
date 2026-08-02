@@ -6,13 +6,13 @@ import lombok.Data;
 
 @Data
 public class CompleteForgotPasswordDto {
-    @NotBlank(message = "Token không được để trống")
+    @NotBlank(message = "Token is required.")
     private String resetToken;
 
-    @NotBlank(message = "Mật khẩu mới không được để trống")
-    @Size(min = 6, message = "Mật khẩu phải có ít nhất 6 ký tự")
+    @NotBlank(message = "New password is required.")
+    @Size(min = 6, message = "Password must be at least 6 characters.")
     private String newPassword;
 
-    @NotBlank(message = "Xác nhận mật khẩu không được để trống")
+    @NotBlank(message = "Password confirmation is required.")
     private String confirmNewPassword;
 }
