@@ -2,6 +2,7 @@ package base.api.feature.product.service;
 
 import base.api.feature.product.dto.request.CreateProductRequest;
 import base.api.feature.product.dto.request.UpdateProductRequest;
+import base.api.feature.product.dto.response.PosCatalogItemResponse;
 import base.api.feature.product.dto.response.ProductResponse;
 import base.api.shared.dto.PageRequestDTO;
 import org.springframework.data.domain.Page;
@@ -19,6 +20,8 @@ public interface IProductService {
     ProductResponse getById(Integer id);
 
     List<ProductResponse> getAll();
+
+    List<PosCatalogItemResponse> getPosCatalog();
 
     Page<ProductResponse> getPage(
             PageRequestDTO pageRequest,
