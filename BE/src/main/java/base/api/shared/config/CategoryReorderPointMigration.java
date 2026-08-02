@@ -17,7 +17,7 @@ import java.util.Map;
  * (warehouse buffers larger than branch shelf buffers).
  */
 @Component
-@Order(6)
+@Order(7)
 public class CategoryReorderPointMigration {
 
     private static final Logger log = LoggerFactory.getLogger(CategoryReorderPointMigration.class);
