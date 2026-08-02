@@ -3,8 +3,11 @@ package base.api.feature.report.service;
 import base.api.feature.report.dto.CashDiscrepancyResponse;
 import base.api.feature.report.dto.InvoiceRow;
 import base.api.feature.report.dto.PointTransactionResponse;
+import base.api.feature.report.dto.ReportSummaryResponse;
 import base.api.feature.report.dto.RevenueReportResponse;
 import base.api.feature.report.dto.RevenueRow;
+import base.api.feature.report.dto.TopProductRow;
+import base.api.feature.report.dto.TrendPoint;
 import base.api.shared.dto.PageRequestDTO;
 import org.springframework.data.domain.Page;
 
@@ -21,6 +24,12 @@ public interface ReportService {
     RevenueReportResponse getRevenue(String groupBy, LocalDate from, LocalDate to, Long branchId);
 
     Page<RevenueRow> getRevenuePage(String groupBy, LocalDate from, LocalDate to, Long branchId, PageRequestDTO pageRequest);
+
+    ReportSummaryResponse getSummary(LocalDate from, LocalDate to, Long branchId, Long shiftId);
+
+    List<TrendPoint> getTrend(LocalDate from, LocalDate to, Long branchId, Long shiftId);
+
+    List<TopProductRow> getTopProducts(LocalDate from, LocalDate to, Long branchId, Long shiftId, int limit);
 
     List<InvoiceRow> getInvoices(LocalDate from, LocalDate to, Long branchId);
 

@@ -91,13 +91,13 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
             """)
     List<UserModel> searchCustomers(@Param("keyword") String keyword, Pageable pageable);
 
-    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name = :roleName")
+    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name = :roleName AND LOWER(u.status) = 'active'")
     List<UserModel> findByBranchIdAndRoleName(
             @Param("branchId") Long branchId,
             @Param("roleName") String roleName
     );
 
-    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name IN :roleNames")
+    @Query("SELECT u FROM UserModel u WHERE u.branchId = :branchId AND u.roleEntity.name IN :roleNames AND LOWER(u.status) = 'active'")
     List<UserModel> findByBranchIdAndRoleNames(
             @Param("branchId") Long branchId,
             @Param("roleNames") Collection<String> roleNames

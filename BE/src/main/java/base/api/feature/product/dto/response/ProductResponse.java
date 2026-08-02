@@ -30,6 +30,7 @@ public class ProductResponse {
     private String branchName;
     private Integer branchStock;
     private Integer warehouseStock;
+    private Integer warehouseReorderPoint;
     private Boolean lowStock;
     private BigDecimal referenceImportPrice;
     private BigDecimal defaultSalePrice;

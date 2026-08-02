@@ -26,6 +26,7 @@ import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import base.api.shared.util.CategoryReorderPoints;
 import base.api.shared.util.Ean13BarcodeGenerator;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -328,9 +329,11 @@ public class ProductServiceImpl implements IProductService {
             int quantity = warehouseRow.getQuantity() == null ? 0 : warehouseRow.getQuantity();
             int reorderPoint = warehouseRow.getReorderPoint() == null ? 0 : warehouseRow.getReorderPoint();
             response.setWarehouseStock(quantity);
+            response.setWarehouseReorderPoint(reorderPoint);
             response.setLowStock(reorderPoint > 0 && quantity <= reorderPoint);
         } else if (visibility.supervisor()) {
             response.setWarehouseStock(0);
+            response.setWarehouseReorderPoint(null);
             response.setLowStock(false);
         }
 
@@ -345,6 +348,9 @@ public class ProductServiceImpl implements IProductService {
                         row.setBranchId(branchId);
                         row.setProductId(product.getId());
                         row.setCurrentStock(0);
+                        String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
+                        row.setReorderPoint(CategoryReorderPoints.forBranch(
+                                categoryName, product.getUnitsPerImportUnit()));
                         return branchInventoryRepository.save(row);
                     });
         }
@@ -354,7 +360,9 @@ public class ProductServiceImpl implements IProductService {
                     WarehouseInventoryModel row = new WarehouseInventoryModel();
                     row.setProductId(product.getId());
                     row.setQuantity(0);
-                    row.setReorderPoint(50);
+                    String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
+                    row.setReorderPoint(CategoryReorderPoints.forWarehouse(
+                            categoryName, product.getUnitsPerImportUnit()));
                     return warehouseInventoryRepository.save(row);
                 });
     }

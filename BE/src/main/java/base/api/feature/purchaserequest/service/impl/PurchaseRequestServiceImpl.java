@@ -42,6 +42,7 @@ import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import base.api.shared.util.CategoryReorderPoints;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -789,23 +790,37 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     }
 
     private List<RecommendedProductResponse> getRecommendedProductsForBranch(Long branchId) {
-        Map<Integer, Integer> currentStockByProductId = new HashMap<>();
+        Map<Integer, BranchInventoryModel> inventoryByProductId = new HashMap<>();
         for (BranchInventoryModel inventory : branchInventoryRepository.findByBranchId(branchId)) {
-            currentStockByProductId.put(inventory.getProductId(), safeStock(inventory.getCurrentStock()));
+            inventoryByProductId.put(inventory.getProductId(), inventory);
         }
-
-        // TODO: load reorder point from branch_inventory / product master when that field exists.
-        int reorderPoint = defaultReorderPoint == null ? 0 : defaultReorderPoint;
 
         return productRepository.findAllActiveProducts().stream()
                 .map(product -> {
-                    int currentStock = currentStockByProductId.getOrDefault(product.getId(), 0);
+                    BranchInventoryModel inventory = inventoryByProductId.get(product.getId());
+                    int currentStock = inventory == null ? 0 : safeStock(inventory.getCurrentStock());
+                    int reorderPoint = resolveBranchReorderPoint(product, inventory);
                     int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
                     int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, product);
-                    return purchaseRequestMapper.toRecommendedProductResponse(product, currentStock, reorderPoint, suggestedQty);
+                    return purchaseRequestMapper.toRecommendedProductResponse(
+                            product, currentStock, reorderPoint, suggestedQty);
                 })
-                .filter(product -> product.getCurrentStock() <= product.getReorderPoint())
+                .filter(product -> product.getReorderPoint() != null
+                        && product.getReorderPoint() > 0
+                        && product.getCurrentStock() <= product.getReorderPoint())
                 .toList();
+    }
+
+    private int resolveBranchReorderPoint(ProductModel product, BranchInventoryModel inventory) {
+        if (inventory != null && inventory.getReorderPoint() != null && inventory.getReorderPoint() > 0) {
+            return inventory.getReorderPoint();
+        }
+        String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
+        int fromRule = CategoryReorderPoints.forBranch(categoryName, product.getUnitsPerImportUnit());
+        if (fromRule > 0) {
+            return fromRule;
+        }
+        return defaultReorderPoint == null ? 0 : defaultReorderPoint;
     }
 
     private int safeStock(Integer stock) {
