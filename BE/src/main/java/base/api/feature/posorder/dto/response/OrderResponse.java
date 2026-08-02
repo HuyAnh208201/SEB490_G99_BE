@@ -30,6 +30,7 @@ public class OrderResponse {
     private String paymentMethod;
     private BigDecimal cashReceived;
     private BigDecimal changeAmount;
+    private String paymentStatus;
 
     private int itemCount;
     private List<OrderItemResponse> lines = new ArrayList<>();

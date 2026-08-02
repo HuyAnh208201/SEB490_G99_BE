@@ -15,6 +15,12 @@ public interface PaymentRepository extends JpaRepository<PaymentModel, Long> {
 
     List<PaymentModel> findByOrderIdIn(Collection<Long> orderIds);
 
+    /** Tìm payment theo orderId (cho PayOS payment link creation). */
+    PaymentModel findByOrderId(Long orderId);
+
+    /** Tìm payment theo orderCode payOS (lưu trong transaction_ref). */
+    PaymentModel findByTransactionRef(String transactionRef);
+
     /**
      * Tổng tiền mặt thực thu trong một ca — vế "doanh thu tiền mặt" của công thức
      * Expected = tiền đầu ca + doanh thu tiền mặt.
