@@ -37,6 +37,7 @@ public class SecurityConfig {
             "/api/auth/forgot-password/complete",
             "/api/auth/verify-email",
             "/api/auth/resend-verification",
+            "/api/payment/payos-hook",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**"
