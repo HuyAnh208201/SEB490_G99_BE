@@ -32,6 +32,7 @@ import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.GoodsReceiptItemModel;
 import base.api.shared.entity.GoodsReceiptModel;
 import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.UserModel;
@@ -305,9 +306,73 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     }
 
     @Override
-    public Page<ProductSearchResponse> searchProducts(String keyword, PageRequestDTO pageRequest) {
-        return productRepository.searchActiveProducts(normalizeNullableText(keyword), productSearchPage(pageRequest))
-                .map(purchaseRequestMapper::toProductSearchResponse);
+    public Page<ProductSearchResponse> searchProducts(
+            String keyword,
+            PageRequestDTO pageRequest,
+            Integer categoryId,
+            Boolean lowStockOnly,
+            String stockSort
+    ) {
+        List<ProductModel> products = productRepository.searchActiveProductsFiltered(
+                normalizeNullableText(keyword), categoryId);
+        if (products.isEmpty()) {
+            Pageable pageable = productSearchPage(pageRequest);
+            return new PageImpl<>(List.of(), pageable, 0);
+        }
+
+        Set<Integer> productIds = products.stream()
+                .map(ProductModel::getId)
+                .collect(Collectors.toSet());
+        Map<Integer, ProductPackagingModel> topPackagings =
+                productPackagingService.getTopPackagingsByProductIds(productIds);
+
+        Long branchId = currentUserProvider.getCurrentUserOrThrow().getBranchId();
+        Map<Integer, BranchInventoryModel> inventoryByProductId = new HashMap<>();
+        if (branchId != null) {
+            for (BranchInventoryModel row : branchInventoryRepository.findByBranchIdAndProductIdIn(
+                    branchId, productIds)) {
+                inventoryByProductId.put(row.getProductId(), row);
+            }
+        }
+
+        List<ProductSearchResponse> enriched = new ArrayList<>(products.size());
+        for (ProductModel product : products) {
+            ProductSearchResponse response = purchaseRequestMapper.toProductSearchResponse(
+                    product, topPackagings.get(product.getId()));
+            BranchInventoryModel inventory = inventoryByProductId.get(product.getId());
+            int currentStock = inventory == null ? 0 : safeStock(inventory.getCurrentStock());
+            int reorderPoint = resolveBranchReorderPoint(product, inventory);
+            response.setCurrentStock(currentStock);
+            response.setReorderPoint(reorderPoint);
+            response.setLowStock(reorderPoint > 0 && currentStock <= reorderPoint);
+            enriched.add(response);
+        }
+
+        if (Boolean.TRUE.equals(lowStockOnly)) {
+            enriched = enriched.stream()
+                    .filter(row -> Boolean.TRUE.equals(row.getLowStock()))
+                    .collect(Collectors.toCollection(ArrayList::new));
+        }
+
+        String sort = stockSort == null ? "" : stockSort.trim().toLowerCase(Locale.ROOT);
+        if ("asc".equals(sort) || "desc".equals(sort)) {
+            Comparator<ProductSearchResponse> byStock = Comparator.comparingInt(
+                    row -> row.getCurrentStock() == null ? 0 : row.getCurrentStock());
+            if ("desc".equals(sort)) {
+                byStock = byStock.reversed();
+            }
+            enriched.sort(byStock.thenComparing(
+                    ProductSearchResponse::getProductName,
+                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        }
+
+        Pageable pageable = productSearchPage(pageRequest);
+        int start = (int) pageable.getOffset();
+        if (start >= enriched.size()) {
+            return new PageImpl<>(List.of(), pageable, enriched.size());
+        }
+        int end = Math.min(start + pageable.getPageSize(), enriched.size());
+        return new PageImpl<>(enriched.subList(start, end), pageable, enriched.size());
     }
 
     @Override
@@ -790,31 +855,48 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     }
 
     private List<RecommendedProductResponse> getRecommendedProductsForBranch(Long branchId) {
-        Map<Integer, BranchInventoryModel> inventoryByProductId = new HashMap<>();
-        for (BranchInventoryModel inventory : branchInventoryRepository.findByBranchId(branchId)) {
-            inventoryByProductId.put(inventory.getProductId(), inventory);
+        // Scope A: all active products visible to the branch; missing inventory row = stock 0.
+        List<ProductModel> products = productRepository.findVisibleActiveProducts(false, branchId);
+        if (products.isEmpty()) {
+            return List.of();
         }
 
-        return productRepository.findAllActiveProducts().stream()
-                .map(product -> {
-                    BranchInventoryModel inventory = inventoryByProductId.get(product.getId());
-                    int currentStock = inventory == null ? 0 : safeStock(inventory.getCurrentStock());
-                    int reorderPoint = resolveBranchReorderPoint(product, inventory);
-                    int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
-                    int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, product);
-                    return purchaseRequestMapper.toRecommendedProductResponse(
-                            product, currentStock, reorderPoint, suggestedQty);
-                })
-                .filter(product -> product.getReorderPoint() != null
-                        && product.getReorderPoint() > 0
-                        && product.getCurrentStock() <= product.getReorderPoint())
-                .toList();
+        Set<Integer> productIds = products.stream()
+                .map(ProductModel::getId)
+                .collect(Collectors.toSet());
+        Map<Integer, BranchInventoryModel> inventoryByProductId = new HashMap<>();
+        for (BranchInventoryModel row : branchInventoryRepository.findByBranchIdAndProductIdIn(
+                branchId, productIds)) {
+            inventoryByProductId.put(row.getProductId(), row);
+        }
+        Map<Integer, ProductPackagingModel> topPackagings =
+                productPackagingService.getTopPackagingsByProductIds(productIds);
+
+        List<RecommendedProductResponse> recommended = new ArrayList<>();
+        for (ProductModel product : products) {
+            BranchInventoryModel inventory = inventoryByProductId.get(product.getId());
+            int currentStock = inventory == null ? 0 : safeStock(inventory.getCurrentStock());
+            int reorderPoint = resolveBranchReorderPoint(product, inventory);
+            if (reorderPoint <= 0 || currentStock > reorderPoint) {
+                continue;
+            }
+            int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
+            int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, product);
+            recommended.add(purchaseRequestMapper.toRecommendedProductResponse(
+                    product,
+                    currentStock,
+                    reorderPoint,
+                    suggestedQty,
+                    topPackagings.get(product.getId())));
+        }
+        recommended.sort(Comparator.comparing(
+                RecommendedProductResponse::getProductName,
+                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return recommended;
     }
 
     private int resolveBranchReorderPoint(ProductModel product, BranchInventoryModel inventory) {
-        if (inventory != null && inventory.getReorderPoint() != null && inventory.getReorderPoint() > 0) {
-            return inventory.getReorderPoint();
-        }
+        // Category-only policy: ignore per-SKU branch_inventory.reorder_point overrides.
         String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
         int fromRule = CategoryReorderPoints.forBranch(categoryName, product.getUnitsPerImportUnit());
         if (fromRule > 0) {
