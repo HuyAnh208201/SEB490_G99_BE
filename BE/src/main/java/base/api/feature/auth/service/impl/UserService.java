@@ -18,13 +18,18 @@ import base.api.shared.entity.RoleModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.UserGender;
-import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.enums.UserRole;
 import base.api.feature.auth.repository.IEmailVerificationTokenRepository;
 import base.api.feature.auth.repository.IPasswordResetTokenRepository;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
+import base.api.feature.shift.repository.ShiftAssignmentRepository;
+import base.api.feature.shiftsession.repository.ShiftSessionRepository;
 import base.api.shared.config.EmailService;
+import base.api.shared.entity.ShiftAssignmentModel;
+import base.api.shared.enums.ShiftSessionStatus;
+import base.api.shared.enums.ShiftStatus;
+import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.BusinessException;
 import base.api.shared.exception.ConflictException;
@@ -75,6 +80,12 @@ public class UserService implements IUserService {
 
     @Autowired
     private CurrentUserProvider currentUserProvider;
+
+    @Autowired
+    private ShiftSessionRepository shiftSessionRepository;
+
+    @Autowired
+    private ShiftAssignmentRepository shiftAssignmentRepository;
 
     @Value("${url.api-url:http://localhost:4313}")
     private String apiBaseUrl;
@@ -878,7 +889,41 @@ public class UserService implements IUserService {
         }
 
         target.setActive(active);
-        return userRepository.save(target);
+        UserModel saved = userRepository.save(target);
+        if (!active) {
+            hardenAfterDeactivate(saved);
+        }
+        return saved;
+    }
+
+    /**
+     * Force-close open POS sessions and remove staff from current/future published shifts.
+     * Existing JWTs are rejected on the next request via {@code UserDetails.isEnabled()}.
+     */
+    private void hardenAfterDeactivate(UserModel target) {
+        List<ShiftSessionStatus> activeStatuses = List.of(
+                ShiftSessionStatus.OPEN,
+                ShiftSessionStatus.CLOSING,
+                ShiftSessionStatus.PENDING_HANDOVER,
+                ShiftSessionStatus.SCHEDULED);
+        shiftSessionRepository
+                .findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(target.getId(), activeStatuses)
+                .ifPresent(session -> {
+                    session.setStatus(ShiftSessionStatus.CLOSED);
+                    session.setClosedAt(LocalDateTime.now());
+                    if (session.getClosingNote() == null || session.getClosingNote().isBlank()) {
+                        session.setClosingNote("Force-closed: account deactivated.");
+                    }
+                    shiftSessionRepository.save(session);
+                    log.info("Force-closed shift session {} for deactivated user {}", session.getId(), target.getId());
+                });
+
+        List<ShiftAssignmentModel> future = shiftAssignmentRepository.findPublishedAssignmentsFrom(
+                target.getId(), LocalDateTime.now().minusMinutes(1), ShiftStatus.PUBLISHED);
+        if (!future.isEmpty()) {
+            shiftAssignmentRepository.deleteAll(future);
+            log.info("Removed {} published assignment(s) for deactivated user {}", future.size(), target.getId());
+        }
     }
 
     @Override
@@ -902,6 +947,26 @@ public class UserService implements IUserService {
             verifyCriticalUserAction(targetUserId, actor, "DELETE", email, verificationCode);
         } else if (targetRole == UserRole.ADMIN) {
             throw new ForbiddenException("Admin accounts cannot be deleted.");
+        }
+
+        List<ShiftSessionStatus> activeStatuses = List.of(
+                ShiftSessionStatus.OPEN,
+                ShiftSessionStatus.CLOSING,
+                ShiftSessionStatus.PENDING_HANDOVER);
+        boolean hasOpenSession = shiftSessionRepository
+                .findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(target.getId(), activeStatuses)
+                .isPresent();
+        if (hasOpenSession) {
+            throw new BadRequestException(
+                    "Cannot delete this account while a shift session is still open. Deactivate the account first.");
+        }
+
+        // Prefer deactivate for cashiers/IS with published assignments so history FKs stay intact.
+        List<ShiftAssignmentModel> future = shiftAssignmentRepository.findPublishedAssignmentsFrom(
+                target.getId(), LocalDateTime.now().minusMinutes(1), ShiftStatus.PUBLISHED);
+        if (!future.isEmpty()) {
+            throw new BadRequestException(
+                    "Cannot delete this account while they are assigned to published shifts. Deactivate the account first (assignments will be cleared).");
         }
 
         if (targetRole == UserRole.BRANCH_MANAGER && target.getBranchId() != null) {

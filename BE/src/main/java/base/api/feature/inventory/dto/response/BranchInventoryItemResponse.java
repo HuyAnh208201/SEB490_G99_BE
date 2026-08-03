@@ -13,8 +13,11 @@ public class BranchInventoryItemResponse {
     private Integer productId;
     private String productCode;
     private String productName;
+    private String categoryName;
     private String unit;
     private Integer quantity;
+    private Integer reorderPoint;
+    private Boolean lowStock;
     /** English label of the TOP packaging level, e.g. "Case of 24" — used for purchase requests. */
     private String topPackagingLabel;
     /** How many base units one TOP packaging unit contains. */

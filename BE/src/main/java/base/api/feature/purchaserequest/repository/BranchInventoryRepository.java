@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,6 +19,8 @@ public interface BranchInventoryRepository extends JpaRepository<BranchInventory
     List<BranchInventoryModel> findByBranchId(Long branchId);
 
     Optional<BranchInventoryModel> findByBranchIdAndProductId(Long branchId, Integer productId);
+
+    List<BranchInventoryModel> findByBranchIdAndProductIdIn(Long branchId, Collection<Integer> productIds);
 
     /**
      * Trừ tồn kho atomic khi bán hàng — chỉ thành công nếu còn đủ hàng.

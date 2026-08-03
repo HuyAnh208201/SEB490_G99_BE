@@ -46,7 +46,12 @@ public interface IPurchaseRequestService {
 
     List<RecommendedProductResponse> getRecommendedProducts();
 
-    Page<ProductSearchResponse> searchProducts(String keyword, PageRequestDTO pageRequest);
+    Page<ProductSearchResponse> searchProducts(
+            String keyword,
+            PageRequestDTO pageRequest,
+            Integer categoryId,
+            Boolean lowStockOnly,
+            String stockSort);
 
     List<ConsolidatedBranchResponse> getConsolidatedRequests();
 

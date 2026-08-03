@@ -58,6 +58,17 @@ URL in ra trong log. Lưu ý:
 
 ## 2. Tài khoản demo
 
+### Demo bypass (recommended for local demos)
+
+Seeded automatically on BE startup (`DemoAccountsSeeder`). Password: `123456`
+
+| Email | Role | Notes |
+|---|---|---|
+| `demo_cashier@chainstore.vn` | CASHIER (branch 1) | Can open POS shift **without** BM published assignment |
+| `demo_is@chainstore.vn` | INVENTORY_STAFF (branch 1) | Inventory staff demos; no shift-session gate |
+
+### Legacy POS demo accounts
+
 Mật khẩu chung: `Demo@1234`
 
 | Email | Role | Dùng để |

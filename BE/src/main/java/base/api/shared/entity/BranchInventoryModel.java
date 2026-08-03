@@ -30,4 +30,7 @@ public class BranchInventoryModel {
 
     @Column(name = "quantity")
     private Integer currentStock = 0;
+
+    @Column(name = "reorder_point")
+    private Integer reorderPoint = 0;
 }

@@ -20,4 +20,7 @@ public interface IInventoryService {
 
     Page<BranchInventoryItemResponse> getBranchInventoryPage(
             Long branchId, PageRequestDTO pageRequest);
+
+    BranchInventoryItemResponse updateBranchReorderPoint(
+            Long branchId, Integer productId, Integer reorderPoint);
 }

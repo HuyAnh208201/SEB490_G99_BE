@@ -45,6 +45,21 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
                 OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
                 OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
                 OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+            AND (:categoryId IS NULL OR p.category.id = :categoryId)
+            ORDER BY p.name ASC
+            """)
+    List<ProductModel> searchActiveProductsFiltered(
+            @Param("keyword") String keyword,
+            @Param("categoryId") Integer categoryId);
+
+    @EntityGraph(attributePaths = "category")
+    @Query("""
+            SELECT p FROM ProductModel p
+            WHERE LOWER(p.status) = 'active'
+            AND (:keyword IS NULL OR :keyword = ''
+                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
             """)
     Page<ProductModel> searchActiveProducts(@Param("keyword") String keyword, Pageable pageable);
 

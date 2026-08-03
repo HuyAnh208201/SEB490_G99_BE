@@ -4,6 +4,7 @@ import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.category.repository.ICategoryRepository;
 import base.api.feature.product.dto.request.CreateProductRequest;
 import base.api.feature.product.dto.request.UpdateProductRequest;
+import base.api.feature.product.dto.response.PosCatalogItemResponse;
 import base.api.feature.product.dto.response.ProductResponse;
 import base.api.feature.product.mapper.ProductMapper;
 import base.api.feature.product.repository.IProductRepository;
@@ -26,6 +27,7 @@ import base.api.shared.exception.ConflictException;
 import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import base.api.shared.util.CategoryReorderPoints;
 import base.api.shared.util.Ean13BarcodeGenerator;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +37,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -172,6 +175,7 @@ public class ProductServiceImpl implements IProductService {
                 visibility.branchId());
 
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
+        Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
         Map<Integer, WarehouseInventoryModel> warehouseStock = loadWarehouseStockMap();
         Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
                 products.stream().map(ProductModel::getId).toList());
@@ -179,12 +183,44 @@ public class ProductServiceImpl implements IProductService {
         return products.stream()
                 .map(product -> {
                     ProductResponse response = enrichList(
-                            productMapper.toListResponse(product), branchStock, warehouseStock, visibility);
+                            productMapper.toListResponse(product),
+                            branchStock,
+                            branchReorder,
+                            warehouseStock,
+                            visibility);
                     ProductPackagingModel top = productPackagingService.resolveTopPackaging(product, topPackagings);
                     applyTopPackaging(response, top);
                     return response;
                 })
                 .toList();
+    }
+
+    @Override
+    public List<PosCatalogItemResponse> getPosCatalog() {
+        VisibilityContext visibility = resolveVisibility();
+        List<ProductModel> products = productRepository.findVisibleActiveProducts(
+                visibility.supervisor(),
+                visibility.branchId());
+        Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
+
+        List<PosCatalogItemResponse> rows = new ArrayList<>(products.size());
+        for (ProductModel product : products) {
+            PosCatalogItemResponse item = new PosCatalogItemResponse();
+            item.setId(product.getId());
+            item.setCode(product.getCode());
+            item.setBarcode(product.getBarcode());
+            item.setName(product.getName());
+            item.setUnit(product.getUnit());
+            item.setDefaultSalePrice(product.getDefaultSalePrice());
+            item.setImageUrl(product.getImageUrl());
+            item.setBranchStock(branchStock.getOrDefault(product.getId(), 0));
+            if (product.getCategory() != null) {
+                item.setCategoryId(product.getCategory().getId());
+                item.setCategoryName(product.getCategory().getName());
+            }
+            rows.add(item);
+        }
+        return rows;
     }
 
     @Override
@@ -250,12 +286,17 @@ public class ProductServiceImpl implements IProductService {
                         Sort.Direction.ASC,
                         Set.of("id", "code", "name", "status", "createdAt", "updatedAt")));
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
+        Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
         Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
                 products.getContent().stream().map(ProductModel::getId).toList());
 
         return products.map(product -> {
             ProductResponse response = enrichList(
-                    productMapper.toListResponse(product), branchStock, warehouseStock, visibility);
+                    productMapper.toListResponse(product),
+                    branchStock,
+                    branchReorder,
+                    warehouseStock,
+                    visibility);
             ProductPackagingModel top = productPackagingService.resolveTopPackaging(product, topPackagings);
             applyTopPackaging(response, top);
             return response;
@@ -301,13 +342,15 @@ public class ProductServiceImpl implements IProductService {
     private ProductResponse enrichSingle(ProductResponse response) {
         VisibilityContext visibility = resolveVisibility();
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
+        Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
         Map<Integer, WarehouseInventoryModel> warehouseStock = loadWarehouseStockMap();
-        return enrichList(response, branchStock, warehouseStock, visibility);
+        return enrichList(response, branchStock, branchReorder, warehouseStock, visibility);
     }
 
     private ProductResponse enrichList(
             ProductResponse response,
             Map<Integer, Integer> branchStock,
+            Map<Integer, Integer> branchReorder,
             Map<Integer, WarehouseInventoryModel> warehouseStock,
             VisibilityContext visibility) {
 
@@ -319,6 +362,13 @@ public class ProductServiceImpl implements IProductService {
 
         if (visibility.branchId() != null) {
             response.setBranchStock(branchStock.getOrDefault(response.getId(), 0));
+            int resolvedReorder = CategoryReorderPoints.forBranch(
+                    response.getCategoryName(), response.getUnitsPerImportUnit());
+            response.setBranchReorderPoint(resolvedReorder);
+            if (resolvedReorder > 0) {
+                int stock = branchStock.getOrDefault(response.getId(), 0);
+                response.setLowStock(stock <= resolvedReorder);
+            }
         }
 
         WarehouseInventoryModel warehouseRow = warehouseStock.get(response.getId());
@@ -326,10 +376,19 @@ public class ProductServiceImpl implements IProductService {
             int quantity = warehouseRow.getQuantity() == null ? 0 : warehouseRow.getQuantity();
             int reorderPoint = warehouseRow.getReorderPoint() == null ? 0 : warehouseRow.getReorderPoint();
             response.setWarehouseStock(quantity);
-            response.setLowStock(reorderPoint > 0 && quantity <= reorderPoint);
+            response.setWarehouseReorderPoint(reorderPoint);
+            // Warehouse low-stock takes precedence for WM/supervisor views
+            if (visibility.supervisor() || visibility.branchId() == null) {
+                response.setLowStock(reorderPoint > 0 && quantity <= reorderPoint);
+            } else if (response.getLowStock() == null) {
+                response.setLowStock(reorderPoint > 0 && quantity <= reorderPoint);
+            }
         } else if (visibility.supervisor()) {
             response.setWarehouseStock(0);
-            response.setLowStock(false);
+            response.setWarehouseReorderPoint(null);
+            if (response.getLowStock() == null) {
+                response.setLowStock(false);
+            }
         }
 
         return response;
@@ -343,6 +402,9 @@ public class ProductServiceImpl implements IProductService {
                         row.setBranchId(branchId);
                         row.setProductId(product.getId());
                         row.setCurrentStock(0);
+                        String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
+                        row.setReorderPoint(CategoryReorderPoints.forBranch(
+                                categoryName, product.getUnitsPerImportUnit()));
                         return branchInventoryRepository.save(row);
                     });
         }
@@ -352,7 +414,9 @@ public class ProductServiceImpl implements IProductService {
                     WarehouseInventoryModel row = new WarehouseInventoryModel();
                     row.setProductId(product.getId());
                     row.setQuantity(0);
-                    row.setReorderPoint(50);
+                    String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
+                    row.setReorderPoint(CategoryReorderPoints.forWarehouse(
+                            categoryName, product.getUnitsPerImportUnit()));
                     return warehouseInventoryRepository.save(row);
                 });
     }
@@ -472,6 +536,17 @@ public class ProductServiceImpl implements IProductService {
         Map<Integer, Integer> map = new HashMap<>();
         for (BranchInventoryModel row : branchInventoryRepository.findByBranchId(branchId)) {
             map.put(row.getProductId(), row.getCurrentStock() == null ? 0 : row.getCurrentStock());
+        }
+        return map;
+    }
+
+    private Map<Integer, Integer> loadBranchReorderMap(Long branchId) {
+        if (branchId == null) {
+            return Map.of();
+        }
+        Map<Integer, Integer> map = new HashMap<>();
+        for (BranchInventoryModel row : branchInventoryRepository.findByBranchId(branchId)) {
+            map.put(row.getProductId(), row.getReorderPoint() == null ? 0 : row.getReorderPoint());
         }
         return map;
     }

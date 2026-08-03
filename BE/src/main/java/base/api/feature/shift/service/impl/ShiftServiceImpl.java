@@ -702,10 +702,8 @@ public class ShiftServiceImpl implements IShiftService {
             payloadByKey.put(key, slotReq);
         }
 
-        if (payloadByKey.size() != expectedEditable.size()) {
-            throw new BusinessException(
-                    "Payload must include every unpublished slot for the week ("
-                            + expectedEditable.size() + " expected, " + payloadByKey.size() + " received).");
+        if (payloadByKey.isEmpty()) {
+            throw new BusinessException("Select at least one ready slot to publish.");
         }
 
         Set<Long> requestedEmployeeIds = payloadByKey.values().stream()
@@ -721,8 +719,11 @@ public class ShiftServiceImpl implements IShiftService {
             throw new NotFoundException("One or more selected employees were not found.");
         }
 
-        for (VirtualSlot virtual : expectedEditable) {
-            SetupWeekSlotRequest slotReq = payloadByKey.get(slotKey(virtual.start(), virtual.end()));
+        // Partial week allowed (holidays / days off): only validate and publish slots in the payload.
+        List<VirtualSlot> slotsToPublish = new ArrayList<>();
+        for (Map.Entry<String, SetupWeekSlotRequest> entry : payloadByKey.entrySet()) {
+            VirtualSlot virtual = expectedByKey.get(entry.getKey());
+            SetupWeekSlotRequest slotReq = entry.getValue();
             List<Long> cashiers = normalizeIds(slotReq.getCashiers());
             List<Long> inventoryStaff = normalizeIds(slotReq.getInventoryStaff());
             ensureNoRoleOverlap(cashiers, inventoryStaff);
@@ -732,16 +733,16 @@ public class ShiftServiceImpl implements IShiftService {
             int total = cashiers.size() + inventoryStaff.size();
             if (total < 1) {
                 throw new BusinessException(
-                        "Slot " + slotKey(virtual.start(), virtual.end()) + " needs at least one employee.");
+                        "Slot " + entry.getKey() + " needs at least one employee.");
             }
             assertEmployeeCap(total);
             if (cashiers.isEmpty()) {
                 throw new BusinessException(
-                        "Slot " + slotKey(virtual.start(), virtual.end()) + " needs at least one Cashier.");
+                        "Slot " + entry.getKey() + " needs at least one Cashier.");
             }
             if ((virtual.first() || virtual.last()) && inventoryStaff.isEmpty()) {
                 throw new BusinessException(
-                        "Opening/closing slot " + slotKey(virtual.start(), virtual.end())
+                        "Opening/closing slot " + entry.getKey()
                                 + " needs at least one Inventory Staff.");
             }
 
@@ -759,6 +760,7 @@ public class ShiftServiceImpl implements IShiftService {
                 }
                 validateEmployeeRole(employee, UserRole.INVENTORY_STAFF);
             }
+            slotsToPublish.add(virtual);
         }
 
         int published = 0;
@@ -767,7 +769,7 @@ public class ShiftServiceImpl implements IShiftService {
         List<ShiftAssignmentModel> assignmentsToDelete = new ArrayList<>();
         List<ShiftAssignmentModel> assignmentsToSave = new ArrayList<>();
         List<ShiftModel> shiftsToSave = new ArrayList<>();
-        for (VirtualSlot virtual : expectedEditable) {
+        for (VirtualSlot virtual : slotsToPublish) {
             SetupWeekSlotRequest slotReq = payloadByKey.get(slotKey(virtual.start(), virtual.end()));
             List<Long> cashiers = normalizeIds(slotReq.getCashiers());
             List<Long> inventoryStaff = normalizeIds(slotReq.getInventoryStaff());

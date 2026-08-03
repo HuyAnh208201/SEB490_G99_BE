@@ -8,6 +8,7 @@ import base.api.feature.purchaserequest.dto.response.PurchaseRequestSummaryRespo
 import base.api.feature.purchaserequest.dto.response.RecommendedProductResponse;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.UserModel;
@@ -125,6 +126,17 @@ public class PurchaseRequestMapper {
             Integer reorderPoint,
             Integer suggestedQty
     ) {
+        return toRecommendedProductResponse(
+                product, currentStock, reorderPoint, suggestedQty, productPackagingService.getTopPackaging(product));
+    }
+
+    public RecommendedProductResponse toRecommendedProductResponse(
+            ProductModel product,
+            Integer currentStock,
+            Integer reorderPoint,
+            Integer suggestedQty,
+            ProductPackagingModel topPackaging
+    ) {
         RecommendedProductResponse response = new RecommendedProductResponse();
         response.setProductId(product.getId());
         response.setProductCode(product.getCode());
@@ -134,23 +146,35 @@ public class PurchaseRequestMapper {
         response.setCurrentStock(currentStock);
         response.setReorderPoint(reorderPoint);
         response.setSuggestedQty(suggestedQty);
-        var topPackaging = productPackagingService.getTopPackaging(product);
-        response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
-        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
+        ProductPackagingModel top = topPackaging != null
+                ? topPackaging
+                : productPackagingService.getTopPackaging(product);
+        response.setTopPackagingLabel(top == null ? null : top.displayLabel());
+        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(top));
         return response;
     }
 
     public ProductSearchResponse toProductSearchResponse(ProductModel product) {
+        return toProductSearchResponse(product, productPackagingService.getTopPackaging(product));
+    }
+
+    public ProductSearchResponse toProductSearchResponse(
+            ProductModel product,
+            ProductPackagingModel topPackaging
+    ) {
         ProductSearchResponse response = new ProductSearchResponse();
         response.setProductId(product.getId());
         response.setProductCode(product.getCode());
         response.setBarcode(product.getBarcode());
         response.setProductName(product.getName());
         response.setCategoryName(product.getCategory() == null ? null : product.getCategory().getName());
+        response.setCategoryId(product.getCategory() == null ? null : product.getCategory().getId());
         response.setUnit(product.getUnit());
-        var topPackaging = productPackagingService.getTopPackaging(product);
-        response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
-        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
+        ProductPackagingModel top = topPackaging != null
+                ? topPackaging
+                : productPackagingService.getTopPackaging(product);
+        response.setTopPackagingLabel(top == null ? null : top.displayLabel());
+        response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(top));
         return response;
     }
 
