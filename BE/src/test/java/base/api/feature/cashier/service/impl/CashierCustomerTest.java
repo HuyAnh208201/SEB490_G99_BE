@@ -4,6 +4,7 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
 import base.api.feature.cashier.dto.request.CreateCustomerRequest;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
+import base.api.feature.system.repository.MembershipTierRepository;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
@@ -33,6 +34,9 @@ class CashierCustomerTest {
 
     @Mock
     private IUserService userService;
+
+    @Mock
+    private MembershipTierRepository membershipTierRepository;
 
     @InjectMocks
     private CashierServiceImpl service;
