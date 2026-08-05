@@ -31,4 +31,51 @@ class ShiftSlotDeriverTest {
             assertTrue(minutes <= ShiftSlotDeriver.MAX_SHIFT_HOURS * 60L);
         }
     }
+
+    @Test
+    void nullOrBlankFallsBackToDefaultEightToTwentyTwo() {
+        List<ShiftSlotDeriver.SlotTemplate> fromNull = ShiftSlotDeriver.derive(null);
+        List<ShiftSlotDeriver.SlotTemplate> fromBlank = ShiftSlotDeriver.derive("   ");
+
+        assertEquals(LocalTime.of(8, 0), fromNull.get(0).start());
+        assertEquals(LocalTime.of(22, 0), fromNull.get(fromNull.size() - 1).end());
+        assertEquals(LocalTime.of(8, 0), fromBlank.get(0).start());
+        assertEquals(LocalTime.of(22, 0), fromBlank.get(fromBlank.size() - 1).end());
+    }
+
+    @Test
+    void twentyFourSevenUsesMidnightToEndOfDay() {
+        List<ShiftSlotDeriver.SlotTemplate> slots = ShiftSlotDeriver.derive("Open 24/7");
+
+        assertEquals(LocalTime.MIDNIGHT, slots.get(0).start());
+        assertEquals(LocalTime.of(23, 59), slots.get(slots.size() - 1).end());
+        assertTrue(slots.size() >= 4);
+    }
+
+    @Test
+    void invalidPatternFallsBackToDefaultHours() {
+        List<ShiftSlotDeriver.SlotTemplate> slots = ShiftSlotDeriver.derive("not-a-schedule");
+
+        assertEquals(LocalTime.of(8, 0), slots.get(0).start());
+        assertEquals(LocalTime.of(22, 0), slots.get(slots.size() - 1).end());
+    }
+
+    @Test
+    void overnightCloseBeforeOpenCreatesShortFallbackSlot() {
+        List<ShiftSlotDeriver.SlotTemplate> slots = ShiftSlotDeriver.derive("22:00 - 06:00");
+
+        assertEquals(1, slots.size());
+        assertEquals(LocalTime.of(22, 0), slots.get(0).start());
+        assertTrue(slots.get(0).first());
+        assertTrue(slots.get(0).last());
+    }
+
+    @Test
+    void shortWindowFitsInOneSlot() {
+        List<ShiftSlotDeriver.SlotTemplate> slots = ShiftSlotDeriver.derive("08:00 - 14:00");
+
+        assertEquals(1, slots.size());
+        assertEquals(LocalTime.of(8, 0), slots.get(0).start());
+        assertEquals(LocalTime.of(14, 0), slots.get(0).end());
+    }
 }
