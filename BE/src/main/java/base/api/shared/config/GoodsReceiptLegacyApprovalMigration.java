@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
  * Fixes legacy receipts left PENDING_APPROVAL after stock was already applied and PR marked RECEIVED.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(2)
 public class GoodsReceiptLegacyApprovalMigration {
 

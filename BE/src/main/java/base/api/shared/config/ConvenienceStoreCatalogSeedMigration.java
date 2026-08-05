@@ -24,6 +24,7 @@ import java.util.Map;
  * no-op.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(4)
 public class ConvenienceStoreCatalogSeedMigration {
 

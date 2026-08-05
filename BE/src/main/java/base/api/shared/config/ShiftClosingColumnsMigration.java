@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
  * Chạy an toàn nhiều lần (idempotent).
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(2)
 public class ShiftClosingColumnsMigration {
 

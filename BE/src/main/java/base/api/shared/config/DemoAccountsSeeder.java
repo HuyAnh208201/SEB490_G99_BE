@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Ensures two demo staff accounts exist for local/demo use.
  * Password is always reset to {@link DemoAccounts#DEMO_PASSWORD} on startup so demos stay predictable.
+ * Runs even when full startup bootstrap is off — demos must stay usable against the shared DB.
  */
 @Component
 @Order(50)

@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class ShiftSessionTableMigration {
 

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
  * Ensures a realistic convenience-store style catalog with English retail/import units.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(2)
 public class ProductCatalogSeedMigration {
 

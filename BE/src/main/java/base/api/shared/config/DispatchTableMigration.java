@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
  * bổ sung cột area/route cho branches và seed dữ liệu khu vực/tuyến giao mẫu.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class DispatchTableMigration {
 
