@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * actually dispatchable (warehouse stock shortfall) to AWAITING_STOCK.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class PurchaseRequestStockReconciliationMigration {
 

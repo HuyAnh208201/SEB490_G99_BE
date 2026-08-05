@@ -17,6 +17,7 @@ import java.util.Map;
  * (warehouse buffers larger than branch shelf buffers).
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(7)
 public class CategoryReorderPointMigration {
 

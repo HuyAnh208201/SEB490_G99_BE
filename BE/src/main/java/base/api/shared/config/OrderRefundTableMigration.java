@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
  * orders/users theo cùng lối với PosOrderTablesMigration (tham chiếu mềm).
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class OrderRefundTableMigration {
 

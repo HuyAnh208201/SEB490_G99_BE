@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
  * thu ngân thì hiểu là cùng một phiên bán hàng.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class PosScanEventTableMigration {
 

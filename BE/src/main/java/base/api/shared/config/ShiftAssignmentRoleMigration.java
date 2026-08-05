@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
  * backfills existing rows from the staff member's account role.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class ShiftAssignmentRoleMigration {
 

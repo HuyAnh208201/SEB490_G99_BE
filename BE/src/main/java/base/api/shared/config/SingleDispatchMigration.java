@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
  * Single-ship dispatch: remove legacy batch-only {@code vehicle} column from dispatch_orders.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(2)
 public class SingleDispatchMigration {
 

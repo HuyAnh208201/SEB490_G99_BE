@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
  * safe; the check is idempotent and a no-op once clean.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class ShiftDraftCleanupMigration {
 

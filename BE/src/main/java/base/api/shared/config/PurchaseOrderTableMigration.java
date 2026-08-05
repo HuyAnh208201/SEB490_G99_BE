@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * Tạo bảng đơn đặt hàng nhà cung cấp (purchase_orders / purchase_order_items) lúc khởi động.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class PurchaseOrderTableMigration {
 

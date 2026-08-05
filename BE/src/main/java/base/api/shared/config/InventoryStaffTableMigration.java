@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
  * và bổ sung cột phục vụ nhập kho thực tế cho goods_receipts / goods_receipt_items.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class InventoryStaffTableMigration {
 

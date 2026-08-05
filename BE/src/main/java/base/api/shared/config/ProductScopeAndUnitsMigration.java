@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
  * Adds product scope columns, unit tables, and normalizes legacy Vietnamese unit slugs to English.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class ProductScopeAndUnitsMigration {
 

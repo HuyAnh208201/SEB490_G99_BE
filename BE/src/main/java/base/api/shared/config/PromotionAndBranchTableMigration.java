@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * Tạo bảng promotion exclusions và branch suspend tokens lúc khởi động.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class PromotionAndBranchTableMigration {
 

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
  * customers sẽ tách dữ liệu tích điểm ra hai nơi. Vì vậy không đặt FK.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class PosOrderTablesMigration {
 

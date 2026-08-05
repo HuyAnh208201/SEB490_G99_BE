@@ -29,6 +29,7 @@ import java.util.Set;
  * <p>Demo catalog barcodes use valid EAN-13 (893…). Not a claim of GS1 ownership.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(5)
 public class VietnamTop200CatalogSeedMigration {
 

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * DRAFT / PUBLISHED / CANCELLED — normalize rows so JPA can load shifts.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class ShiftStatusDataMigration {
 

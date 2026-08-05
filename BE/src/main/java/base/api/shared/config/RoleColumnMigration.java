@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * Chuyển sang VARCHAR để JPA EnumType.STRING hoạt động với mọi role.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class RoleColumnMigration {
 
