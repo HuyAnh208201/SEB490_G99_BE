@@ -11,4 +11,6 @@ public interface IBranchRepository extends JpaRepository<BranchModel, Long>, Jpa
     boolean existsByNameIgnoreCase(String name);
 
     boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
+
+    long countByStatusIgnoreCase(String status);
 }

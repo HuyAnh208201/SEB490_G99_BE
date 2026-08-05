@@ -115,11 +115,24 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     private JdbcTemplate jdbcTemplate;
 
     @Override
+    @Transactional
     public ShiftSessionResponse getCurrent() {
         UserModel user = requireStaff();
         Optional<ShiftSessionModel> active = findActiveSession(user.getId());
         if (active.isPresent()) {
-            return toResponse(active.get(), user);
+            ShiftSessionModel session = active.get();
+            // Demo: abandon stuck close flow so cashier can open a fresh POS shift anytime.
+            if (DemoAccounts.isDemoBypassEmail(user.getEmail())
+                    && (session.getStatus() == ShiftSessionStatus.CLOSING
+                            || session.getStatus() == ShiftSessionStatus.PENDING_HANDOVER)) {
+                session.setStatus(ShiftSessionStatus.COMPLETED);
+                if (session.getClosedAt() == null) {
+                    session.setClosedAt(LocalDateTime.now());
+                }
+                sessionRepository.save(session);
+            } else {
+                return toResponse(session, user);
+            }
         }
         ShiftAssignmentModel assignment = resolveCurrentAssignment(user).orElse(null);
         if (assignment == null) {
@@ -528,6 +541,11 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     }
 
     private Optional<ShiftAssignmentModel> resolveCurrentAssignment(UserModel user) {
+        // Demo cashiers/IS: always ensure a published slot covering "now" (bypass BM schedule).
+        if (DemoAccounts.isDemoBypassEmail(user.getEmail())) {
+            return Optional.of(ensureDemoAssignment(user));
+        }
+
         LocalDateTime now = LocalDateTime.now();
         List<ShiftAssignmentModel> overlapping = assignmentRepository.findPublishedAssignmentsOverlapping(
                 user.getId(),
@@ -550,54 +568,47 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                         today.atStartOfDay(),
                         today.plusDays(1).atStartOfDay(),
                         ShiftStatus.PUBLISHED);
-        Optional<ShiftAssignmentModel> assignedToday = todayAssignments.stream().findFirst();
-        if (assignedToday.isPresent()) {
-            return assignedToday;
-        }
-        if (DemoAccounts.isDemoBypassEmail(user.getEmail())) {
-            return Optional.of(ensureDemoAssignment(user));
-        }
-        return Optional.empty();
+        return todayAssignments.stream().findFirst();
     }
 
     /**
      * Demo cashiers may open a POS shift without a BM-published assignment.
-     * Creates (or reuses) a published same-day slot covering "now".
+     * Creates (or reuses) a published slot that covers the current time (max 6 hours).
      */
     private ShiftAssignmentModel ensureDemoAssignment(UserModel user) {
+        if (user.getBranchId() == null) {
+            throw new BusinessException("Demo account is not assigned to a branch.");
+        }
         LocalDateTime now = LocalDateTime.now();
-        LocalDate today = now.toLocalDate();
-        LocalDateTime dayStart = today.atTime(6, 0);
-        LocalDateTime dayEnd = today.atTime(23, 0);
-        List<ShiftModel> dayShifts = shiftRepository
-                .findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
-                        user.getBranchId(), today.atStartOfDay(), today.plusDays(1).atStartOfDay());
-        ShiftModel shift = dayShifts.stream()
-                .filter(s -> s.getStatus() == ShiftStatus.PUBLISHED)
-                .filter(s -> !s.getEndTime().isBefore(now) && !s.getStartTime().isAfter(now.plusMinutes(30)))
-                .findFirst()
-                .orElse(null);
-        if (shift == null) {
-            shift = new ShiftModel();
-            shift.setBranchId(user.getBranchId());
-            shift.setCreatedBy(user.getId());
-            shift.setStartTime(dayStart);
-            shift.setEndTime(dayEnd);
-            shift.setOpeningCash(STANDARD_OPENING_FUND);
-            shift.setExpectedCash(BigDecimal.ZERO);
-            shift.setStatus(ShiftStatus.PUBLISHED);
-            shift.setApprovedBy(user.getId());
-            shift = shiftRepository.save(shift);
+        List<ShiftAssignmentModel> overlapping = assignmentRepository.findPublishedAssignmentsOverlapping(
+                user.getId(),
+                now.minusMinutes(30),
+                now.plusMinutes(30),
+                ShiftStatus.PUBLISHED);
+        if (!overlapping.isEmpty()) {
+            return overlapping.get(0);
         }
-        Optional<ShiftAssignmentModel> existing =
-                assignmentRepository.findFirstByShiftIdAndStaffIdOrderByIdDesc(shift.getId(), user.getId());
-        if (existing.isPresent()) {
-            return existing.get();
-        }
+
+        LocalDateTime start = now.minusMinutes(15);
+        LocalDateTime end = start.plusHours(6);
+
+        ShiftModel shift = new ShiftModel();
+        shift.setBranchId(user.getBranchId());
+        shift.setCreatedBy(user.getId());
+        shift.setStartTime(start);
+        shift.setEndTime(end);
+        shift.setOpeningCash(STANDARD_OPENING_FUND);
+        shift.setExpectedCash(BigDecimal.ZERO);
+        shift.setStatus(ShiftStatus.PUBLISHED);
+        shift.setApprovedBy(user.getId());
+        shift = shiftRepository.save(shift);
+
         ShiftAssignmentModel assignment = new ShiftAssignmentModel();
         assignment.setShift(shift);
         assignment.setStaff(user);
-        assignment.setAssignedRole(UserRole.CASHIER);
+        assignment.setAssignedRole(
+                user.getRole() == UserRole.INVENTORY_STAFF ? UserRole.INVENTORY_STAFF : UserRole.CASHIER);
+        assignment.setCheckInAt(now);
         return assignmentRepository.save(assignment);
     }
 

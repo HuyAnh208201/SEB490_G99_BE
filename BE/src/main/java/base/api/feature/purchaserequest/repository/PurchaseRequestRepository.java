@@ -24,6 +24,12 @@ public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest
 
     List<PurchaseRequestModel> findByBranchIdAndStatusIn(Long branchId, Collection<PurchaseRequestStatus> statuses);
 
+    long countByStatus(PurchaseRequestStatus status);
+
+    long countByBranchIdAndStatusIn(Long branchId, Collection<PurchaseRequestStatus> statuses);
+
+    long countByStatusIn(Collection<PurchaseRequestStatus> statuses);
+
     @Query("""
             SELECT DISTINCT pr.branchId FROM PurchaseRequestModel pr
             WHERE pr.branchId IS NOT NULL AND pr.status IN :statuses

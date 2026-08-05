@@ -1,9 +1,12 @@
 package base.api.feature.warehouse.controller;
 
+import base.api.feature.warehouse.dto.response.WarehouseDashboardResponse;
+import base.api.feature.warehouse.service.IWarehouseDashboardService;
 import base.api.shared.base.StubModuleController;
 import base.api.shared.dto.TFUResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,11 +21,14 @@ import java.util.Map;
 @Tag(name = "Warehouse", description = "Quản lý kho tổng")
 public class WarehouseController extends StubModuleController {
 
+    @Autowired
+    private IWarehouseDashboardService warehouseDashboardService;
+
     @Operation(summary = "Warehouse Dashboard")
     @PreAuthorize("@permissionChecker.has('WAREHOUSE_DASHBOARD')")
     @GetMapping("dashboard")
-    public ResponseEntity<TFUResponse<Map<String, String>>> dashboard() {
-        return stub("warehouse", "Warehouse Dashboard");
+    public ResponseEntity<TFUResponse<WarehouseDashboardResponse>> dashboard() {
+        return success(warehouseDashboardService.getDashboard());
     }
 
     @Operation(summary = "View Central Inventory")

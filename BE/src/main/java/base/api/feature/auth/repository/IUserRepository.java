@@ -118,6 +118,51 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
             @Param("excludeUserId") Long excludeUserId
     );
 
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE LOWER(u.status) = LOWER(:status) AND u.roleEntity.name <> 'CUSTOMER'
+            """)
+    long countWebUsersByStatus(@Param("status") String status);
+
+    @Query("""
+            SELECT u.roleEntity.name, COUNT(u) FROM UserModel u
+            WHERE u.roleEntity.name <> 'CUSTOMER'
+            GROUP BY u.roleEntity.name
+            ORDER BY u.roleEntity.name
+            """)
+    List<Object[]> countGroupedByRoleExcludingCustomer();
+
+    @Query("""
+            SELECT u FROM UserModel u
+            WHERE u.branchId IS NULL
+              AND u.roleEntity.name IN :roleNames
+            ORDER BY u.fullName ASC
+            """)
+    List<UserModel> findMissingBranch(@Param("roleNames") Collection<String> roleNames);
+
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE u.branchId = :branchId AND u.roleEntity.name <> 'CUSTOMER'
+            """)
+    long countStaffByBranchId(@Param("branchId") Long branchId);
+
+    @Query("""
+            SELECT COUNT(u) FROM UserModel u
+            WHERE u.branchId = :branchId
+              AND u.roleEntity.name = 'BRANCH_MANAGER'
+              AND LOWER(u.status) = 'active'
+            """)
+    long countActiveBranchManagers(@Param("branchId") Long branchId);
+
+    @Query("""
+            SELECT u FROM UserModel u
+            WHERE u.branchId = :branchId
+              AND u.roleEntity.name = 'BRANCH_MANAGER'
+              AND LOWER(u.status) = 'active'
+            ORDER BY u.fullName ASC
+            """)
+    List<UserModel> findActiveBranchManagers(@Param("branchId") Long branchId);
+
     /**
      * Trừ điểm atomic — chỉ thành công nếu user còn đủ điểm.
      * Trả về số row được update (0 = không đủ điểm).

@@ -14,4 +14,6 @@ public interface OrderRefundRepository extends JpaRepository<OrderRefundModel, L
 
     /** Chặn xin refund trùng khi đơn đã có yêu cầu PENDING hoặc đã APPROVED. */
     boolean existsByOrderIdAndStatusIn(Long orderId, Collection<String> statuses);
+
+    long countByBranchIdAndStatus(Long branchId, String status);
 }

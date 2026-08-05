@@ -37,8 +37,7 @@ public final class WebRolePermissions {
                 WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
-                WebPermission.VIEW_BRANCH_INVENTORY,
-                WebPermission.REPORTS_VIEW
+                WebPermission.VIEW_BRANCH_INVENTORY
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(
@@ -99,7 +98,8 @@ public final class WebRolePermissions {
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.RECEIVE_SHIPMENT,
                 WebPermission.INVENTORY_COUNT,
-                WebPermission.CASHIER_CLOSE_SHIFT
+                WebPermission.CASHIER_CLOSE_SHIFT,
+                WebPermission.MY_SHIFTS
         ));
 
         map.put(UserRole.CASHIER, EnumSet.of(
