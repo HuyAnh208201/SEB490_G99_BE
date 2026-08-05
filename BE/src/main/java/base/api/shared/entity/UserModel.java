@@ -64,6 +64,10 @@ public class UserModel extends BaseModel {
         @Column(name = "points", nullable = false)
         private Long points = 0L;
 
+        /** Shared with customer app — membership_tiers.id. */
+        @Column(name = "membership_tier_id")
+        private Long membershipTierId;
+
         public String getUserName() {
                 return email;
         }
@@ -102,7 +106,7 @@ public class UserModel extends BaseModel {
         }
 
         public boolean isVerified() {
-                return true;
+                return isVerified;
         }
 
         public void setVerified(boolean verified) {
