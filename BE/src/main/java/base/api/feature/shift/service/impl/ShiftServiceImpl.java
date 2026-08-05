@@ -878,8 +878,9 @@ public class ShiftServiceImpl implements IShiftService {
     @Override
     public List<ShiftResponse> getMyShifts() {
         UserModel user = currentUserProvider.getCurrentUserOrThrow();
-        if (user.getRole() != UserRole.CASHIER) {
-            throw new BusinessException("Only cashiers can view assigned shifts.");
+        UserRole role = user.getRole() == null ? null : user.getRole().toWebRole();
+        if (role != UserRole.CASHIER && role != UserRole.INVENTORY_STAFF) {
+            throw new BusinessException("Only cashiers and inventory staff can view assigned shifts.");
         }
         LocalDateTime from = LocalDate.now().minusDays(7).atStartOfDay();
         LocalDateTime to = LocalDate.now().plusDays(14).atStartOfDay();
@@ -899,8 +900,9 @@ public class ShiftServiceImpl implements IShiftService {
     @Transactional
     public ShiftResponse checkIn(Long shiftId) {
         UserModel user = currentUserProvider.getCurrentUserOrThrow();
-        if (user.getRole() != UserRole.CASHIER) {
-            throw new BusinessException("Only cashiers can check in to a shift.");
+        UserRole role = user.getRole() == null ? null : user.getRole().toWebRole();
+        if (role != UserRole.CASHIER && role != UserRole.INVENTORY_STAFF) {
+            throw new BusinessException("Only cashiers and inventory staff can check in to a shift.");
         }
         ShiftModel shift = findShiftOrThrow(shiftId);
         if (shift.getStatus() != ShiftStatus.PUBLISHED) {
