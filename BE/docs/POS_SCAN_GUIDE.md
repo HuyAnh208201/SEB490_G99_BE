@@ -60,7 +60,7 @@ URL in ra trong log. Lưu ý:
 
 ### Demo bypass (recommended for local demos)
 
-Seeded automatically on BE startup (`DemoAccountsSeeder`). Password: `123456`
+Demo accounts live on the shared remote DB. Re-seed only when `app.startup.bootstrap-enabled=true` (`DemoAccountsSeeder`). Password: `123456`
 
 | Email | Role | Notes |
 |---|---|---|

@@ -24,4 +24,10 @@ public class CustomerLookupResponse {
 
     /** Tổng điểm tích lũy hiện tại. */
     private long totalPoints;
+
+    /** Membership tier code (e.g. SILVER), null if unset. */
+    private String tierCode;
+
+    /** Membership tier display name, null if unset. */
+    private String tierName;
 }
