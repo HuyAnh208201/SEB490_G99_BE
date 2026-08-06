@@ -32,6 +32,7 @@ import base.api.shared.util.Ean13BarcodeGenerator;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -169,43 +170,44 @@ public class ProductServiceImpl implements IProductService {
 
     @Override
     public List<ProductResponse> getAll() {
+        // Soft cap: legacy callers must not pull the entire catalog over the shared DB.
+        PageRequestDTO capped = new PageRequestDTO();
+        capped.setPage(1);
+        capped.setSize(PageRequestDTO.MAX_PAGE_SIZE);
+        return getPage(capped, null, null, null, false).getContent();
+    }
+
+    @Override
+    public long countVisible() {
         VisibilityContext visibility = resolveVisibility();
-        List<ProductModel> products = productRepository.findVisibleProducts(
-                visibility.supervisor(),
-                visibility.branchId());
-
-        Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
-        Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
-        Map<Integer, WarehouseInventoryModel> warehouseStock = loadWarehouseStockMap();
-        Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
-                products.stream().map(ProductModel::getId).toList());
-
-        return products.stream()
-                .map(product -> {
-                    ProductResponse response = enrichList(
-                            productMapper.toListResponse(product),
-                            branchStock,
-                            branchReorder,
-                            warehouseStock,
-                            visibility);
-                    ProductPackagingModel top = topPackagings.getOrDefault(
-                            product.getId(), productPackagingService.getTopPackaging(product));
-                    applyTopPackaging(response, top);
-                    return response;
-                })
-                .toList();
+        return productRepository.countVisibleProducts(visibility.supervisor(), visibility.branchId());
     }
 
     @Override
     public List<PosCatalogItemResponse> getPosCatalog() {
+        PageRequestDTO capped = new PageRequestDTO();
+        capped.setPage(1);
+        capped.setSize(PageRequestDTO.MAX_PAGE_SIZE);
+        return getPosCatalogPage(capped, null).getContent();
+    }
+
+    @Override
+    public Page<PosCatalogItemResponse> getPosCatalogPage(PageRequestDTO pageRequest, Integer categoryId) {
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
         VisibilityContext visibility = resolveVisibility();
-        List<ProductModel> products = productRepository.findVisibleActiveProducts(
+        Pageable pageable = query.toPageable(
+                "code",
+                Sort.Direction.ASC,
+                Set.of("id", "code", "name"));
+        Page<ProductModel> products = productRepository.findVisibleActiveProducts(
                 visibility.supervisor(),
-                visibility.branchId());
+                visibility.branchId(),
+                categoryId,
+                query.normalizedSearch(),
+                pageable);
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
 
-        List<PosCatalogItemResponse> rows = new ArrayList<>(products.size());
-        for (ProductModel product : products) {
+        return products.map(product -> {
             PosCatalogItemResponse item = new PosCatalogItemResponse();
             item.setId(product.getId());
             item.setCode(product.getCode());
@@ -219,9 +221,8 @@ public class ProductServiceImpl implements IProductService {
                 item.setCategoryId(product.getCategory().getId());
                 item.setCategoryName(product.getCategory().getName());
             }
-            rows.add(item);
-        }
-        return rows;
+            return item;
+        });
     }
 
     @Override
@@ -290,6 +291,8 @@ public class ProductServiceImpl implements IProductService {
         Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
         Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
                 products.getContent().stream().map(ProductModel::getId).toList());
+        Map<Long, String> branchNames = loadBranchNameMap(
+                products.getContent().stream().map(ProductModel::getBranchId).toList());
 
         return products.map(product -> {
             ProductResponse response = enrichList(
@@ -297,7 +300,8 @@ public class ProductServiceImpl implements IProductService {
                     branchStock,
                     branchReorder,
                     warehouseStock,
-                    visibility);
+                    visibility,
+                    branchNames);
             ProductPackagingModel top = topPackagings.getOrDefault(
                     product.getId(), productPackagingService.getTopPackaging(product));
             applyTopPackaging(response, top);
@@ -346,7 +350,24 @@ public class ProductServiceImpl implements IProductService {
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
         Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
         Map<Integer, WarehouseInventoryModel> warehouseStock = loadWarehouseStockMap();
-        return enrichList(response, branchStock, branchReorder, warehouseStock, visibility);
+        Map<Long, String> branchNames = loadBranchNameMap(
+                response.getBranchId() == null ? List.of() : List.of(response.getBranchId()));
+        return enrichList(response, branchStock, branchReorder, warehouseStock, visibility, branchNames);
+    }
+
+    private Map<Long, String> loadBranchNameMap(List<Long> branchIds) {
+        if (branchIds == null || branchIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> distinct = branchIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> names = new HashMap<>();
+        for (BranchModel branch : branchRepository.findAllById(distinct)) {
+            names.put(branch.getId(), branch.getName());
+        }
+        return names;
     }
 
     private ProductResponse enrichList(
@@ -354,12 +375,14 @@ public class ProductServiceImpl implements IProductService {
             Map<Integer, Integer> branchStock,
             Map<Integer, Integer> branchReorder,
             Map<Integer, WarehouseInventoryModel> warehouseStock,
-            VisibilityContext visibility) {
+            VisibilityContext visibility,
+            Map<Long, String> branchNames) {
 
         if (response.getBranchId() != null) {
-            branchRepository.findById(response.getBranchId())
-                    .map(BranchModel::getName)
-                    .ifPresent(response::setBranchName);
+            String name = branchNames != null ? branchNames.get(response.getBranchId()) : null;
+            if (name != null) {
+                response.setBranchName(name);
+            }
         }
 
         if (visibility.branchId() != null) {

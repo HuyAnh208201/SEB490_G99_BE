@@ -60,6 +60,21 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
                 OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
                 OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
                 OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+            AND (:categoryId IS NULL OR p.category.id = :categoryId)
+            """)
+    Page<ProductModel> searchActiveProductsFiltered(
+            @Param("keyword") String keyword,
+            @Param("categoryId") Integer categoryId,
+            Pageable pageable);
+
+    @EntityGraph(attributePaths = "category")
+    @Query("""
+            SELECT p FROM ProductModel p
+            WHERE LOWER(p.status) = 'active'
+            AND (:keyword IS NULL OR :keyword = ''
+                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
             """)
     Page<ProductModel> searchActiveProducts(@Param("keyword") String keyword, Pageable pageable);
 
@@ -98,6 +113,38 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
             ORDER BY p.code ASC
             """)
     List<ProductModel> findVisibleActiveProducts(
+            @Param("supervisor") boolean supervisor,
+            @Param("branchId") Long branchId);
+
+    @EntityGraph(attributePaths = "category")
+    @Query("""
+            SELECT p FROM ProductModel p
+            WHERE LOWER(p.status) = 'active'
+              AND (
+                    :supervisor = true
+                 OR p.scope = 'GLOBAL'
+                 OR (:branchId IS NOT NULL AND p.branchId = :branchId)
+              )
+              AND (:categoryId IS NULL OR p.category.id = :categoryId)
+              AND (:keyword IS NULL OR :keyword = ''
+                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+            """)
+    Page<ProductModel> findVisibleActiveProducts(
+            @Param("supervisor") boolean supervisor,
+            @Param("branchId") Long branchId,
+            @Param("categoryId") Integer categoryId,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
+    @Query("""
+            SELECT COUNT(p) FROM ProductModel p
+            WHERE :supervisor = true
+               OR p.scope = 'GLOBAL'
+               OR (:branchId IS NOT NULL AND p.branchId = :branchId)
+            """)
+    long countVisibleProducts(
             @Param("supervisor") boolean supervisor,
             @Param("branchId") Long branchId);
 
