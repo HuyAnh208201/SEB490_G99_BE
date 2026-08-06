@@ -21,4 +21,15 @@ public class AsyncConfig {
         exec.initialize();
         return exec;
     }
+
+    @Bean("catalogImportExecutor")
+    public Executor catalogImportExecutor() {
+        ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
+        exec.setCorePoolSize(1);
+        exec.setMaxPoolSize(1);
+        exec.setQueueCapacity(2);
+        exec.setThreadNamePrefix("catalog-import-");
+        exec.initialize();
+        return exec;
+    }
 }
