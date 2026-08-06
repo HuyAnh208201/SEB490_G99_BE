@@ -313,13 +313,17 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             Boolean lowStockOnly,
             String stockSort
     ) {
-        List<ProductModel> products = productRepository.searchActiveProductsFiltered(
-                normalizeNullableText(keyword), categoryId);
-        if (products.isEmpty()) {
-            Pageable pageable = productSearchPage(pageRequest);
+        Pageable pageable = productSearchPage(pageRequest);
+        // When sorting/filtering by stock we still need the page of products from DB first
+        // (not the entire catalog). lowStockOnly then filters within that page — just enough
+        // to avoid 500s under shared-DB load.
+        Page<ProductModel> productPage = productRepository.searchActiveProductsFiltered(
+                normalizeNullableText(keyword), categoryId, pageable);
+        if (productPage.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, 0);
         }
 
+        List<ProductModel> products = productPage.getContent();
         Set<Integer> productIds = products.stream()
                 .map(ProductModel::getId)
                 .collect(Collectors.toSet());
@@ -366,13 +370,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                     Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         }
 
-        Pageable pageable = productSearchPage(pageRequest);
-        int start = (int) pageable.getOffset();
-        if (start >= enriched.size()) {
-            return new PageImpl<>(List.of(), pageable, enriched.size());
-        }
-        int end = Math.min(start + pageable.getPageSize(), enriched.size());
-        return new PageImpl<>(enriched.subList(start, end), pageable, enriched.size());
+        return new PageImpl<>(enriched, pageable, productPage.getTotalElements());
     }
 
     @Override

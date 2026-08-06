@@ -24,25 +24,23 @@ import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.Locale;
-import java.util.Set;
 
 @Service
 public class InventoryCountServiceImpl implements IInventoryCountService {
@@ -75,9 +73,18 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
 
     @Override
     public InventoryCountSheetResponse getCountSheet() {
+        PageRequestDTO capped = new PageRequestDTO();
+        capped.setPage(1);
+        capped.setSize(PageRequestDTO.MAX_PAGE_SIZE);
+        return getCountSheet(capped, null);
+    }
+
+    @Override
+    public InventoryCountSheetResponse getCountSheet(PageRequestDTO pageRequest, Integer categoryId) {
         UserModel staff = currentUserProvider.getCurrentUserOrThrow();
         Long branchId = requireBranch(staff);
         BranchModel branch = branchRepository.findById(branchId).orElse(null);
+        PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
 
         Map<Integer, Integer> stockByProduct = branchInventoryRepository.findByBranchId(branchId).stream()
                 .collect(Collectors.toMap(
@@ -85,8 +92,15 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
                         inv -> safe(inv.getCurrentStock()),
                         (a, b) -> a));
 
+        Page<ProductModel> productPage = productRepository.findVisibleActiveProducts(
+                false,
+                branchId,
+                categoryId,
+                query.normalizedSearch(),
+                query.toPageable("code", Sort.Direction.ASC, Set.of("id", "code", "name")));
+
         List<InventoryCountProductResponse> products = new ArrayList<>();
-        for (ProductModel product : productRepository.findVisibleActiveProducts(false, branchId)) {
+        for (ProductModel product : productPage.getContent()) {
             InventoryCountProductResponse row = new InventoryCountProductResponse();
             row.setProductId(product.getId());
             row.setProductCode(product.getCode());
@@ -96,9 +110,6 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
             row.setSystemQty(stockByProduct.getOrDefault(product.getId(), 0));
             products.add(row);
         }
-        products.sort(Comparator.comparing(
-                InventoryCountProductResponse::getProductCode,
-                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
 
         InventoryCountSheetResponse response = new InventoryCountSheetResponse();
         response.setSessionCode(nextSessionCode());
@@ -106,6 +117,9 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         response.setBranchId(branchId);
         response.setBranchName(branch == null ? null : branch.getName());
         response.setProducts(products);
+        response.setPage(productPage.getNumber() + 1);
+        response.setTotalPages(productPage.getTotalPages());
+        response.setTotalElements(productPage.getTotalElements());
         return response;
     }
 

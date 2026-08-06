@@ -34,11 +34,13 @@ public class InventoryCountController extends BaseAPIController {
     @Autowired
     private IInventoryCountService inventoryCountService;
 
-    @Operation(summary = "Count sheet: products with system quantity for the staff's branch")
+    @Operation(summary = "Count sheet: paged products with system quantity for the staff's branch")
     @PreAuthorize("@permissionChecker.has('INVENTORY_COUNT')")
     @GetMapping("/sheet")
-    public ResponseEntity<TFUResponse<InventoryCountSheetResponse>> getCountSheet() {
-        return success(inventoryCountService.getCountSheet());
+    public ResponseEntity<TFUResponse<InventoryCountSheetResponse>> getCountSheet(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) Integer categoryId) {
+        return success(inventoryCountService.getCountSheet(pageRequest, categoryId));
     }
 
     @Operation(summary = "Submit an inventory count session")
