@@ -58,23 +58,19 @@ URL in ra trong log. Lưu ý:
 
 ## 2. Tài khoản demo
 
-### Demo bypass (recommended for local demos)
+### Canonical demos (kept on shared DB)
 
-Demo accounts live on the shared remote DB. Re-seed only when `app.startup.bootstrap-enabled=true` (`DemoAccountsSeeder`). Password: `123456`
+Staff demos are ensured on every web BE boot by `DemoAccountsSeeder` (runs even when `app.startup.bootstrap-enabled=false`). Any other user whose email contains `demo` is soft-locked (`status = locked`).
 
-| Email | Role | Notes |
-|---|---|---|
-| `demo_cashier@chainstore.vn` | CASHIER (branch 1) | Can open POS shift **without** BM published assignment |
-| `demo_is@chainstore.vn` | INVENTORY_STAFF (branch 1) | Inventory staff demos; no shift-session gate |
+| Email | Password | Role | Notes |
+|---|---|---|---|
+| `demo_cashier@chainstore.vn` | `123456` | CASHIER (branch 1) | Can open POS shift **without** BM published assignment |
+| `demo_is@chainstore.vn` | `123456` | INVENTORY_STAFF (branch 1) | Can run inventory count during store hours (07–22) |
+| `demo.customer.silver@chainstore.vn` | `Demo@1234` | CUSTOMER | Mobile app — Silver (points 0) |
+| `demo.customer.gold@chainstore.vn` | `Demo@1234` | CUSTOMER | Mobile app — Gold (points 2500) |
+| `demo.customer.platinum@chainstore.vn` | `Demo@1234` | CUSTOMER | Mobile app — Platinum (points 5500) |
 
-### Legacy POS demo accounts
-
-Mật khẩu chung: `Demo@1234`
-
-| Email | Role | Dùng để |
-|---|---|---|
-| `pos_demo_cashier@chainstore.vn` | CASHIER (chi nhánh 1) | Bán hàng, quét mã, tích điểm |
-| `pos_demo_bm@chainstore.vn` | BRANCH_MANAGER (chi nhánh 1) | Tạo sản phẩm, sinh barcode |
+Customer demos are seeded by CSCSMS `DemoCustomerSeeder` (phone `0912345678` / `79` / `80`).
 
 Ô đăng nhập ghi "username" nhưng **phải nhập email** — `UserModel.getUserName()` trả về email, bảng `users` không có cột username.
 
@@ -188,9 +184,9 @@ Chỉ tài khoản role **CUSTOMER** mới tích điểm được. Nhập SĐT c
 | `8936221630004` | Nước Nha Đam (id 115) | EAN-13 hợp lệ, tồn 50 — quét camera được |
 | `893000000001` … `007` | Lavie, Coca, Hảo Hảo… | Sai check digit — **chỉ gõ tay** |
 
-Khách để test tích điểm: SĐT `0911111111` (`customer01@gmail.com`).
+Khách để test tích điểm: SĐT `0911111111` (`customer01@gmail.com`), hoặc demo Silver `0912345678`.
 
-**Dữ liệu demo đã thêm vào DB dùng chung — nhớ dọn khi xong:** 2 tài khoản `pos_demo_*`, sản phẩm id 114 và tồn kho của nó, tồn 50 của sản phẩm 115, và 15 điểm đã cộng cho `customer01`.
+**Canonical demos only** — legacy `pos_demo_*` / `demo.customer@…` are soft-locked on boot. Demo product barcodes above remain for scan testing.
 
 ---
 
