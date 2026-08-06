@@ -16,8 +16,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
- * Ensures two demo staff accounts exist for local/demo use.
+ * Ensures the two demo staff accounts exist for local/demo use, then soft-locks
+ * every other user whose email contains {@code demo}.
  * Password is always reset to {@link DemoAccounts#DEMO_PASSWORD} on startup so demos stay predictable.
  * Runs even when full startup bootstrap is off — demos must stay usable against the shared DB.
  */
@@ -42,7 +45,12 @@ public class DemoAccountsSeeder implements ApplicationRunner {
         try {
             ensure(DemoAccounts.DEMO_CASHIER_EMAIL, "Demo Cashier", UserRole.CASHIER);
             ensure(DemoAccounts.DEMO_IS_EMAIL, "Demo Inventory Staff", UserRole.INVENTORY_STAFF);
-            log.info("Demo accounts ensured (password {}).", DemoAccounts.DEMO_PASSWORD);
+            softLockNonWhitelistedDemoUsers();
+            softLockLegacyByEmail(DemoAccounts.LEGACY_POS_DEMO_CASHIER);
+            softLockLegacyByEmail(DemoAccounts.LEGACY_POS_DEMO_BM);
+            softLockLegacyByEmail(DemoAccounts.LEGACY_DEMO_CUSTOMER);
+            log.info("Demo accounts ensured (password {}). Non-whitelist *demo* users soft-locked.",
+                    DemoAccounts.DEMO_PASSWORD);
         } catch (Exception ex) {
             log.warn("Demo account seed skipped: {}", ex.getMessage());
         }
@@ -61,5 +69,34 @@ public class DemoAccountsSeeder implements ApplicationRunner {
         user.setBranchId(DemoAccounts.DEMO_BRANCH_ID);
         user.setActive(true);
         userRepository.save(user);
+    }
+
+    private void softLockNonWhitelistedDemoUsers() {
+        List<UserModel> candidates = userRepository.findByUserNameContaining("demo");
+        int locked = 0;
+        for (UserModel user : candidates) {
+            if (DemoAccounts.isWhitelistedDemoEmail(user.getEmail())) {
+                continue;
+            }
+            if (user.isActive()) {
+                user.setActive(false);
+                userRepository.save(user);
+                locked++;
+                log.info("Soft-locked non-whitelist demo user: {}", user.getEmail());
+            }
+        }
+        if (locked > 0) {
+            log.info("Soft-locked {} non-whitelist demo user(s).", locked);
+        }
+    }
+
+    private void softLockLegacyByEmail(String email) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            if (user.isActive()) {
+                user.setActive(false);
+                userRepository.save(user);
+                log.info("Soft-locked legacy demo user: {}", email);
+            }
+        });
     }
 }

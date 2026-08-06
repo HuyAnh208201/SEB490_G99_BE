@@ -122,7 +122,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         if (active.isPresent()) {
             ShiftSessionModel session = active.get();
             // Demo: abandon stuck close flow so cashier can open a fresh POS shift anytime.
-            if (DemoAccounts.isDemoBypassEmail(user.getEmail())
+            if (DemoAccounts.isDemoCashierBypassEmail(user.getEmail())
                     && (session.getStatus() == ShiftSessionStatus.CLOSING
                             || session.getStatus() == ShiftSessionStatus.PENDING_HANDOVER)) {
                 session.setStatus(ShiftSessionStatus.COMPLETED);
@@ -524,7 +524,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     }
 
     private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId, UserModel actor) {
-        if (actor != null && DemoAccounts.isDemoBypassEmail(actor.getEmail())) {
+        if (actor != null && DemoAccounts.isDemoCashierBypassEmail(actor.getEmail())) {
             return;
         }
         sessionRepository
@@ -542,7 +542,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
 
     private Optional<ShiftAssignmentModel> resolveCurrentAssignment(UserModel user) {
         // Demo cashiers/IS: always ensure a published slot covering "now" (bypass BM schedule).
-        if (DemoAccounts.isDemoBypassEmail(user.getEmail())) {
+        if (DemoAccounts.isDemoCashierBypassEmail(user.getEmail())) {
             return Optional.of(ensureDemoAssignment(user));
         }
 
