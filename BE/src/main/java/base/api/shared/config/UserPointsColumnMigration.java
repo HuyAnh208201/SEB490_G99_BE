@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
  * Chạy an toàn nhiều lần (idempotent).
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(1)
 public class UserPointsColumnMigration {
 

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * The migration is idempotent because production disables Hibernate DDL.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(2)
 public class ShiftPerformanceIndexMigration {
 

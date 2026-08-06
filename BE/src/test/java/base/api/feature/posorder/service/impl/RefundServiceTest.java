@@ -14,6 +14,7 @@ import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
+import base.api.shared.exception.NotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -74,6 +75,88 @@ class RefundServiceTest {
 
         assertTrue(error.getMessage().contains("5-minute refund window"));
         verify(orderRefundRepository, never()).save(any());
+    }
+
+    @Test
+    void requestRefundWithBlankReasonIsRejected() {
+        asCashier();
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.requestRefund(ORDER_ID, "   "));
+
+        assertTrue(error.getMessage().toLowerCase().contains("reason"));
+        verify(orderRepository, never()).findById(any());
+    }
+
+    @Test
+    void requestRefundRejectsWhenCreatedAtIsNull() {
+        asCashier();
+        OrderModel order = completedOrder();
+        order.setCreatedAt(null);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.requestRefund(ORDER_ID, "Wrong item"));
+
+        assertTrue(error.getMessage().contains("5-minute refund window"));
+    }
+
+    @Test
+    void requestRefundSucceedsWithinWindow() {
+        asCashier();
+        OrderModel order = completedOrder();
+        order.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderRefundRepository.existsByOrderIdAndStatusIn(eq(ORDER_ID), any())).thenReturn(false);
+        when(orderRefundRepository.save(any())).thenAnswer(call -> {
+            OrderRefundModel refund = call.getArgument(0);
+            refund.setId(REFUND_ID);
+            return refund;
+        });
+
+        RefundResponse response = service.requestRefund(ORDER_ID, "Wrong item scanned");
+
+        assertEquals("PENDING", response.getStatus());
+        assertEquals(REFUND_ID, response.getRefundId());
+        verify(orderRefundRepository).save(any());
+    }
+
+    @Test
+    void requestRefundRejectsOrderFromAnotherBranch() {
+        asCashier();
+        OrderModel order = completedOrder();
+        order.setBranchId(99L);
+        order.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.requestRefund(ORDER_ID, "Wrong item"));
+
+        assertTrue(error.getMessage().contains("another branch"));
+        verify(orderRefundRepository, never()).save(any());
+    }
+
+    @Test
+    void requestRefundRejectsNonCompletedOrder() {
+        asCashier();
+        OrderModel order = completedOrder();
+        order.setStatus("PENDING_PAYMENT");
+        order.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.requestRefund(ORDER_ID, "Changed mind"));
+
+        assertTrue(error.getMessage().toLowerCase().contains("completed"));
+        verify(orderRefundRepository, never()).save(any());
+    }
+
+    @Test
+    void requestRefundRejectsUnknownOrder() {
+        asCashier();
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () -> service.requestRefund(ORDER_ID, "Wrong item"));
     }
 
     // =========================================================================
@@ -159,6 +242,40 @@ class RefundServiceTest {
         assertEquals("COMPLETED", order.getStatus());
         verify(orderRepository, never()).save(any());
         verify(branchInventoryRepository, never()).addStock(anyLong(), anyInt(), anyInt());
+    }
+
+    @Test
+    void approveRefundWithoutCustomerSkipsPointReversal() {
+        asManager();
+        OrderRefundModel refund = pendingRefund();
+        when(orderRefundRepository.findById(REFUND_ID)).thenReturn(Optional.of(refund));
+
+        OrderModel order = completedOrder();
+        order.setCustomerId(null);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderIdIn(List.of(ORDER_ID))).thenReturn(List.of());
+        when(orderRefundRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(orderRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        RefundResponse response = service.approveRefund(REFUND_ID, "OK");
+
+        assertEquals("APPROVED", response.getStatus());
+        assertEquals("REFUNDED", order.getStatus());
+        verify(userRepository, never()).deductPointsAtomic(anyLong(), anyLong());
+        verify(userRepository, never()).refundPointsAtomic(anyLong(), anyLong());
+    }
+
+    @Test
+    void approveRefundRejectsCrossBranchManager() {
+        asManager();
+        OrderRefundModel refund = pendingRefund();
+        refund.setBranchId(99L);
+        when(orderRefundRepository.findById(REFUND_ID)).thenReturn(Optional.of(refund));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.approveRefund(REFUND_ID, "note"));
+
+        assertTrue(error.getMessage().contains("own branch"));
     }
 
     // =========================================================================

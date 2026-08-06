@@ -25,6 +25,7 @@ import java.util.Map;
  * only as a compatibility fallback for products without packaging rows.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(3)
 public class ProductPackagingMigration {
 

@@ -47,10 +47,16 @@ public class ProductController extends BaseAPIController {
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
-    @Operation(summary = "Get all products")
+    @Operation(summary = "Get products (soft-capped; prefer /page)")
     @GetMapping
     public ResponseEntity<TFUResponse<List<ProductResponse>>> getAll() {
         return success(productService.getAll());
+    }
+
+    @Operation(summary = "Count visible products for the current user")
+    @GetMapping("/count")
+    public ResponseEntity<TFUResponse<Long>> count() {
+        return success(productService.countVisible());
     }
 
     @Operation(summary = "Search, filter and paginate products")

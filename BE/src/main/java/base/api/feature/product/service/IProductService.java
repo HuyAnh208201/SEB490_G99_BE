@@ -19,9 +19,18 @@ public interface IProductService {
 
     ProductResponse getById(Integer id);
 
+    /**
+     * Soft-capped list (max {@link PageRequestDTO#MAX_PAGE_SIZE}) for legacy callers.
+     * Prefer {@link #getPage} or {@link #countVisible}.
+     */
     List<ProductResponse> getAll();
 
+    long countVisible();
+
+    /** Soft-capped POS catalog (legacy). Prefer {@link #getPosCatalogPage}. */
     List<PosCatalogItemResponse> getPosCatalog();
+
+    Page<PosCatalogItemResponse> getPosCatalogPage(PageRequestDTO pageRequest, Integer categoryId);
 
     Page<ProductResponse> getPage(
             PageRequestDTO pageRequest,

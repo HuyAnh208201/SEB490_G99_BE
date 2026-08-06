@@ -18,4 +18,8 @@ public class InventoryCountSheetResponse {
     private Long branchId;
     private String branchName;
     private List<InventoryCountProductResponse> products = new ArrayList<>();
+    /** 1-based page when sheet is loaded with pagination. */
+    private Integer page;
+    private Integer totalPages;
+    private Long totalElements;
 }

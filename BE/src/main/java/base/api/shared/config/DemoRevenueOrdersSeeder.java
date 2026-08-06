@@ -38,6 +38,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * Idempotent: skips when {@code DEMO-REV-%} invoice count is already &gt;= TARGET.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(55)
 public class DemoRevenueOrdersSeeder implements ApplicationRunner {
 

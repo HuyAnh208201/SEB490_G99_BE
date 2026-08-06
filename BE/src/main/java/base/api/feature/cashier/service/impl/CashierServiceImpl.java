@@ -9,6 +9,8 @@ import base.api.feature.cashier.dto.response.CustomerLookupResponse;
 import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.report.repository.PointTransactionRepository;
+import base.api.feature.system.repository.MembershipTierRepository;
+import base.api.shared.entity.MembershipTierModel;
 import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
@@ -46,6 +48,9 @@ public class CashierServiceImpl implements ICashierService {
 
     @Autowired
     private PointTransactionRepository pointTransactionRepository;
+
+    @Autowired
+    private MembershipTierRepository membershipTierRepository;
 
     // -------------------------------------------------------------------------
     // Public methods
@@ -162,13 +167,17 @@ public class CashierServiceImpl implements ICashierService {
      * Thử tìm theo email trước, nếu không thấy thì thử theo SĐT.
      */
     private UserModel findCustomerByPhoneOrEmail(String phoneOrEmail) {
-        UserModel customer = userRepository.findByEmail(phoneOrEmail)
-                .orElse(null);
+        String key = phoneOrEmail == null ? "" : phoneOrEmail.trim().replaceAll("\\s+", "");
+        if (key.isEmpty()) {
+            throw new BadRequestException("Phone or email is required.");
+        }
+
+        UserModel customer = userRepository.findByEmail(key).orElse(null);
 
         if (customer == null) {
-            customer = userRepository.findByPhone(phoneOrEmail)
+            customer = userRepository.findByPhone(key)
                     .orElseThrow(() -> new NotFoundException(
-                            "No customer found for: " + phoneOrEmail
+                            "No customer found for: " + key
                     ));
         }
 
@@ -217,12 +226,24 @@ public class CashierServiceImpl implements ICashierService {
 
     /** Chuyển UserModel → CustomerLookupResponse. */
     private CustomerLookupResponse toCustomerLookupResponse(UserModel customer) {
+        String tierCode = null;
+        String tierName = null;
+        Long tierId = customer.getMembershipTierId();
+        if (tierId != null) {
+            MembershipTierModel tier = membershipTierRepository.findById(tierId).orElse(null);
+            if (tier != null) {
+                tierCode = tier.getCode();
+                tierName = tier.getName();
+            }
+        }
         return new CustomerLookupResponse(
                 customer.getId(),
                 customer.getFirstName(),
                 customer.getEmail(),
                 customer.getPhone(),
-                customer.getPoints()
+                customer.getPoints() == null ? 0L : customer.getPoints(),
+                tierCode,
+                tierName
         );
     }
 

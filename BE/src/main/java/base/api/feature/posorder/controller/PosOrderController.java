@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -82,10 +83,18 @@ public class PosOrderController extends BaseAPIController {
         return successPage(posOrderService.getOrderPage(pageRequest, from, to, paymentMethod));
     }
 
-    @Operation(summary = "Lightweight POS catalog (minimal fields + branch stock)")
+    @Operation(summary = "Lightweight POS catalog (paged when search/page params present)")
     @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
     @GetMapping("/catalog")
-    public ResponseEntity<TFUResponse<List<PosCatalogItemResponse>>> getCatalog() {
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public ResponseEntity getCatalog(
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(defaultValue = "false") boolean paged) {
+        if (paged || pageRequest.getSearch() != null || categoryId != null
+                || pageRequest.getPage() > 1 || pageRequest.getSize() != PageRequestDTO.DEFAULT_PAGE_SIZE) {
+            return successPage(productService.getPosCatalogPage(pageRequest, categoryId));
+        }
         return success(productService.getPosCatalog());
     }
 

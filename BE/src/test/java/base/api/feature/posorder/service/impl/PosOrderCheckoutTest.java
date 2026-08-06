@@ -21,6 +21,7 @@ import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
+import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -142,6 +143,42 @@ class PosOrderCheckoutTest {
         // Một lần trừ 5, không phải hai lần trừ 2 và 3 — nếu tách thì mỗi lần đều
         // lọt qua trong khi tổng đã vượt kho.
         verify(branchInventoryRepository).deductStock(BRANCH_ID, 1, 5);
+    }
+
+    @Test
+    void productWithoutSalePriceIsRejected() {
+        ProductModel product = new ProductModel();
+        product.setId(1);
+        product.setName("No Price");
+        product.setDefaultSalePrice(null);
+        when(productRepository.findAllById(any())).thenReturn(List.of(product));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.checkout(cashRequest(1, 1, "100000")));
+
+        assertTrue(error.getMessage().contains("no sale price"));
+        verify(branchInventoryRepository, never()).deductStock(anyLong(), anyInt(), anyInt());
+    }
+
+    @Test
+    void missingProductIsRejected() {
+        when(productRepository.findAllById(any())).thenReturn(List.of());
+
+        NotFoundException error = assertThrows(
+                NotFoundException.class, () -> service.checkout(cashRequest(99, 1, "100000")));
+
+        assertTrue(error.getMessage().toLowerCase().contains("not found"));
+    }
+
+    @Test
+    void exactCashReceivedIsAccepted() {
+        stubProduct(1, "Sữa tươi", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
+
+        OrderResponse response = service.checkout(cashRequest(1, 2, "24000"));
+
+        assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
+        verify(paymentRepository).save(any());
     }
 
     private void stubProduct(int id, String name, String price) {

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
  * khi kho tổng duyệt yêu cầu nhập hàng cần nhiều hơn tồn kho tổng.
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class WarehouseInventoryTableMigration {
 

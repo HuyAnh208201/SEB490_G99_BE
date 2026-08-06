@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  * Tạo bảng nhận hàng lúc khởi động (CREATE TABLE IF NOT EXISTS - an toàn nếu DBA đã tạo sẵn).
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(0)
 public class GoodsReceiptTableMigration {
 

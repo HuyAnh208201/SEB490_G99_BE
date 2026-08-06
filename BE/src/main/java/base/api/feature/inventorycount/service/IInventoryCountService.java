@@ -15,6 +15,8 @@ public interface IInventoryCountService {
 
     InventoryCountSheetResponse getCountSheet();
 
+    InventoryCountSheetResponse getCountSheet(PageRequestDTO pageRequest, Integer categoryId);
+
     InventoryCountSessionResponse submitCount(SubmitInventoryCountRequest request);
 
     List<InventoryCountSessionResponse> getHistory();

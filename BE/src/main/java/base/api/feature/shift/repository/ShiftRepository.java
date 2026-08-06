@@ -1,6 +1,7 @@
 package base.api.feature.shift.repository;
 
 import base.api.shared.entity.ShiftModel;
+import base.api.shared.enums.ShiftStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -43,4 +44,6 @@ public interface ShiftRepository extends JpaRepository<ShiftModel, Long> {
             Long branchId,
             LocalDateTime startTime,
             LocalDateTime endTime);
+
+    long countByBranchIdAndStatus(Long branchId, ShiftStatus status);
 }

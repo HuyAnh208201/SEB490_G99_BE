@@ -22,6 +22,7 @@ import java.util.Map;
  * 12 English CVS categories and remaps products (including JSON ground truth).
  */
 @Component
+@ConditionalOnStartupBootstrap
 @Order(6)
 public class CategoryTaxonomyCleanupMigration {
 

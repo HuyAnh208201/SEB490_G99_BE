@@ -23,4 +23,16 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
               AND COALESCE(w.quantity, 0) < COALESCE(w.reorderPoint, 0)
             """)
     List<WarehouseInventoryModel> findBelowReorderPoint();
+
+    @Query("""
+            SELECT COALESCE(SUM(w.quantity), 0) FROM WarehouseInventoryModel w
+            """)
+    long sumQuantity();
+
+    @Query("""
+            SELECT COUNT(w) FROM WarehouseInventoryModel w
+            WHERE COALESCE(w.reorderPoint, 0) > 0
+              AND COALESCE(w.quantity, 0) <= COALESCE(w.reorderPoint, 0)
+            """)
+    long countLowStock();
 }
