@@ -30,6 +30,9 @@ public class UserDto {
 
     public boolean isActive = true;
 
+    /** Persisted account status: active | locked */
+    public String status;
+
     public String email;
 
 
