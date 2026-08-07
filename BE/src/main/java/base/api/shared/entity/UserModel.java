@@ -2,6 +2,7 @@ package base.api.shared.entity;
 
 import base.api.shared.enums.UserGender;
 import base.api.shared.enums.UserRole;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -35,9 +36,6 @@ public class UserModel extends BaseModel {
 
         @Transient
         public String avatar;
-
-        @Transient
-        public boolean isActive = true;
 
         @Transient
         public boolean isVerified = true;
@@ -97,6 +95,7 @@ public class UserModel extends BaseModel {
                 rebuildFullName();
         }
 
+        @JsonProperty("isActive")
         public boolean isActive() {
                 return "active".equalsIgnoreCase(status);
         }

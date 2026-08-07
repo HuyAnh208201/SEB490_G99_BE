@@ -111,7 +111,7 @@ public class AuthController extends BaseAPIController {
             return badRequest("Không tìm thấy user");
         }
 
-        UserDto userDto = mapper.map(user, UserDto.class);
+        UserDto userDto = toUserDto(user);
 
         return success(userDto);
     }
@@ -133,7 +133,7 @@ public class AuthController extends BaseAPIController {
             @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) String status) {
         Page<UserDto> page = userService.getUserPage(pageRequest, role, branchId, status)
-                .map(user -> mapper.map(user, UserDto.class));
+                .map(this::toUserDto);
         return successPage(page);
     }
 
@@ -291,5 +291,14 @@ public class AuthController extends BaseAPIController {
             userService.deleteUser(id, actor, request.getEmail(), request.getVerificationCode());
         }
         return success("Xóa tài khoản thành công.");
+    }
+
+    private UserDto toUserDto(UserModel user) {
+        UserDto userDto = mapper.map(user, UserDto.class);
+        if (user != null) {
+            userDto.isActive = user.isActive();
+            userDto.status = user.getStatus();
+        }
+        return userDto;
     }
 }
