@@ -10,6 +10,7 @@ import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
 import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchRepository;
 import base.api.feature.promotion.repository.CampaignRepository;
+import base.api.feature.promotion.service.CampaignExpiryService;
 import base.api.feature.promotion.service.ICampaignService;
 import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
 import base.api.shared.entity.CampaignBranchExclusionModel;
@@ -78,6 +79,9 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private CampaignExpiryService campaignExpiryService;
 
     @Override
     @Transactional
@@ -178,34 +182,32 @@ public class CampaignServiceImpl implements ICampaignService {
             throw new BadRequestException("Invalid promotion status flow.");
         }
 
-        LocalDateTime startAt = campaign.getStartAt();
-        LocalDateTime endAt = campaign.getEndAt();
-        if (request != null) {
-            if (request.getStartAt() != null) {
-                startAt = request.getStartAt();
-            }
-            if (request.getEndAt() != null) {
-                endAt = request.getEndAt();
-            }
-        }
-
         LocalDateTime now = LocalDateTime.now();
+        boolean requestProvidesDates = request != null
+                && request.getStartAt() != null
+                && request.getEndAt() != null;
+
+        LocalDateTime startAt = requestProvidesDates ? request.getStartAt() : campaign.getStartAt();
+        LocalDateTime endAt = requestProvidesDates ? request.getEndAt() : campaign.getEndAt();
+
         boolean needsNewDates = startAt == null
                 || startAt.toLocalDate().isBefore(LocalDate.now())
                 || (endAt != null && !endAt.isAfter(now));
 
-        if (needsNewDates) {
-            if (request == null || request.getStartAt() == null || request.getEndAt() == null) {
-                throw new BadRequestException(
-                        "Promotion dates are in the past. Provide a new startAt and endAt to activate.");
-            }
-            startAt = request.getStartAt();
-            endAt = request.getEndAt();
+        if (needsNewDates && !requestProvidesDates) {
+            throw new BadRequestException(
+                    "Promotion dates are in the past. Provide a new startAt and endAt to activate.");
+        }
+
+        if (requestProvidesDates) {
             if (startAt.toLocalDate().isBefore(LocalDate.now())) {
                 throw new BadRequestException("New start date must be today or later.");
             }
             if (!endAt.isAfter(startAt)) {
                 throw new BadRequestException("End date must be after start date.");
+            }
+            if (!endAt.isAfter(now)) {
+                throw new BadRequestException("New end date must be in the future.");
             }
             campaign.setStartAt(startAt);
             campaign.setEndAt(endAt);
@@ -309,6 +311,7 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Override
     public CampaignResponse getCampaign(Long id) {
+        campaignExpiryService.deactivateExpiredCampaigns();
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanViewCampaign(campaign);
         return campaignMapper.toResponse(campaign, getBranchIds(id));
@@ -316,6 +319,7 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Override
     public List<CampaignSummaryResponse> getAllCampaigns() {
+        campaignExpiryService.deactivateExpiredCampaigns();
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         UserRole currentRole = currentUserProvider.getCurrentUserRole();
 
@@ -356,6 +360,7 @@ public class CampaignServiceImpl implements ICampaignService {
             Long branchId,
             String creatorTier
     ) {
+        campaignExpiryService.deactivateExpiredCampaigns();
         PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         UserRole currentRole = currentUserProvider.getCurrentUserRole();

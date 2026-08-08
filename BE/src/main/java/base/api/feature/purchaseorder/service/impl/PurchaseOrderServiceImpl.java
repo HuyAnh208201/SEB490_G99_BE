@@ -16,6 +16,7 @@ import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.feature.supplier.repository.ISupplierRepository;
 import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.PurchaseOrderItemModel;
 import base.api.shared.entity.PurchaseOrderModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
@@ -30,11 +31,11 @@ import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
@@ -46,10 +47,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Locale;
-import java.util.Set;
 
 @Service
 public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
@@ -107,6 +108,7 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
 
         Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(productIds).stream()
                 .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
 
         List<RecommendedPurchaseProductResponse> result = new ArrayList<>();
         for (Integer productId : productIds) {
@@ -124,20 +126,22 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
                 continue;
             }
 
-            int conversion = productPackagingService.topConversionQty(product);
+            ProductPackagingModel top = topPackagings.get(productId);
+            int conversion = productPackagingService.conversionQtyOf(top);
             int requiredTop = toTopUnits(requiredBase, conversion);
             int suggestedTop = toTopUnits(suggestedBase, conversion);
             if (suggestedTop <= 0) {
                 continue;
             }
 
+            String topLabel = top == null ? null : top.displayLabel();
             RecommendedPurchaseProductResponse row = new RecommendedPurchaseProductResponse();
             row.setProductId(productId);
             row.setProductCode(product.getCode());
             row.setProductName(product.getName());
             row.setCategoryName(product.getCategory() == null ? null : product.getCategory().getName());
-            row.setUnit(productPackagingService.topLabel(product));
-            row.setTopPackagingLabel(productPackagingService.topLabel(product));
+            row.setUnit(topLabel);
+            row.setTopPackagingLabel(topLabel);
             row.setCurrentQty(currentBase);
             row.setCurrentQtyBase(currentBase);
             row.setRequiredQty(requiredTop);
@@ -154,10 +158,18 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
 
     @Override
     public List<PurchaseProductOptionResponse> searchProducts(String keyword) {
-        Map<Integer, Integer> stockByProduct = warehouseStockMap();
-        return productRepository
+        List<ProductModel> products = productRepository
                 .searchActiveProducts(normalize(keyword), PageRequest.of(0, SEARCH_LIMIT, Sort.by(Sort.Direction.ASC, "name")))
-                .getContent().stream()
+                .getContent();
+        Set<Integer> productIds = products.stream().map(ProductModel::getId).collect(Collectors.toSet());
+        Map<Integer, Integer> stockByProduct = productIds.isEmpty()
+                ? Map.of()
+                : warehouseInventoryRepository.findByProductIdIn(productIds).stream()
+                        .collect(Collectors.toMap(
+                                WarehouseInventoryModel::getProductId,
+                                inv -> safe(inv.getQuantity()),
+                                (a, b) -> a));
+        return products.stream()
                 .map(product -> {
                     PurchaseProductOptionResponse row = new PurchaseProductOptionResponse();
                     row.setProductId(product.getId());
@@ -229,9 +241,7 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
 
     @Override
     public List<PurchaseOrderResponse> getOrders() {
-        return purchaseOrderRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::buildDetail)
-                .toList();
+        return buildSummaries(purchaseOrderRepository.findAllByOrderByCreatedAtDesc());
     }
 
     @Override
@@ -258,13 +268,16 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
                     supplierIds.isEmpty() ? cb.disjunction() : root.get("supplierId").in(supplierIds)
             ));
         }
-        return purchaseOrderRepository.findAll(
-                        specification,
-                        query.toPageable(
-                                "createdAt",
-                                Sort.Direction.DESC,
-                                Set.of("id", "status", "supplierId", "createdAt", "receivedAt", "updatedAt")))
-                .map(this::buildDetail);
+        Page<PurchaseOrderModel> orders = purchaseOrderRepository.findAll(
+                specification,
+                query.toPageable(
+                        "createdAt",
+                        Sort.Direction.DESC,
+                        Set.of("id", "status", "supplierId", "createdAt", "receivedAt", "updatedAt")));
+        return new PageImpl<>(
+                buildSummaries(orders.getContent()),
+                orders.getPageable(),
+                orders.getTotalElements());
     }
 
     private Long parseOrderIdentifier(String value) {
@@ -298,13 +311,19 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
         Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(
                 items.stream().map(PurchaseOrderItemModel::getProductId).collect(Collectors.toSet())
         ).stream().collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
 
-        // PO quantities are in TOP packaging units; warehouse_inventory is kept in BASE units.
+        Map<Integer, Integer> baseQtyByProduct = new HashMap<>();
         for (PurchaseOrderItemModel item : items) {
-            ProductModel product = productsById.get(item.getProductId());
-            int baseQty = productPackagingService.toBaseQty(safe(item.getQuantity()), product);
-            increaseWarehouseStock(item.getProductId(), baseQty);
+            ProductPackagingModel top = topPackagings.get(item.getProductId());
+            int baseQty = top != null
+                    ? productPackagingService.toBaseQty(safe(item.getQuantity()), top)
+                    : productPackagingService.toBaseQty(safe(item.getQuantity()), productsById.get(item.getProductId()));
+            if (baseQty > 0 && item.getProductId() != null) {
+                baseQtyByProduct.merge(item.getProductId(), baseQty, Integer::sum);
+            }
         }
+        increaseWarehouseStockBatch(baseQtyByProduct);
 
         order.setStatus(PurchaseOrderStatus.RECEIVED);
         order.setReceivedAt(LocalDateTime.now());
@@ -356,13 +375,14 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
                     ? Map.of()
                     : productRepository.findByIdInWithCategory(productIds).stream()
                             .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+            Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
 
             List<PurchaseRequestModel> promoted = new ArrayList<>();
             for (PurchaseRequestModel pr : awaiting) {
                 List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
                 Map<Integer, Integer> needByProduct = new HashMap<>();
                 for (PurchaseRequestDetailModel detail : details) {
-                    int needBase = needBaseUnits(detail, productsById);
+                    int needBase = needBaseUnits(detail, productsById, topPackagings);
                     if (needBase > 0 && detail.getProductId() != null) {
                         needByProduct.merge(detail.getProductId(), needBase, Integer::sum);
                     }
@@ -404,10 +424,11 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
                 ? Map.of()
                 : productRepository.findByIdInWithCategory(productIds).stream()
                         .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
 
         Map<Integer, Integer> demand = new HashMap<>();
         for (PurchaseRequestDetailModel detail : allDetails) {
-            int needBase = needBaseUnits(detail, productsById);
+            int needBase = needBaseUnits(detail, productsById, topPackagings);
             if (needBase > 0 && detail.getProductId() != null) {
                 demand.merge(detail.getProductId(), needBase, Integer::sum);
             }
@@ -423,36 +444,107 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
         return (baseQty + conversion - 1) / conversion;
     }
 
-    private int needBaseUnits(PurchaseRequestDetailModel detail, Map<Integer, ProductModel> productsById) {
+    private int needBaseUnits(
+            PurchaseRequestDetailModel detail,
+            Map<Integer, ProductModel> productsById,
+            Map<Integer, ProductPackagingModel> topPackagings
+    ) {
         int topUnits = approvedQuantity(detail);
         if (topUnits <= 0 || detail.getProductId() == null) {
             return 0;
         }
+        ProductPackagingModel top = topPackagings.get(detail.getProductId());
+        if (top != null) {
+            return productPackagingService.toBaseQty(topUnits, top);
+        }
         return productPackagingService.toBaseQty(topUnits, productsById.get(detail.getProductId()));
     }
 
-    private Map<Integer, Integer> warehouseStockMap() {
-        return warehouseInventoryRepository.findAll().stream()
-                .collect(Collectors.toMap(
-                        WarehouseInventoryModel::getProductId,
-                        inv -> safe(inv.getQuantity()),
-                        (a, b) -> a));
-    }
-
-    private void increaseWarehouseStock(Integer productId, int quantity) {
-        if (productId == null || quantity <= 0) {
+    private void increaseWarehouseStockBatch(Map<Integer, Integer> baseQtyByProduct) {
+        if (baseQtyByProduct == null || baseQtyByProduct.isEmpty()) {
             return;
         }
-        WarehouseInventoryModel inventory = warehouseInventoryRepository.findByProductId(productId)
-                .orElseGet(() -> {
-                    WarehouseInventoryModel created = new WarehouseInventoryModel();
-                    created.setProductId(productId);
-                    created.setQuantity(0);
-                    created.setReorderPoint(0);
-                    return created;
-                });
-        inventory.setQuantity(safe(inventory.getQuantity()) + quantity);
-        warehouseInventoryRepository.save(inventory);
+        Map<Integer, WarehouseInventoryModel> existing = warehouseInventoryRepository
+                .findByProductIdIn(baseQtyByProduct.keySet()).stream()
+                .collect(Collectors.toMap(WarehouseInventoryModel::getProductId, inv -> inv, (a, b) -> a));
+        List<WarehouseInventoryModel> toSave = new ArrayList<>();
+        for (Map.Entry<Integer, Integer> entry : baseQtyByProduct.entrySet()) {
+            Integer productId = entry.getKey();
+            int quantity = safe(entry.getValue());
+            if (productId == null || quantity <= 0) {
+                continue;
+            }
+            WarehouseInventoryModel inventory = existing.get(productId);
+            if (inventory == null) {
+                inventory = new WarehouseInventoryModel();
+                inventory.setProductId(productId);
+                inventory.setQuantity(0);
+                inventory.setReorderPoint(0);
+            }
+            inventory.setQuantity(safe(inventory.getQuantity()) + quantity);
+            toSave.add(inventory);
+        }
+        if (!toSave.isEmpty()) {
+            warehouseInventoryRepository.saveAll(toSave);
+        }
+    }
+
+    private Map<Integer, ProductPackagingModel> loadTopPackagings(Map<Integer, ProductModel> productsById) {
+        if (productsById == null || productsById.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, ProductPackagingModel> topPackagings = new HashMap<>(
+                productPackagingService.getTopPackagingsByProductIds(productsById.keySet()));
+        for (ProductModel product : productsById.values()) {
+            if (!topPackagings.containsKey(product.getId())) {
+                ProductPackagingModel top = productPackagingService.getTopPackaging(product);
+                if (top != null) {
+                    topPackagings.put(product.getId(), top);
+                }
+            }
+        }
+        return topPackagings;
+    }
+
+    private List<PurchaseOrderResponse> buildSummaries(List<PurchaseOrderModel> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> orderIds = orders.stream().map(PurchaseOrderModel::getId).filter(Objects::nonNull).toList();
+        Map<Long, List<PurchaseOrderItemModel>> itemsByOrder = orderIds.isEmpty()
+                ? Map.of()
+                : purchaseOrderItemRepository.findByPurchaseOrderIdIn(orderIds).stream()
+                        .collect(Collectors.groupingBy(PurchaseOrderItemModel::getPurchaseOrderId));
+        Set<Integer> supplierIds = orders.stream()
+                .map(PurchaseOrderModel::getSupplierId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Integer, String> supplierNames = supplierIds.isEmpty()
+                ? Map.of()
+                : supplierRepository.findAllById(supplierIds).stream()
+                        .collect(Collectors.toMap(SupplierModel::getId, SupplierModel::getName, (a, b) -> a));
+
+        List<PurchaseOrderResponse> responses = new ArrayList<>(orders.size());
+        for (PurchaseOrderModel order : orders) {
+            PurchaseOrderResponse response = new PurchaseOrderResponse();
+            response.setId(order.getId());
+            response.setOrderNumber(purchaseOrderMapper.toOrderNumber(order));
+            response.setSupplierId(order.getSupplierId());
+            response.setSupplierName(order.getSupplierId() == null ? null : supplierNames.get(order.getSupplierId()));
+            response.setStatus(order.getStatus() == null ? null : order.getStatus().name());
+            response.setNotes(order.getNotes());
+            response.setCreatedAt(order.getCreatedAt());
+            response.setReceivedAt(order.getReceivedAt());
+            List<PurchaseOrderItemModel> items = itemsByOrder.getOrDefault(order.getId(), List.of());
+            response.setItemCount(items.size());
+            int totalQuantity = 0;
+            for (PurchaseOrderItemModel item : items) {
+                totalQuantity += safe(item.getQuantity());
+            }
+            response.setTotalQuantity(totalQuantity);
+            responses.add(response);
+        }
+        return responses;
     }
 
     private PurchaseOrderResponse buildDetail(PurchaseOrderModel order) {

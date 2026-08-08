@@ -37,7 +37,8 @@ public interface IProductService {
             Integer categoryId,
             String status,
             String scope,
-            boolean lowStockOnly);
+            boolean lowStockOnly,
+            String stockSort);
 
     ProductResponse scanByBarcode(String barcode);
 

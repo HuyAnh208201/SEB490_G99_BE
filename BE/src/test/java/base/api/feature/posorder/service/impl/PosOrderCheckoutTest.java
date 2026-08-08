@@ -96,7 +96,7 @@ class PosOrderCheckoutTest {
 
         OrderResponse response = service.checkout(cashRequest(1, 2, "100000"));
 
-        // 2 × 12.000 = 24.000, bất kể client gửi gì.
+        // 2 x 12_000 = 24_000 regardless of what the client sent.
         assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
         ArgumentCaptor<List<OrderItemModel>> items = ArgumentCaptor.forClass(List.class);
         verify(orderItemRepository).saveAll(items.capture());
@@ -112,7 +112,7 @@ class PosOrderCheckoutTest {
                 BusinessException.class, () -> service.checkout(cashRequest(1, 99, "5000000")));
 
         assertTrue(error.getMessage().contains("Not enough stock"));
-        // Đơn chưa được ghi và điểm chưa bị đụng vào.
+        // Order must not be persisted and points must not be touched.
         verify(orderItemRepository, never()).saveAll(any());
         verify(paymentRepository, never()).save(any());
         verify(cashierService, never()).settlePoints(any(), any(), anyLong());
@@ -126,7 +126,7 @@ class PosOrderCheckoutTest {
                 BusinessException.class, () -> service.checkout(cashRequest(1, 2, "1000")));
 
         assertTrue(error.getMessage().contains("Cash received"));
-        // Chưa trừ kho vì tiền không đủ đã chặn từ trước.
+        // Stock must not be deducted because insufficient cash fails first.
         verify(branchInventoryRepository, never()).deductStock(anyLong(), anyInt(), anyInt());
     }
 
@@ -140,8 +140,7 @@ class PosOrderCheckoutTest {
 
         service.checkout(request);
 
-        // Một lần trừ 5, không phải hai lần trừ 2 và 3 — nếu tách thì mỗi lần đều
-        // lọt qua trong khi tổng đã vượt kho.
+        // Deduct once for quantity 5, not twice for 2 and 3 — separate checks would each pass while the total exceeds stock.
         verify(branchInventoryRepository).deductStock(BRANCH_ID, 1, 5);
     }
 
