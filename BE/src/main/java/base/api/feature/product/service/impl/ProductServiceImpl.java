@@ -32,6 +32,8 @@ import base.api.shared.util.Ean13BarcodeGenerator;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -39,6 +41,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -174,7 +177,7 @@ public class ProductServiceImpl implements IProductService {
         PageRequestDTO capped = new PageRequestDTO();
         capped.setPage(1);
         capped.setSize(PageRequestDTO.MAX_PAGE_SIZE);
-        return getPage(capped, null, null, null, false).getContent();
+        return getPage(capped, null, null, null, false, null).getContent();
     }
 
     @Override
@@ -231,7 +234,8 @@ public class ProductServiceImpl implements IProductService {
             Integer categoryId,
             String status,
             String scope,
-            boolean lowStockOnly
+            boolean lowStockOnly,
+            String stockSort
     ) {
         PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
         VisibilityContext visibility = resolveVisibility();
@@ -281,14 +285,41 @@ public class ProductServiceImpl implements IProductService {
             }
         }
 
-        Page<ProductModel> products = productRepository.findAll(
-                specification,
-                query.toPageable(
-                        "id",
-                        Sort.Direction.ASC,
-                        Set.of("id", "code", "name", "status", "createdAt", "updatedAt")));
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
         Map<Integer, Integer> branchReorder = loadBranchReorderMap(visibility.branchId());
+
+        String normalizedStockSort = stockSort == null ? "" : stockSort.trim().toLowerCase(Locale.ROOT);
+        boolean sortByStock = "asc".equals(normalizedStockSort) || "desc".equals(normalizedStockSort);
+
+        Page<ProductModel> products;
+        if (sortByStock) {
+            List<ProductModel> allMatching = productRepository.findAll(specification, Sort.by(Sort.Direction.ASC, "id"));
+            boolean ascending = "asc".equals(normalizedStockSort);
+            // Branch roles sort by branch stock; WM/supervisor by warehouse stock.
+            Comparator<ProductModel> byStock = Comparator.comparingInt(product ->
+                    stockQtyForSort(product.getId(), visibility, warehouseStock, branchStock));
+            if (!ascending) {
+                byStock = byStock.reversed();
+            }
+            byStock = byStock.thenComparing(ProductModel::getId, Comparator.nullsLast(Integer::compareTo));
+            allMatching.sort(byStock);
+
+            int size = Math.min(PageRequestDTO.MAX_PAGE_SIZE, Math.max(1, query.getSize()));
+            int zeroBasedPage = Math.max(0, query.getPage() - 1);
+            int from = Math.min(zeroBasedPage * size, allMatching.size());
+            int to = Math.min(from + size, allMatching.size());
+            List<ProductModel> pageContent = allMatching.subList(from, to);
+            Pageable pageable = PageRequest.of(zeroBasedPage, size);
+            products = new PageImpl<>(pageContent, pageable, allMatching.size());
+        } else {
+            products = productRepository.findAll(
+                    specification,
+                    query.toPageable(
+                            "id",
+                            Sort.Direction.ASC,
+                            Set.of("id", "code", "name", "status", "createdAt", "updatedAt")));
+        }
+
         Map<Integer, ProductPackagingModel> topPackagings = productPackagingService.getTopPackagingsByProductIds(
                 products.getContent().stream().map(ProductModel::getId).toList());
         Map<Long, String> branchNames = loadBranchNameMap(
@@ -307,6 +338,22 @@ public class ProductServiceImpl implements IProductService {
             applyTopPackaging(response, top);
             return response;
         });
+    }
+
+    private int stockQtyForSort(
+            Integer productId,
+            VisibilityContext visibility,
+            Map<Integer, WarehouseInventoryModel> warehouseStock,
+            Map<Integer, Integer> branchStock
+    ) {
+        if (visibility.branchId() != null) {
+            return branchStock.getOrDefault(productId, 0);
+        }
+        WarehouseInventoryModel row = warehouseStock.get(productId);
+        if (row == null || row.getQuantity() == null) {
+            return 0;
+        }
+        return row.getQuantity();
     }
 
     @Override

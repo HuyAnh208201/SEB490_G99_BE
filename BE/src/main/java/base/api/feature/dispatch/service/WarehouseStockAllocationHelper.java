@@ -6,6 +6,7 @@ import base.api.feature.purchaserequest.repository.PurchaseRequestDetailReposito
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.WarehouseInventoryModel;
@@ -58,31 +59,60 @@ public class WarehouseStockAllocationHelper {
         return stock;
     }
 
+    public Map<Integer, Integer> loadPhysicalStock(Set<Integer> productIds) {
+        if (productIds == null || productIds.isEmpty()) {
+            return loadPhysicalStock();
+        }
+        Map<Integer, Integer> stock = new HashMap<>();
+        for (Integer productId : productIds) {
+            stock.put(productId, 0);
+        }
+        for (WarehouseInventoryModel row : warehouseInventoryRepository.findByProductIdIn(productIds)) {
+            stock.put(row.getProductId(), safe(row.getQuantity()));
+        }
+        return stock;
+    }
+
     /**
      * Kiểm tra yêu cầu (sau khi set approved qty) có đủ tồn sau khi trừ các yêu cầu APPROVED khác.
      */
     public boolean canApproveRequest(Long requestId, List<PurchaseRequestDetailModel> details) {
-        Map<Integer, Integer> working = workingStockExcludingRequest(requestId);
-        Map<Integer, ProductModel> productsById = loadProducts(List.of(details));
-        return canFulfillDetails(details, working, productsById);
+        Map<Long, List<PurchaseRequestDetailModel>> othersByRequest = loadApprovedDetailsExcluding(requestId);
+        Set<Integer> productIds = collectProductIds(othersByRequest.values());
+        productIds.addAll(collectProductIds(List.of(details)));
+
+        Map<Integer, Integer> working = loadPhysicalStock(productIds);
+        Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
+        Map<Integer, ProductPackagingModel> topPackagings = loadPackagings(productsById);
+
+        for (List<PurchaseRequestDetailModel> otherDetails : othersByRequest.values()) {
+            reserveDetails(otherDetails, working, productsById, topPackagings);
+        }
+        return canFulfillDetails(details, working, productsById, topPackagings);
     }
 
     /**
      * Tồn kho vật lý sau khi trừ nhu cầu tất cả yêu cầu APPROVED (chưa gom lô).
      */
     public Map<Integer, Integer> workingStockAfterApprovedReservations() {
-        Map<Integer, Integer> working = loadPhysicalStock();
         List<PurchaseRequestModel> approved = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED);
         if (approved.isEmpty()) {
-            return working;
+            return loadPhysicalStock();
         }
         List<Long> ids = approved.stream().map(PurchaseRequestModel::getId).toList();
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest =
                 detailRepository.findByPurchaseRequestIdIn(ids).stream()
                         .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
-        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
+        Set<Integer> productIds = collectProductIds(detailsByRequest.values());
+        Map<Integer, Integer> working = loadPhysicalStock(productIds);
+        Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
+        Map<Integer, ProductPackagingModel> topPackagings = loadPackagings(productsById);
         for (PurchaseRequestModel pr : approved) {
-            reserveDetails(detailsByRequest.getOrDefault(pr.getId(), List.of()), working, productsById);
+            reserveDetails(
+                    detailsByRequest.getOrDefault(pr.getId(), List.of()),
+                    working,
+                    productsById,
+                    topPackagings);
         }
         return working;
     }
@@ -100,18 +130,20 @@ public class WarehouseStockAllocationHelper {
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
 
-        Map<Integer, Integer> working = loadPhysicalStock();
         List<Long> ids = sorted.stream().map(PurchaseRequestModel::getId).toList();
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest =
                 detailRepository.findByPurchaseRequestIdIn(ids).stream()
                         .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
-        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
+        Set<Integer> productIds = collectProductIds(detailsByRequest.values());
+        Map<Integer, Integer> working = loadPhysicalStock(productIds);
+        Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
+        Map<Integer, ProductPackagingModel> topPackagings = loadPackagings(productsById);
 
         List<PurchaseRequestModel> result = new ArrayList<>();
         for (PurchaseRequestModel pr : sorted) {
             List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
-            if (canFulfillDetails(details, working, productsById)) {
-                reserveDetails(details, working, productsById);
+            if (canFulfillDetails(details, working, productsById, topPackagings)) {
+                reserveDetails(details, working, productsById, topPackagings);
                 result.add(pr);
             }
         }
@@ -147,36 +179,27 @@ public class WarehouseStockAllocationHelper {
         return demoted.size();
     }
 
-    private Map<Integer, Integer> workingStockExcludingRequest(Long excludeRequestId) {
-        Map<Integer, Integer> working = loadPhysicalStock();
+    private Map<Long, List<PurchaseRequestDetailModel>> loadApprovedDetailsExcluding(Long excludeRequestId) {
         List<PurchaseRequestModel> others = purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED);
-        if (others.isEmpty()) {
-            return working;
-        }
         List<Long> ids = others.stream()
                 .filter(pr -> excludeRequestId == null || !excludeRequestId.equals(pr.getId()))
                 .map(PurchaseRequestModel::getId)
                 .toList();
         if (ids.isEmpty()) {
-            return working;
+            return Map.of();
         }
-        Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest =
-                detailRepository.findByPurchaseRequestIdIn(ids).stream()
-                        .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
-        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
-        for (Long id : ids) {
-            reserveDetails(detailsByRequest.getOrDefault(id, List.of()), working, productsById);
-        }
-        return working;
+        return detailRepository.findByPurchaseRequestIdIn(ids).stream()
+                .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
     }
 
     private boolean canFulfillDetails(
             List<PurchaseRequestDetailModel> details,
             Map<Integer, Integer> working,
-            Map<Integer, ProductModel> productsById
+            Map<Integer, ProductModel> productsById,
+            Map<Integer, ProductPackagingModel> topPackagings
     ) {
         for (PurchaseRequestDetailModel detail : details) {
-            int need = needBaseUnits(detail, productsById);
+            int need = needBaseUnits(detail, productsById, topPackagings);
             if (need <= 0 || detail.getProductId() == null) {
                 continue;
             }
@@ -190,10 +213,11 @@ public class WarehouseStockAllocationHelper {
     private void reserveDetails(
             List<PurchaseRequestDetailModel> details,
             Map<Integer, Integer> working,
-            Map<Integer, ProductModel> productsById
+            Map<Integer, ProductModel> productsById,
+            Map<Integer, ProductPackagingModel> topPackagings
     ) {
         for (PurchaseRequestDetailModel detail : details) {
-            int need = needBaseUnits(detail, productsById);
+            int need = needBaseUnits(detail, productsById, topPackagings);
             if (need > 0 && detail.getProductId() != null) {
                 working.merge(detail.getProductId(), -need, Integer::sum);
             }
@@ -201,10 +225,18 @@ public class WarehouseStockAllocationHelper {
     }
 
     /** Requested/approved quantity converted from TOP packaging units into BASE stock units. */
-    private int needBaseUnits(PurchaseRequestDetailModel detail, Map<Integer, ProductModel> productsById) {
+    private int needBaseUnits(
+            PurchaseRequestDetailModel detail,
+            Map<Integer, ProductModel> productsById,
+            Map<Integer, ProductPackagingModel> topPackagings
+    ) {
         int topUnits = approvedQty(detail);
-        if (topUnits <= 0) {
+        if (topUnits <= 0 || detail.getProductId() == null) {
             return 0;
+        }
+        ProductPackagingModel top = topPackagings.get(detail.getProductId());
+        if (top != null) {
+            return productPackagingService.toBaseQty(topUnits, top);
         }
         ProductModel product = productsById.get(detail.getProductId());
         return productPackagingService.toBaseQty(topUnits, product);
@@ -217,7 +249,7 @@ public class WarehouseStockAllocationHelper {
         return safe(detail.getRequestedQty());
     }
 
-    private Map<Integer, ProductModel> loadProducts(Iterable<List<PurchaseRequestDetailModel>> detailGroups) {
+    private Set<Integer> collectProductIds(Iterable<List<PurchaseRequestDetailModel>> detailGroups) {
         Set<Integer> productIds = new HashSet<>();
         for (List<PurchaseRequestDetailModel> details : detailGroups) {
             for (PurchaseRequestDetailModel detail : details) {
@@ -226,11 +258,32 @@ public class WarehouseStockAllocationHelper {
                 }
             }
         }
-        if (productIds.isEmpty()) {
+        return productIds;
+    }
+
+    private Map<Integer, ProductModel> loadProductsByIds(Set<Integer> productIds) {
+        if (productIds == null || productIds.isEmpty()) {
             return Map.of();
         }
         return productRepository.findByIdInWithCategory(productIds).stream()
                 .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+    }
+
+    private Map<Integer, ProductPackagingModel> loadPackagings(Map<Integer, ProductModel> productsById) {
+        if (productsById == null || productsById.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, ProductPackagingModel> topPackagings = new HashMap<>(
+                productPackagingService.getTopPackagingsByProductIds(productsById.keySet()));
+        for (ProductModel product : productsById.values()) {
+            if (!topPackagings.containsKey(product.getId())) {
+                ProductPackagingModel top = productPackagingService.getTopPackaging(product);
+                if (top != null) {
+                    topPackagings.put(product.getId(), top);
+                }
+            }
+        }
+        return topPackagings;
     }
 
     private int safe(Integer value) {

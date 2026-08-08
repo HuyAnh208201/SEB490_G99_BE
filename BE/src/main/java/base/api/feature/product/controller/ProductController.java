@@ -66,8 +66,10 @@ public class ProductController extends BaseAPIController {
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String scope,
-            @RequestParam(defaultValue = "false") boolean lowStockOnly) {
-        return successPage(productService.getPage(pageRequest, categoryId, status, scope, lowStockOnly));
+            @RequestParam(defaultValue = "false") boolean lowStockOnly,
+            @RequestParam(required = false) String stockSort) {
+        return successPage(productService.getPage(
+                pageRequest, categoryId, status, scope, lowStockOnly, stockSort));
     }
 
     @Operation(summary = "Generate unique EAN-13 barcode (893 prefix)")

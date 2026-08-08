@@ -73,6 +73,8 @@ import java.util.stream.Collectors;
 @Service
 public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
+    private static final int MAX_RECOMMENDED_PRODUCTS = 100;
+
     private static final Set<PurchaseRequestStatus> WAREHOUSE_VISIBLE_STATUSES = EnumSet.of(
             PurchaseRequestStatus.PENDING,
             PurchaseRequestStatus.APPROVED,
@@ -273,11 +275,19 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                 .collect(Collectors.toMap(BranchModel::getId, Function.identity(), (a, b) -> a));
         Map<Long, UserModel> usersById = userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(UserModel::getId, Function.identity(), (a, b) -> a));
+        List<Long> requestIds = content.stream().map(PurchaseRequestModel::getId).toList();
+        Map<Long, Integer> itemCountsByRequest = requestIds.isEmpty()
+                ? Map.of()
+                : detailRepository.findByPurchaseRequestIdIn(requestIds).stream()
+                        .collect(Collectors.groupingBy(
+                                PurchaseRequestDetailModel::getPurchaseRequestId,
+                                Collectors.collectingAndThen(Collectors.counting(), Long::intValue)));
 
         return requests.map(request -> buildSummaryResponse(
                 request,
                 branchesById.get(request.getBranchId()),
-                usersById.get(request.getCreatedBy())));
+                usersById.get(request.getCreatedBy()),
+                itemCountsByRequest.getOrDefault(request.getId(), 0)));
     }
 
     @Override
@@ -834,22 +844,19 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             return;
         }
 
-        List<PurchaseRequestDetailModel> details = quantities.entrySet().stream()
-                .map(entry -> {
-                    ProductModel product = resolveActiveProduct(entry.getKey());
-                    return purchaseRequestMapper.buildDetailSnapshot(requestId, product, entry.getValue());
-                })
-                .toList();
-        detailRepository.saveAll(details);
-    }
+        Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(quantities.keySet())
+                .stream()
+                .collect(Collectors.toMap(ProductModel::getId, Function.identity(), (a, b) -> a));
 
-    private ProductModel resolveActiveProduct(Integer productId) {
-        ProductModel product = productRepository.findByIdWithCategory(productId)
-                .orElseThrow(() -> new NotFoundException("Product not found."));
-        if (!"active".equalsIgnoreCase(product.getStatus())) {
-            throw new NotFoundException("Product not found.");
+        List<PurchaseRequestDetailModel> details = new ArrayList<>();
+        for (Map.Entry<Integer, Integer> entry : quantities.entrySet()) {
+            ProductModel product = productsById.get(entry.getKey());
+            if (product == null || !"active".equalsIgnoreCase(product.getStatus())) {
+                throw new NotFoundException("Product not found.");
+            }
+            details.add(purchaseRequestMapper.buildDetailSnapshot(requestId, product, entry.getValue()));
         }
-        return product;
+        detailRepository.saveAll(details);
     }
 
     private List<RecommendedProductResponse> getRecommendedProductsForBranch(Long branchId) {
@@ -870,7 +877,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         Map<Integer, ProductPackagingModel> topPackagings =
                 productPackagingService.getTopPackagingsByProductIds(productIds);
 
-        List<RecommendedProductResponse> recommended = new ArrayList<>();
+        record Candidate(RecommendedProductResponse response, int shortfallBaseUnits) {}
+
+        List<Candidate> candidates = new ArrayList<>();
         for (ProductModel product : products) {
             BranchInventoryModel inventory = inventoryByProductId.get(product.getId());
             int currentStock = inventory == null ? 0 : safeStock(inventory.getCurrentStock());
@@ -879,18 +888,30 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                 continue;
             }
             int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
-            int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, product);
-            recommended.add(purchaseRequestMapper.toRecommendedProductResponse(
-                    product,
-                    currentStock,
-                    reorderPoint,
-                    suggestedQty,
-                    topPackagings.get(product.getId())));
+            ProductPackagingModel top = topPackagings.get(product.getId());
+            if (top == null) {
+                top = productPackagingService.getTopPackaging(product);
+            }
+            int conversionQty = productPackagingService.conversionQtyOf(top);
+            int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, conversionQty);
+            candidates.add(new Candidate(
+                    purchaseRequestMapper.toRecommendedProductResponse(
+                            product,
+                            currentStock,
+                            reorderPoint,
+                            suggestedQty,
+                            top),
+                    shortfallBaseUnits));
         }
-        recommended.sort(Comparator.comparing(
-                RecommendedProductResponse::getProductName,
-                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
-        return recommended;
+        candidates.sort(Comparator
+                .comparingInt(Candidate::shortfallBaseUnits).reversed()
+                .thenComparing(
+                        c -> c.response().getProductName(),
+                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return candidates.stream()
+                .limit(MAX_RECOMMENDED_PRODUCTS)
+                .map(Candidate::response)
+                .toList();
     }
 
     private int resolveBranchReorderPoint(ProductModel product, BranchInventoryModel inventory) {
@@ -908,12 +929,12 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     }
 
     /** Convert a BASE-unit shortfall into a TOP packaging quantity (rounded up), minimum 1 when > 0. */
-    private int toTopUnitsCeil(int shortfallBaseUnits, ProductModel product) {
+    private int toTopUnitsCeil(int shortfallBaseUnits, int conversionQty) {
         if (shortfallBaseUnits <= 0) {
             return 0;
         }
-        int conversionQty = productPackagingService.topConversionQty(product);
-        return Math.max(1, (shortfallBaseUnits + conversionQty - 1) / conversionQty);
+        int qty = conversionQty < 1 ? 1 : conversionQty;
+        return Math.max(1, (shortfallBaseUnits + qty - 1) / qty);
     }
 
     private PurchaseRequestResponse buildResponse(PurchaseRequestModel request) {
@@ -925,21 +946,40 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(request.getId());
         Map<Integer, ProductModel> productsById = loadProductsById(details);
         Map<Integer, Integer> warehouseStockByProduct = loadWarehouseStock(details);
+        Map<Integer, ProductPackagingModel> topPackagingsByProduct = new HashMap<>(
+                productPackagingService.getTopPackagingsByProductIds(productsById.keySet()));
+        // Fill any products missing a purchase-default row once (legacy fallback), avoid per-line DB in mapper.
+        for (ProductModel product : productsById.values()) {
+            if (!topPackagingsByProduct.containsKey(product.getId())) {
+                ProductPackagingModel top = productPackagingService.getTopPackaging(product);
+                if (top != null) {
+                    topPackagingsByProduct.put(product.getId(), top);
+                }
+            }
+        }
         return purchaseRequestMapper.toResponse(
-                request, branch, createdBy, approvedBy, details, productsById, warehouseStockByProduct);
+                request,
+                branch,
+                createdBy,
+                approvedBy,
+                details,
+                productsById,
+                warehouseStockByProduct,
+                topPackagingsByProduct);
     }
 
     private PurchaseRequestSummaryResponse buildSummaryResponse(PurchaseRequestModel request) {
         BranchModel branch = branchRepository.findById(request.getBranchId()).orElse(null);
         UserModel createdBy = userRepository.findById(request.getCreatedBy()).orElse(null);
-        return buildSummaryResponse(request, branch, createdBy);
+        int itemCount = (int) detailRepository.countByPurchaseRequestId(request.getId());
+        return buildSummaryResponse(request, branch, createdBy, itemCount);
     }
 
     private PurchaseRequestSummaryResponse buildSummaryResponse(
             PurchaseRequestModel request,
             BranchModel branch,
-            UserModel createdBy) {
-        int itemCount = (int) detailRepository.countByPurchaseRequestId(request.getId());
+            UserModel createdBy,
+            int itemCount) {
         return purchaseRequestMapper.toSummaryResponse(request, itemCount, branch, createdBy);
     }
 
@@ -965,14 +1005,17 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     }
 
     private Map<Integer, ProductModel> loadProductsById(List<PurchaseRequestDetailModel> details) {
-        Map<Integer, ProductModel> productsById = new HashMap<>();
-        for (PurchaseRequestDetailModel detail : details) {
-            if (detail.getProductId() == null || productsById.containsKey(detail.getProductId())) {
-                continue;
-            }
-            productRepository.findByIdWithCategory(detail.getProductId())
-                    .ifPresent(product -> productsById.put(product.getId(), product));
+        if (details == null || details.isEmpty()) {
+            return Map.of();
         }
-        return productsById;
+        Set<Integer> productIds = details.stream()
+                .map(PurchaseRequestDetailModel::getProductId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        return productRepository.findByIdInWithCategory(productIds).stream()
+                .collect(Collectors.toMap(ProductModel::getId, Function.identity(), (a, b) -> a));
     }
 }

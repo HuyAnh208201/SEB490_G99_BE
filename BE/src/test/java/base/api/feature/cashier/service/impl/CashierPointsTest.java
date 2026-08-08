@@ -46,8 +46,7 @@ class CashierPointsTest {
 
     @BeforeEach
     void setUp() {
-        // @Value không được inject trong unit test — không set thì tỉ lệ = 0 và
-        // mọi hoá đơn đều ra 0 điểm.
+        // @Value is not injected in unit tests — unset rates stay 0 and every invoice earns 0 points.
         ReflectionTestUtils.setField(service, "vndPerPoint", 10_000L);
         ReflectionTestUtils.setField(service, "pointValueVnd", 1_000L);
 
@@ -77,7 +76,7 @@ class CashierPointsTest {
     @Test
     void refusesToRedeemMorePointsThanTheCustomerHas() {
         stubLookup();
-        // Atomic update khớp 0 row = không đủ điểm.
+        // Atomic update matching 0 rows means insufficient points.
         when(userRepository.deductPointsAtomic(7L, 999L)).thenReturn(0);
 
         BadRequestException error = assertThrows(

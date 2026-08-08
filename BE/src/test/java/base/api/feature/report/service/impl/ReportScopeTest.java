@@ -48,20 +48,20 @@ class ReportScopeTest {
     private ReportServiceImpl service;
 
     // =========================================================================
-    // (1) BM: mọi báo cáo bị ép về chi nhánh của BM, KHÔNG dùng branchId param
+    // (1) BM: every report is forced to the BM branch; ignore client branchId
     // =========================================================================
     @Test
     void branchManagerScopeIsForcedToOwnBranchIgnoringParam() {
         asBranchManager(BM_BRANCH);
         stubEmptyRepositories();
 
-        // Client (BM) cố truyền chi nhánh khác (999) — phải bị bỏ qua, ép về 10.
+        // BM client tries branch 999 — must be ignored and forced to 10.
         service.getRevenue("shift", FROM, TO, OTHER_BRANCH);
         service.getInvoices(FROM, TO, OTHER_BRANCH);
         service.getCashDiscrepancies(FROM, TO, OTHER_BRANCH);
         service.getPointTransactions(FROM, TO, OTHER_BRANCH);
 
-        // Tất cả repository nhận branchId = 10 (của BM), KHÔNG phải 999 (param).
+        // All repositories receive branchId 10 (BM), not 999 (param).
         verify(reportOrderRepository).revenueByShift(eq(BM_BRANCH), any(), any());
         verify(reportOrderRepository).findInvoices(eq(BM_BRANCH), any(), any(), any());
         verify(reportShiftSessionRepository).findDiscrepancies(
@@ -75,7 +75,7 @@ class ReportScopeTest {
     }
 
     // =========================================================================
-    // (2) Director: dùng branchId param client gửi
+    // (2) Director: uses the client-provided branchId
     // =========================================================================
     @Test
     void directorScopeUsesRequestedBranch() {
@@ -90,7 +90,7 @@ class ReportScopeTest {
     }
 
     // =========================================================================
-    // (2b) Director không truyền branchId → toàn hệ thống (branchId = null)
+    // (2b) Director without branchId -> system-wide (branchId = null)
     // =========================================================================
     @Test
     void directorWithoutBranchParamSeesAllBranches() {
