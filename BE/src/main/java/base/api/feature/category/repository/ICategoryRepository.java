@@ -18,4 +18,8 @@ public interface ICategoryRepository extends JpaRepository<CategoryModel, Intege
     boolean existsByParentCategoryId(Integer parentId);
 
     List<CategoryModel> findAll(Sort sort);
+
+    List<CategoryModel> findByActiveTrue(Sort sort);
+
+    List<CategoryModel> findByShortDateTrue();
 }

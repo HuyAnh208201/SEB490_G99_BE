@@ -234,12 +234,22 @@ public class WarehouseStockAllocationHelper {
         if (topUnits <= 0 || detail.getProductId() == null) {
             return 0;
         }
+        ProductModel product = productsById.get(detail.getProductId());
+        // Short-date products are not held in central warehouse — skip stock reservation.
+        if (isShortDateProduct(product)) {
+            return 0;
+        }
         ProductPackagingModel top = topPackagings.get(detail.getProductId());
         if (top != null) {
             return productPackagingService.toBaseQty(topUnits, top);
         }
-        ProductModel product = productsById.get(detail.getProductId());
         return productPackagingService.toBaseQty(topUnits, product);
+    }
+
+    private boolean isShortDateProduct(ProductModel product) {
+        return product != null
+                && product.getCategory() != null
+                && Boolean.TRUE.equals(product.getCategory().getShortDate());
     }
 
     private int approvedQty(PurchaseRequestDetailModel detail) {

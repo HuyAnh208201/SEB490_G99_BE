@@ -6,7 +6,7 @@ services:
     container_name: pickle-api
     restart: unless-stopped
     ports:
-      - "1328:1328"
+      - "4313:4313"
     environment:
       APP_UPLOAD_DIR: /app/uploads
     volumes:

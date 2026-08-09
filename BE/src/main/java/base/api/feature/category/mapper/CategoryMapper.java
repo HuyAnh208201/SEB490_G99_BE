@@ -12,6 +12,8 @@ public class CategoryMapper {
         response.setId(category.getId());
         response.setName(category.getName());
         response.setDescription(category.getDescription());
+        response.setActive(category.getActive() == null || Boolean.TRUE.equals(category.getActive()));
+        response.setShortDate(Boolean.TRUE.equals(category.getShortDate()));
 
         if (category.getParentCategory() != null) {
             response.setParentId(category.getParentCategory().getId());

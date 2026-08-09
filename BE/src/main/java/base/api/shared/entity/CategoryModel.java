@@ -31,6 +31,17 @@ public class CategoryModel {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    /** When false, category is deactivated (soft-hidden); not hard-deleted. */
+    @Column(name = "active", nullable = false)
+    private Boolean active = true;
+
+    /**
+     * Short shelf-life / hard-to-store goods: not held in central warehouse inventory;
+     * WM selects suppliers for direct branch delivery.
+     */
+    @Column(name = "short_date", nullable = false)
+    private Boolean shortDate = false;
+
     @ManyToOne
     @JoinColumn(name = "parent_id")
     private CategoryModel parentCategory;

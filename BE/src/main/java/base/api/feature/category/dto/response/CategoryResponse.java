@@ -12,4 +12,6 @@ public class CategoryResponse {
     private String description;
     private Integer parentId;
     private String parentName;
+    private Boolean active;
+    private Boolean shortDate;
 }
