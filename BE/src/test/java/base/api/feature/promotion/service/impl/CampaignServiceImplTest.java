@@ -12,6 +12,7 @@ import base.api.feature.promotion.repository.CampaignBranchRepository;
 import base.api.feature.promotion.repository.CampaignRepository;
 import base.api.feature.promotion.service.CampaignExpiryService;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.CampaignBranchModel;
 import base.api.shared.entity.CampaignModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.CampaignScope;
@@ -300,6 +301,7 @@ class CampaignServiceImplTest {
         when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
         when(campaignRepository.existsByNameIgnoreCaseAndIdNot("Summer Sale", 1L)).thenReturn(false);
         when(campaignRepository.save(any(CampaignModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(List.of());
         BranchModel b1 = new BranchModel();
         b1.setId(10L);
         BranchModel b2 = new BranchModel();
@@ -320,7 +322,6 @@ class CampaignServiceImplTest {
 
         service.updateCampaign(1L, request);
 
-        verify(campaignBranchRepository).deleteByCampaignId(1L);
         verify(campaignBranchRepository).saveAll(anyList());
     }
 
@@ -331,6 +332,11 @@ class CampaignServiceImplTest {
         when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
         when(campaignRepository.existsByNameIgnoreCaseAndIdNot("Summer Sale", 1L)).thenReturn(false);
         when(campaignRepository.save(any(CampaignModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        CampaignBranchModel existing = new CampaignBranchModel();
+        existing.setId(99L);
+        existing.setCampaignId(1L);
+        existing.setBranchId(10L);
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(List.of(existing));
         when(campaignMapper.toResponse(any(CampaignModel.class), anyList()))
                 .thenReturn(new CampaignResponse());
 
@@ -346,7 +352,8 @@ class CampaignServiceImplTest {
 
         service.updateCampaign(1L, request);
 
-        verify(campaignBranchRepository).deleteByCampaignId(1L);
+        verify(campaignBranchRepository).deleteAllInBatch(anyList());
+        verify(campaignBranchRepository).flush();
     }
 
     @Test
