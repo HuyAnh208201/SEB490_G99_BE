@@ -69,6 +69,14 @@ public class ShiftSessionResponse {
 
     private ShiftSessionTransactionSummaryResponse transactionSummary;
 
+    /** Derived from branch hours: 0 = first slot of the day. */
+    private Integer currentSlotIndex;
+    private String currentSlotLabel;
+    private String currentSlotStart;
+    private String currentSlotEnd;
+    /** True when system time is outside branch hours (test mode may still allow opening). */
+    private Boolean outsideOperatingHours;
+
     private Long approvedBy;
     private String approvedByName;
     private LocalDateTime approvedAt;

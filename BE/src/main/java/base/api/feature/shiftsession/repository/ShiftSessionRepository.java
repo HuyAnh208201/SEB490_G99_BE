@@ -3,8 +3,11 @@ package base.api.feature.shiftsession.repository;
 import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.enums.ShiftSessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,10 +46,44 @@ public interface ShiftSessionRepository extends JpaRepository<ShiftSessionModel,
             Long branchId,
             ShiftSessionStatus status);
 
+    @Query("""
+            SELECT s FROM ShiftSessionModel s
+            WHERE s.branchId = :branchId
+              AND s.status = :status
+              AND s.difference IS NOT NULL
+              AND s.difference <> 0
+            ORDER BY s.closedAt DESC
+            """)
+    List<ShiftSessionModel> findPendingReconciliationWithDifference(
+            @Param("branchId") Long branchId,
+            @Param("status") ShiftSessionStatus status);
+
+    @Query("""
+            SELECT COUNT(s) FROM ShiftSessionModel s
+            WHERE s.branchId = :branchId
+              AND s.status = :status
+              AND s.difference IS NOT NULL
+              AND s.difference <> 0
+            """)
+    long countPendingReconciliationWithDifference(
+            @Param("branchId") Long branchId,
+            @Param("status") ShiftSessionStatus status);
+
     Optional<ShiftSessionModel> findFirstByEmployeeIdAndStatusOrderByClosedAtDesc(
             Long employeeId,
             ShiftSessionStatus status);
 
     long countByBranchIdAndStatus(Long branchId, ShiftSessionStatus status);
+
+    @Query("""
+            SELECT s FROM ShiftSessionModel s, ShiftModel sh
+            WHERE s.shiftId = sh.id
+              AND s.status IN :statuses
+              AND sh.endTime IS NOT NULL
+              AND sh.endTime < :cutoff
+            """)
+    List<ShiftSessionModel> findOverdueCashierSessions(
+            @Param("statuses") List<ShiftSessionStatus> statuses,
+            @Param("cutoff") LocalDateTime cutoff);
 }
-
+
