@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -99,12 +100,16 @@ public class DirectorDashboardServiceImpl implements IDirectorDashboardService {
 
         BigDecimal projected = project7Day(rangeTo);
 
-        long activePromos = campaignRepository.countByStatus(CampaignStatus.ACTIVE);
+        LocalDateTime now = LocalDateTime.now();
+        // Same window as customer mobile: ACTIVE and currently within [startAt, endAt].
+        long activePromos = campaignRepository.countLiveByStatus(CampaignStatus.ACTIVE, now);
         long draftPromos = campaignRepository.countByStatus(CampaignStatus.DRAFT);
         long suspendedPromos = campaignRepository.countByStatus(CampaignStatus.SUSPENDED);
 
         List<PromoSummary> activeCampaigns = campaignService.getAllCampaigns().stream()
                 .filter(c -> CampaignStatus.ACTIVE.name().equalsIgnoreCase(c.getStatus()))
+                .filter(c -> c.getStartAt() != null && !c.getStartAt().isAfter(now))
+                .filter(c -> c.getEndAt() != null && !c.getEndAt().isBefore(now))
                 .sorted(Comparator.comparing(
                         CampaignSummaryResponse::getEndAt,
                         Comparator.nullsLast(Comparator.naturalOrder())))

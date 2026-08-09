@@ -17,6 +17,7 @@ import base.api.feature.branch.service.IBranchService;
 import base.api.feature.branch.dto.request.SendBranchSuspendCodeRequest;
 import base.api.feature.branch.repository.BranchSuspendTokenRepository;
 import base.api.shared.config.EmailService;
+import base.api.shared.config.VerificationCodeIssuer;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.BranchSuspendTokenModel;
 import base.api.shared.entity.RoleModel;
@@ -29,6 +30,7 @@ import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.dto.PageRequestDTO;
 import jakarta.transaction.Transactional;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Page;
@@ -45,6 +47,7 @@ import java.util.stream.Stream;
 import java.util.regex.Pattern;
 
 @Service
+@Slf4j
 public class BranchServiceImpl implements IBranchService {
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^0[0-9]{9}$");
@@ -73,6 +76,9 @@ public class BranchServiceImpl implements IBranchService {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private VerificationCodeIssuer verificationCodeIssuer;
 
     @Override
     @Transactional
@@ -243,7 +249,7 @@ public class BranchServiceImpl implements IBranchService {
             throw new BadRequestException("Email does not match your account.");
         }
 
-        String code = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+        String code = verificationCodeIssuer.issueCode();
 
         BranchSuspendTokenModel token = new BranchSuspendTokenModel();
         token.setBranchId(branchId);
@@ -288,7 +294,11 @@ public class BranchServiceImpl implements IBranchService {
 
             emailService.sendHtmlEmail(normalizedEmail, subject, body);
         } catch (Exception ex) {
-            throw new BadRequestException("Unable to send verification email. Please try again.");
+            if (verificationCodeIssuer.isMock()) {
+                log.warn("SMTP failed in mock OTP mode; demo code remains valid for {}", normalizedEmail);
+            } else {
+                throw new BadRequestException("Unable to send verification email. Please try again.");
+            }
         }
     }
 

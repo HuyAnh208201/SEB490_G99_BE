@@ -55,7 +55,7 @@ public class PurchaseRequestMapper {
             List<PurchaseRequestDetailModel> items,
             Map<Integer, ProductModel> productsById
     ) {
-        return toResponse(request, branch, createdBy, approvedBy, items, productsById, Map.of());
+        return toResponse(request, branch, createdBy, approvedBy, items, productsById, Map.of(), Map.of());
     }
 
     public PurchaseRequestResponse toResponse(
@@ -66,6 +66,20 @@ public class PurchaseRequestMapper {
             List<PurchaseRequestDetailModel> items,
             Map<Integer, ProductModel> productsById,
             Map<Integer, Integer> warehouseStockByProduct
+    ) {
+        return toResponse(
+                request, branch, createdBy, approvedBy, items, productsById, warehouseStockByProduct, Map.of());
+    }
+
+    public PurchaseRequestResponse toResponse(
+            PurchaseRequestModel request,
+            BranchModel branch,
+            UserModel createdBy,
+            UserModel approvedBy,
+            List<PurchaseRequestDetailModel> items,
+            Map<Integer, ProductModel> productsById,
+            Map<Integer, Integer> warehouseStockByProduct,
+            Map<Integer, ProductPackagingModel> topPackagingsByProduct
     ) {
         PurchaseRequestResponse response = new PurchaseRequestResponse();
         response.setId(request.getId());
@@ -83,23 +97,35 @@ public class PurchaseRequestMapper {
         response.setCreatedAt(request.getCreatedAt());
         response.setNotes(request.getReason());
         Map<Integer, Integer> warehouseStock = warehouseStockByProduct == null ? Map.of() : warehouseStockByProduct;
+        Map<Integer, ProductPackagingModel> topPackagings =
+                topPackagingsByProduct == null ? Map.of() : topPackagingsByProduct;
         response.setItems(items.stream()
                 .map(item -> toDetailResponse(
                         item,
                         productsById.get(item.getProductId()),
-                        warehouseStock.get(item.getProductId())))
+                        warehouseStock.get(item.getProductId()),
+                        topPackagings.get(item.getProductId())))
                 .toList());
         return response;
     }
 
     public PurchaseRequestDetailResponse toDetailResponse(PurchaseRequestDetailModel detail, ProductModel product) {
-        return toDetailResponse(detail, product, null);
+        return toDetailResponse(detail, product, null, null);
     }
 
     public PurchaseRequestDetailResponse toDetailResponse(
             PurchaseRequestDetailModel detail,
             ProductModel product,
             Integer warehouseStock
+    ) {
+        return toDetailResponse(detail, product, warehouseStock, null);
+    }
+
+    public PurchaseRequestDetailResponse toDetailResponse(
+            PurchaseRequestDetailModel detail,
+            ProductModel product,
+            Integer warehouseStock,
+            ProductPackagingModel topPackaging
     ) {
         PurchaseRequestDetailResponse response = new PurchaseRequestDetailResponse();
         response.setId(detail.getId());
@@ -112,9 +138,11 @@ public class PurchaseRequestMapper {
         response.setApprovedQuantity(detail.getApprovedQuantity());
         response.setSupplierId(detail.getSupplierId());
         if (product != null) {
-            var topPackaging = productPackagingService.getTopPackaging(product);
-            response.setTopPackagingLabel(topPackaging == null ? null : topPackaging.displayLabel());
-            response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(topPackaging));
+            ProductPackagingModel top = topPackaging != null
+                    ? topPackaging
+                    : productPackagingService.getTopPackaging(product);
+            response.setTopPackagingLabel(top == null ? null : top.displayLabel());
+            response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(top));
         }
         response.setWarehouseStock(warehouseStock);
         return response;

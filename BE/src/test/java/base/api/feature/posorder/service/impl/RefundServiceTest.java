@@ -61,7 +61,7 @@ class RefundServiceTest {
     private RefundServiceImpl service;
 
     // =========================================================================
-    // (1) requestRefund quá 5 phút → BusinessException
+    // (1) requestRefund after the 5-minute window -> BusinessException
     // =========================================================================
     @Test
     void requestRefundAfterFiveMinuteWindowIsRejected() {
@@ -160,7 +160,7 @@ class RefundServiceTest {
     }
 
     // =========================================================================
-    // (3) requestRefund khi đã có refund PENDING → chặn
+    // (3) requestRefund blocked when a PENDING refund already exists
     // =========================================================================
     @Test
     void requestRefundWhenOneIsAlreadyInProgressIsBlocked() {
@@ -179,7 +179,7 @@ class RefundServiceTest {
     }
 
     // =========================================================================
-    // (2) approveRefund hoàn kho đúng số + set order REFUNDED + refund APPROVED
+    // (2) approveRefund restocks exact qty, marks order REFUNDED and refund APPROVED
     // =========================================================================
     @Test
     void approveRefundRestocksRecallsPointsAndMarksOrderRefunded() {
@@ -203,18 +203,18 @@ class RefundServiceTest {
 
         RefundResponse response = service.approveRefund(REFUND_ID, "Approved by BM");
 
-        // Hoàn đúng 3 đơn vị vào kho chi nhánh của đơn.
+        // Restock exactly 3 units into the order branch inventory.
         verify(branchInventoryRepository).addStock(BRANCH_ID, 50, 3);
-        // Thu hồi điểm đã tặng + hoàn điểm khách đã dùng.
+        // Recall earned points and restore redeemed points.
         verify(userRepository).deductPointsAtomic(200L, 5L);
         verify(userRepository).refundPointsAtomic(200L, 2L);
-        // Ghi lịch sử đảo điểm: điểm tặng thu hồi ghi âm (-5), điểm đổi hoàn lại ghi dương (+2).
+        // Point reversal history: earned recall is negative (-5), redeemed restore is positive (+2).
         ArgumentCaptor<PointTransactionModel> reversals = ArgumentCaptor.forClass(PointTransactionModel.class);
         verify(pointTransactionRepository, times(2)).save(reversals.capture());
         assertEquals(-5L, reversals.getAllValues().get(0).getPoints());
         assertEquals(2L, reversals.getAllValues().get(1).getPoints());
         assertEquals("REFUND_REVERSAL", reversals.getAllValues().get(0).getType());
-        // Đơn loại khỏi doanh thu, yêu cầu chuyển APPROVED.
+        // Order leaves revenue; refund request becomes APPROVED.
         assertEquals("REFUNDED", order.getStatus());
         assertEquals("APPROVED", refund.getStatus());
         assertEquals("APPROVED", response.getStatus());
@@ -222,7 +222,7 @@ class RefundServiceTest {
     }
 
     // =========================================================================
-    // (4) reject giữ order COMPLETED
+    // (4) reject keeps order COMPLETED
     // =========================================================================
     @Test
     void rejectKeepsOrderCompletedAndDoesNotRestock() {
@@ -238,7 +238,7 @@ class RefundServiceTest {
 
         assertEquals("REJECTED", refund.getStatus());
         assertEquals("REJECTED", response.getStatus());
-        // Đơn không bị đụng tới: giữ COMPLETED, không hoàn kho, không ghi lại order.
+        // Order untouched: stays COMPLETED, no restock, order not rewritten.
         assertEquals("COMPLETED", order.getStatus());
         verify(orderRepository, never()).save(any());
         verify(branchInventoryRepository, never()).addStock(anyLong(), anyInt(), anyInt());
@@ -276,6 +276,42 @@ class RefundServiceTest {
                 BusinessException.class, () -> service.approveRefund(REFUND_ID, "note"));
 
         assertTrue(error.getMessage().contains("own branch"));
+    }
+
+    // =========================================================================
+    // Role / note guards
+    // =========================================================================
+
+    @Test
+    void getPendingRefundsRejectsNonBranchManager() {
+        asCashier();
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.getPendingRefunds());
+
+        assertTrue(error.getMessage().contains("Only branch managers can review refunds."));
+        verify(orderRefundRepository, never()).findByBranchIdAndStatusOrderByCreatedAtDesc(anyLong(), any());
+    }
+
+    @Test
+    void rejectRefundRejectsBlankNote() {
+        asManager();
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.rejectRefund(REFUND_ID, "   "));
+
+        assertTrue(error.getMessage().contains("A note is required to reject a refund."));
+        verify(orderRefundRepository, never()).findById(any());
+    }
+
+    @Test
+    void requestRefundRejectsNonCashier() {
+        asManager();
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.requestRefund(ORDER_ID, "Wrong item"));
+
+        assertTrue(error.getMessage().contains("Only cashiers can request a refund."));
+        verify(orderRepository, never()).findById(any());
     }
 
     // =========================================================================

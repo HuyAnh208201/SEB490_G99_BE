@@ -26,6 +26,7 @@ import base.api.feature.auth.service.IUserService;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionRepository;
 import base.api.shared.config.EmailService;
+import base.api.shared.config.VerificationCodeIssuer;
 import base.api.shared.entity.ShiftAssignmentModel;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.ShiftStatus;
@@ -74,6 +75,9 @@ public class UserService implements IUserService {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private VerificationCodeIssuer verificationCodeIssuer;
 
     @Autowired
     private CriticalUserActionTokenRepository criticalUserActionTokenRepository;
@@ -183,7 +187,7 @@ public class UserService implements IUserService {
         UserModel savedUser = userRepository.save(newUser);
 
         String verificationToken = java.util.UUID.randomUUID().toString();
-        String verificationCode = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+        String verificationCode = verificationCodeIssuer.issueCode();
 
         EmailVerificationTokenModel tokenModel = new EmailVerificationTokenModel();
         tokenModel.setVerificationToken(verificationToken);
@@ -237,7 +241,11 @@ public class UserService implements IUserService {
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send verification email to {}: {}", savedUser.getEmail(), e.getMessage(), e);
-            throw new RuntimeException("Unable to send verification email. Please try again later.", e);
+            if (verificationCodeIssuer.isMock()) {
+                log.warn("SMTP failed in mock OTP mode; demo code remains valid for {}", savedUser.getEmail());
+            } else {
+                throw new RuntimeException("Unable to send verification email. Please try again later.", e);
+            }
         }
 
         return savedUser;
@@ -559,7 +567,7 @@ public class UserService implements IUserService {
         emailVerificationTokenRepository.deleteByEmail(user.getEmail());
 
         String verificationToken = java.util.UUID.randomUUID().toString();
-        String verificationCode = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+        String verificationCode = verificationCodeIssuer.issueCode();
 
         EmailVerificationTokenModel tokenModel = new EmailVerificationTokenModel();
         tokenModel.setVerificationToken(verificationToken);
@@ -606,7 +614,11 @@ public class UserService implements IUserService {
             emailService.sendHtmlEmail(user.getEmail(), "Resend account verification email", body);
         } catch (Exception e) {
             log.error("Failed to resend verification email to {}: {}", user.getEmail(), e.getMessage(), e);
-            throw new RuntimeException("Unable to send verification email. Please try again later.", e);
+            if (verificationCodeIssuer.isMock()) {
+                log.warn("SMTP failed in mock OTP mode; demo code remains valid for {}", user.getEmail());
+            } else {
+                throw new RuntimeException("Unable to send verification email. Please try again later.", e);
+            }
         }
     }
 
@@ -996,7 +1008,7 @@ public class UserService implements IUserService {
             throw new BadRequestException("Email does not match your account.");
         }
 
-        String code = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+        String code = verificationCodeIssuer.issueCode();
         CriticalUserActionTokenModel token = new CriticalUserActionTokenModel();
         token.setTargetUserId(targetUserId);
         token.setActorUserId(actor.getId());
@@ -1022,7 +1034,11 @@ public class UserService implements IUserService {
         try {
             emailService.sendHtmlEmail(normalizedEmail, subject, body);
         } catch (Exception ex) {
-            throw new BadRequestException("Unable to send verification email. Please try again.");
+            if (verificationCodeIssuer.isMock()) {
+                log.warn("SMTP failed in mock OTP mode; demo code remains valid for {}", normalizedEmail);
+            } else {
+                throw new BadRequestException("Unable to send verification email. Please try again.");
+            }
         }
     }
 

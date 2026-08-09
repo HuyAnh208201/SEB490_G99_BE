@@ -18,6 +18,7 @@ import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.DispatchOrderModel;
 import base.api.shared.entity.DispatchOrderRequestModel;
 import base.api.shared.entity.ProductModel;
+import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.WarehouseInventoryModel;
@@ -201,12 +202,16 @@ public class DispatchServiceImpl implements IDispatchService {
 
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(requestId);
         Map<Integer, ProductModel> productsById = loadProducts(List.of(details));
+        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
 
         Map<Integer, Integer> neededByProduct = new HashMap<>();
         for (PurchaseRequestDetailModel detail : details) {
             int topUnitsQty = dispatchQuantity(detail);
             if (topUnitsQty > 0 && detail.getProductId() != null) {
-                int baseUnitsQty = productPackagingService.toBaseQty(topUnitsQty, productsById.get(detail.getProductId()));
+                ProductPackagingModel top = topPackagings.get(detail.getProductId());
+                int baseUnitsQty = top != null
+                        ? productPackagingService.toBaseQty(topUnitsQty, top)
+                        : productPackagingService.toBaseQty(topUnitsQty, productsById.get(detail.getProductId()));
                 neededByProduct.merge(detail.getProductId(), baseUnitsQty, Integer::sum);
             }
         }
@@ -226,10 +231,14 @@ public class DispatchServiceImpl implements IDispatchService {
         if (!shortages.isEmpty()) {
             throw new BadRequestException("Insufficient warehouse stock for: " + String.join(", ", shortages));
         }
+        List<WarehouseInventoryModel> stockUpdates = new ArrayList<>();
         for (Map.Entry<Integer, Integer> entry : neededByProduct.entrySet()) {
             WarehouseInventoryModel inv = stockByProduct.get(entry.getKey());
             inv.setQuantity(safe(inv.getQuantity()) - entry.getValue());
-            warehouseInventoryRepository.save(inv);
+            stockUpdates.add(inv);
+        }
+        if (!stockUpdates.isEmpty()) {
+            warehouseInventoryRepository.saveAll(stockUpdates);
         }
 
         BranchModel branch = purchaseRequest.getBranchId() == null
@@ -382,12 +391,15 @@ public class DispatchServiceImpl implements IDispatchService {
 
         List<PurchaseRequestModel> requests = purchaseRequestRepository.findAllById(requestIds);
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
+        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
+        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
         appendRequests(
                 response,
                 requests,
                 detailsByRequest,
-                loadProducts(detailsByRequest.values()),
-                loadBranches(requests));
+                productsById,
+                loadBranches(requests),
+                topPackagings);
         return response;
     }
 
@@ -412,6 +424,7 @@ public class DispatchServiceImpl implements IDispatchService {
         List<PurchaseRequestModel> requests = new ArrayList<>(requestsById.values());
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
         Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
+        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
         Map<Long, BranchModel> branchesById = loadBranches(requests);
 
         return orders.stream().map(order -> {
@@ -422,7 +435,7 @@ public class DispatchServiceImpl implements IDispatchService {
                     .map(requestsById::get)
                     .filter(java.util.Objects::nonNull)
                     .toList();
-            appendRequests(response, orderRequests, detailsByRequest, productsById, branchesById);
+            appendRequests(response, orderRequests, detailsByRequest, productsById, branchesById, topPackagings);
             return response;
         }).toList();
     }
@@ -444,8 +457,10 @@ public class DispatchServiceImpl implements IDispatchService {
             List<PurchaseRequestModel> requests,
             Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest,
             Map<Integer, ProductModel> productsById,
-            Map<Long, BranchModel> branchesById
+            Map<Long, BranchModel> branchesById,
+            Map<Integer, ProductPackagingModel> topPackagings
     ) {
+        Map<Integer, ProductPackagingModel> packagings = topPackagings == null ? Map.of() : topPackagings;
         for (PurchaseRequestModel pr : requests) {
             List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
             BranchModel branch = branchesById.get(pr.getBranchId());
@@ -460,13 +475,14 @@ public class DispatchServiceImpl implements IDispatchService {
             List<DispatchOrderResponse.ItemLine> items = new ArrayList<>();
             for (PurchaseRequestDetailModel detail : details) {
                 ProductModel product = productsById.get(detail.getProductId());
+                ProductPackagingModel top = packagings.get(detail.getProductId());
                 DispatchOrderResponse.ItemLine item = new DispatchOrderResponse.ItemLine();
                 item.setProductId(detail.getProductId());
                 item.setProductCode(product == null ? null : product.getCode());
                 item.setProductName(product == null ? null : product.getName());
                 item.setUnit(product == null ? null : product.getUnit());
                 item.setQuantity(dispatchQuantity(detail));
-                item.setTopPackagingLabel(product == null ? null : productPackagingService.topLabel(product));
+                item.setTopPackagingLabel(top == null ? null : top.displayLabel());
                 items.add(item);
             }
             line.setItems(items);
@@ -496,6 +512,23 @@ public class DispatchServiceImpl implements IDispatchService {
         }
         return productRepository.findByIdInWithCategory(productIds).stream()
                 .collect(Collectors.toMap(ProductModel::getId, p -> p, (a, b) -> a));
+    }
+
+    private Map<Integer, ProductPackagingModel> loadTopPackagings(Map<Integer, ProductModel> productsById) {
+        if (productsById == null || productsById.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, ProductPackagingModel> topPackagings = new HashMap<>(
+                productPackagingService.getTopPackagingsByProductIds(productsById.keySet()));
+        for (ProductModel product : productsById.values()) {
+            if (!topPackagings.containsKey(product.getId())) {
+                ProductPackagingModel top = productPackagingService.getTopPackaging(product);
+                if (top != null) {
+                    topPackagings.put(product.getId(), top);
+                }
+            }
+        }
+        return topPackagings;
     }
 
     private Map<Long, BranchModel> loadBranches(List<PurchaseRequestModel> requests) {

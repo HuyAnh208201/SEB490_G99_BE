@@ -56,6 +56,42 @@ public final class ShiftSlotDeriver {
         return slots;
     }
 
+    public static int indexForTime(List<SlotTemplate> slots, LocalTime time) {
+        if (slots == null || slots.isEmpty() || time == null) {
+            return -1;
+        }
+        for (int i = 0; i < slots.size(); i++) {
+            SlotTemplate slot = slots.get(i);
+            if (!time.isBefore(slot.start()) && time.isBefore(slot.end())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** For QA outside branch hours: pick the slot whose midpoint is closest to {@code time}. */
+    public static int nearestSlotIndex(List<SlotTemplate> slots, LocalTime time) {
+        if (slots == null || slots.isEmpty()) {
+            return 0;
+        }
+        if (time == null) {
+            return 0;
+        }
+        int timeMins = toMinutes(time);
+        int best = 0;
+        int bestDistance = Integer.MAX_VALUE;
+        for (int i = 0; i < slots.size(); i++) {
+            SlotTemplate slot = slots.get(i);
+            int mid = (toMinutes(slot.start()) + toMinutes(slot.end())) / 2;
+            int distance = Math.abs(timeMins - mid);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+        return best;
+    }
+
     private static LocalTime[] parseOperatingHours(String value) {
         if (value == null || value.isBlank()) {
             return new LocalTime[]{LocalTime.of(8, 0), LocalTime.of(22, 0)};
