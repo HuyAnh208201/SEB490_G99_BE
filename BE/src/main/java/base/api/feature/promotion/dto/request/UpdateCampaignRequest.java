@@ -12,6 +12,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Setter
@@ -39,6 +40,15 @@ public class UpdateCampaignRequest {
 
     @NotNull(message = "End date is required.")
     private LocalDateTime endAt;
+
+    /** CHAIN or BRANCH — Admin/Director must keep CHAIN; Branch Manager keeps BRANCH. */
+    private String scope;
+
+    /**
+     * For CHAIN: empty/null = entire chain; non-empty = specific branches.
+     * Ignored for Branch Manager updates (branch mapping stays on their store).
+     */
+    private List<Long> branchIds;
 
     @AssertTrue(message = "End date must be after start date.")
     public boolean isEndAtAfterStartAt() {
