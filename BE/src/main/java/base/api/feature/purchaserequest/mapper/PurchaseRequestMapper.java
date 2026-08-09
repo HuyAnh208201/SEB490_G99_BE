@@ -143,6 +143,11 @@ public class PurchaseRequestMapper {
                     : productPackagingService.getTopPackaging(product);
             response.setTopPackagingLabel(top == null ? null : top.displayLabel());
             response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(top));
+            boolean shortDate = product.getCategory() != null
+                    && Boolean.TRUE.equals(product.getCategory().getShortDate());
+            response.setShortDate(shortDate);
+        } else {
+            response.setShortDate(false);
         }
         response.setWarehouseStock(warehouseStock);
         return response;

@@ -150,6 +150,10 @@ public class ProductServiceImpl implements IProductService {
 
         ProductModel saved = productRepository.save(product);
         productPackagingService.ensureDefaultPackagings(saved);
+        if (isShortDateCategory(saved.getCategory())) {
+            warehouseInventoryRepository.findByProductId(saved.getId())
+                    .ifPresent(warehouseInventoryRepository::delete);
+        }
         return productMapper.toResponse(saved);
     }
 
@@ -482,15 +486,28 @@ public class ProductServiceImpl implements IProductService {
         }
 
         warehouseInventoryRepository.findByProductId(product.getId())
-                .orElseGet(() -> {
-                    WarehouseInventoryModel row = new WarehouseInventoryModel();
-                    row.setProductId(product.getId());
-                    row.setQuantity(0);
-                    String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
-                    row.setReorderPoint(CategoryReorderPoints.forWarehouse(
-                            categoryName, product.getUnitsPerImportUnit()));
-                    return warehouseInventoryRepository.save(row);
-                });
+                .ifPresentOrElse(
+                        existing -> {
+                            if (isShortDateCategory(product.getCategory())) {
+                                warehouseInventoryRepository.delete(existing);
+                            }
+                        },
+                        () -> {
+                            if (isShortDateCategory(product.getCategory())) {
+                                return;
+                            }
+                            WarehouseInventoryModel row = new WarehouseInventoryModel();
+                            row.setProductId(product.getId());
+                            row.setQuantity(0);
+                            String categoryName = product.getCategory() == null ? null : product.getCategory().getName();
+                            row.setReorderPoint(CategoryReorderPoints.forWarehouse(
+                                    categoryName, product.getUnitsPerImportUnit()));
+                            warehouseInventoryRepository.save(row);
+                        });
+    }
+
+    private boolean isShortDateCategory(CategoryModel category) {
+        return category != null && Boolean.TRUE.equals(category.getShortDate());
     }
 
     private void applyDefaultImportPackaging(ProductModel product) {
@@ -675,8 +692,12 @@ public class ProductServiceImpl implements IProductService {
     }
 
     private CategoryModel resolveCategory(Integer categoryId) {
-        return categoryRepository.findById(categoryId)
+        CategoryModel category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new BadRequestException("Category not found."));
+        if (Boolean.FALSE.equals(category.getActive())) {
+            throw new BadRequestException("Cannot assign an inactive category.");
+        }
+        return category;
     }
 
     private String normalizeRequiredText(String value, String blankMessage) {

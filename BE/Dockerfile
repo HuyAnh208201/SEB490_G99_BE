@@ -20,7 +20,7 @@ WORKDIR /app
 
 COPY --from=build /app/target/*.jar app.jar
 #Copy file JAR đã build ở stage 1 → sang đây, đặt tên là app.jar
-EXPOSE 1328
+EXPOSE 4313
 ENTRYPOINT ["java", "-jar", "app.jar"]
 
 

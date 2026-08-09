@@ -20,6 +20,8 @@ public class DispatchOrderResponse {
     private String route;
     private LocalDateTime createdAt;
     private LocalDateTime deliveredAt;
+    private List<Integer> supplierIds = new ArrayList<>();
+    private List<String> supplierNames = new ArrayList<>();
     private List<RequestLine> requests = new ArrayList<>();
 
     @Getter
