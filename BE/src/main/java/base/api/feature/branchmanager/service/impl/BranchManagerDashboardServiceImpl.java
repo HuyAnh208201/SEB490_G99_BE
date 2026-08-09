@@ -103,7 +103,8 @@ public class BranchManagerDashboardServiceImpl implements IBranchManagerDashboar
                 reportService.getTopProducts(rangeFrom, rangeTo, null, null, 5),
                 purchaseRequestRepository.countByBranchIdAndStatusIn(branchId, OPEN_IMPORT_STATUSES),
                 orderRefundRepository.countByBranchIdAndStatus(branchId, "PENDING"),
-                shiftSessionRepository.countByBranchIdAndStatus(branchId, ShiftSessionStatus.PENDING_APPROVAL),
+                shiftSessionRepository.countPendingReconciliationWithDifference(
+                        branchId, ShiftSessionStatus.PENDING_APPROVAL),
                 lowStock,
                 shiftRepository.countByBranchIdAndStatus(branchId, ShiftStatus.PUBLISHED),
                 userRepository.countStaffByBranchId(branchId)
