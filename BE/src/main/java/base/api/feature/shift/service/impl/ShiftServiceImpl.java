@@ -877,11 +877,7 @@ public class ShiftServiceImpl implements IShiftService {
 
     @Override
     public List<ShiftResponse> getMyShifts() {
-        UserModel user = currentUserProvider.getCurrentUserOrThrow();
-        UserRole role = user.getRole() == null ? null : user.getRole().toWebRole();
-        if (role != UserRole.CASHIER && role != UserRole.INVENTORY_STAFF) {
-            throw new BusinessException("Only cashiers and inventory staff can view assigned shifts.");
-        }
+        UserModel user = requireStaffViewer();
         LocalDateTime from = LocalDate.now().minusDays(7).atStartOfDay();
         LocalDateTime to = LocalDate.now().plusDays(14).atStartOfDay();
         List<ShiftAssignmentModel> assignments =
@@ -894,6 +890,47 @@ public class ShiftServiceImpl implements IShiftService {
             responses.add(shiftMapper.toResponse(shift, all));
         }
         return responses;
+    }
+
+    @Override
+    public WeeklyScheduleResponse getMyWeeklySchedule(LocalDate weekStart) {
+        UserModel user = requireStaffViewer();
+        if (user.getBranchId() == null) {
+            throw new BusinessException("Your account is not assigned to a branch.");
+        }
+        LocalDate normalizedWeekStart = mondayOf(requireDate(weekStart, "Week start is required."));
+        LocalDateTime from = normalizedWeekStart.atStartOfDay();
+        LocalDateTime to = normalizedWeekStart.plusDays(7).atStartOfDay();
+        List<ShiftAssignmentModel> myAssignments =
+                assignmentRepository.findPublishedAssignmentsForStaffBetween(
+                        user.getId(), from, to, ShiftStatus.PUBLISHED);
+
+        List<ShiftModel> shifts = new ArrayList<>();
+        Map<Long, ShiftModel> seen = new LinkedHashMap<>();
+        for (ShiftAssignmentModel assignment : myAssignments) {
+            ShiftModel shift = assignment.getShift();
+            if (shift == null || shift.getId() == null) {
+                continue;
+            }
+            if (seen.putIfAbsent(shift.getId(), shift) == null) {
+                shifts.add(shift);
+            }
+        }
+        Map<Long, List<ShiftAssignmentModel>> assignmentsByShiftId = loadAssignmentsByShiftId(shifts);
+        WeeklyScheduleResponse response =
+                buildWeeklySchedule(user.getBranchId(), normalizedWeekStart, shifts, assignmentsByShiftId);
+        BranchModel branch = findBranchOrThrow(user.getBranchId());
+        response.setOperatingHours(branch.getOperatingHours());
+        return response;
+    }
+
+    private UserModel requireStaffViewer() {
+        UserModel user = currentUserProvider.getCurrentUserOrThrow();
+        UserRole role = user.getRole() == null ? null : user.getRole().toWebRole();
+        if (role != UserRole.CASHIER && role != UserRole.INVENTORY_STAFF) {
+            throw new BusinessException("Only cashiers and inventory staff can view assigned shifts.");
+        }
+        return user;
     }
 
     @Override

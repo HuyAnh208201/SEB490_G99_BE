@@ -10,9 +10,11 @@ import base.api.feature.shift.dto.request.WeekScheduleRequest;
 import base.api.feature.shift.dto.response.AvailableEmployeeResponse;
 import base.api.feature.shift.dto.response.PublishWeekResponse;
 import base.api.feature.shift.dto.response.ShiftResponse;
+import base.api.feature.shift.dto.response.WeeklyScheduleResponse;
 import base.api.feature.shift.mapper.ShiftMapper;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shift.repository.ShiftRepository;
+import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.ShiftAssignmentModel;
 import base.api.shared.entity.ShiftModel;
 import base.api.shared.entity.UserModel;
@@ -373,6 +375,57 @@ class ShiftServiceExtraTest {
     }
 
     @Test
+    void getMyWeeklyScheduleRejectsBranchManager() {
+        signedInAs(UserRole.BRANCH_MANAGER, BRANCH_ID);
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.getMyWeeklySchedule(LocalDate.of(2026, 7, 27)));
+
+        assertTrue(error.getMessage().contains(
+                "Only cashiers and inventory staff can view assigned shifts."));
+    }
+
+    @Test
+    void getMyWeeklyScheduleReturnsPublishedAssignmentsForWeek() {
+        UserModel cashier = employee(20L, UserRole.CASHIER);
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+
+        LocalDate weekStart = LocalDate.of(2026, 7, 27); // Monday
+        ShiftModel published = shift(1L, ShiftStatus.PUBLISHED);
+        published.setStartTime(LocalDateTime.of(2026, 7, 28, 8, 0));
+        published.setEndTime(LocalDateTime.of(2026, 7, 28, 12, 0));
+        ShiftAssignmentModel myAssignment = assignment(published, cashier);
+
+        when(assignmentRepository.findPublishedAssignmentsForStaffBetween(
+                eq(20L),
+                eq(weekStart.atStartOfDay()),
+                eq(weekStart.plusDays(7).atStartOfDay()),
+                eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of(myAssignment));
+        when(assignmentRepository.findByShiftIdIn(any())).thenReturn(List.of(myAssignment));
+        when(branchRepository.findById(BRANCH_ID)).thenReturn(Optional.of(branch(BRANCH_ID)));
+        when(shiftMapper.toResponse(eq(published), any())).thenAnswer(inv -> {
+            ShiftResponse response = new ShiftResponse();
+            response.setId(1L);
+            response.setStartTime(published.getStartTime());
+            response.setEndTime(published.getEndTime());
+            response.setStatus(ShiftStatus.PUBLISHED);
+            return response;
+        });
+
+        WeeklyScheduleResponse result = service.getMyWeeklySchedule(LocalDate.of(2026, 7, 29));
+
+        assertEquals(BRANCH_ID, result.getBranchId());
+        assertEquals(weekStart, result.getWeekStart());
+        assertEquals(7, result.getDays().size());
+        long shiftsInWeek = result.getDays().stream()
+                .mapToLong(day -> day.getShifts() == null ? 0 : day.getShifts().size())
+                .sum();
+        assertEquals(1, shiftsInWeek);
+    }
+
+    @Test
     void checkInRejectsNonPublishedShift() {
         UserModel cashier = employee(20L, UserRole.CASHIER);
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
@@ -506,6 +559,13 @@ class ShiftServiceExtraTest {
         user.setRole(role);
         user.setUserName("emp" + id);
         return user;
+    }
+
+    private BranchModel branch(Long id) {
+        BranchModel branch = new BranchModel();
+        branch.setId(id);
+        branch.setOperatingHours("08:00 - 22:00");
+        return branch;
     }
 
     private ShiftAssignmentModel assignment(ShiftModel shift, UserModel staff) {
