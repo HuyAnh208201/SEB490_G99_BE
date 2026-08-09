@@ -4,6 +4,7 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
+import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
 import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
@@ -290,6 +291,83 @@ class CampaignServiceImplTest {
         NotFoundException error = assertThrows(NotFoundException.class, () -> service.getCampaign(99L));
 
         assertEquals("Promotion not found.", error.getMessage());
+    }
+
+    @Test
+    void updateCampaignAsAdminReplacesBranchMappings() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.DEACTIVATED, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.existsByNameIgnoreCaseAndIdNot("Summer Sale", 1L)).thenReturn(false);
+        when(campaignRepository.save(any(CampaignModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        BranchModel b1 = new BranchModel();
+        b1.setId(10L);
+        BranchModel b2 = new BranchModel();
+        b2.setId(20L);
+        when(branchRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(b1, b2));
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList()))
+                .thenReturn(new CampaignResponse());
+
+        UpdateCampaignRequest request = new UpdateCampaignRequest();
+        request.setName("Summer Sale");
+        request.setType("PERCENT");
+        request.setDiscountValue(new BigDecimal("10"));
+        request.setPriority(1);
+        request.setStartAt(LocalDateTime.now().plusDays(1));
+        request.setEndAt(LocalDateTime.now().plusDays(30));
+        request.setScope("CHAIN");
+        request.setBranchIds(List.of(10L, 20L));
+
+        service.updateCampaign(1L, request);
+
+        verify(campaignBranchRepository).deleteByCampaignId(1L);
+        verify(campaignBranchRepository).saveAll(anyList());
+    }
+
+    @Test
+    void updateCampaignAsAdminClearsBranchesForEntireChain() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.DEACTIVATED, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.existsByNameIgnoreCaseAndIdNot("Summer Sale", 1L)).thenReturn(false);
+        when(campaignRepository.save(any(CampaignModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList()))
+                .thenReturn(new CampaignResponse());
+
+        UpdateCampaignRequest request = new UpdateCampaignRequest();
+        request.setName("Summer Sale");
+        request.setType("PERCENT");
+        request.setDiscountValue(new BigDecimal("10"));
+        request.setPriority(1);
+        request.setStartAt(LocalDateTime.now().plusDays(1));
+        request.setEndAt(LocalDateTime.now().plusDays(30));
+        request.setScope("CHAIN");
+        request.setBranchIds(List.of());
+
+        service.updateCampaign(1L, request);
+
+        verify(campaignBranchRepository).deleteByCampaignId(1L);
+    }
+
+    @Test
+    void deleteCampaignRejectsActivePromotion() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+
+        BadRequestException error = assertThrows(BadRequestException.class, () -> service.deleteCampaign(1L));
+
+        assertEquals("Active promotions cannot be deleted. Deactivate the promotion first.", error.getMessage());
+    }
+
+    @Test
+    void createCampaignRejectsBuyXGetY() {
+        asAdmin();
+        CreateCampaignRequest request = createRequest("BXGY", "CHAIN", "BUY_X_GET_Y");
+
+        BadRequestException error = assertThrows(BadRequestException.class, () -> service.createCampaign(request));
+
+        assertEquals("Buy X get Y promotions are no longer supported.", error.getMessage());
     }
 
     private void asAdmin() {
