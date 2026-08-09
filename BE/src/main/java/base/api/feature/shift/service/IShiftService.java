@@ -66,6 +66,8 @@ public interface IShiftService {
 
     List<ShiftResponse> getMyShifts();
 
+    WeeklyScheduleResponse getMyWeeklySchedule(LocalDate weekStart);
+
     ShiftResponse checkIn(Long shiftId);
 
     /**

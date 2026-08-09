@@ -205,6 +205,14 @@ public class ShiftController extends BaseAPIController {
         return success(shiftService.getMyShifts());
     }
 
+    @Operation(summary = "My weekly published schedule (cashier / inventory staff)")
+    @PreAuthorize("@permissionChecker.has('MY_SHIFTS')")
+    @GetMapping("/my/weekly")
+    public ResponseEntity<TFUResponse<WeeklyScheduleResponse>> getMyWeeklySchedule(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStart) {
+        return success(shiftService.getMyWeeklySchedule(weekStart));
+    }
+
     @Operation(summary = "Check in to assigned shift")
     @PreAuthorize("@permissionChecker.has('MY_SHIFTS')")
     @PatchMapping("/{shiftId}/check-in")

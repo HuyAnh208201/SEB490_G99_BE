@@ -15,5 +15,8 @@ public class WeeklyScheduleResponse {
 
     private LocalDate weekStart;
 
+    /** Branch operating hours string (e.g. "08:00 - 22:00"), when available. */
+    private String operatingHours;
+
     private List<ScheduleDayResponse> days = new ArrayList<>();
 }
