@@ -2,9 +2,11 @@ package base.api.feature.promotion.repository;
 
 import base.api.shared.entity.CampaignBranchModel;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
@@ -17,7 +19,10 @@ public interface CampaignBranchRepository extends JpaRepository<CampaignBranchMo
 
     List<CampaignBranchModel> findByCampaignIdIn(Collection<Long> campaignIds);
 
-    void deleteByCampaignId(Long campaignId);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM CampaignBranchModel cb WHERE cb.campaignId = :campaignId")
+    void deleteByCampaignId(@Param("campaignId") Long campaignId);
 
     boolean existsByCampaignIdAndBranchId(Long campaignId, Long branchId);
 

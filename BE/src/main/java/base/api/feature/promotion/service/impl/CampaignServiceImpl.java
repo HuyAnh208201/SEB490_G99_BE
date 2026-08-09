@@ -690,8 +690,25 @@ public class CampaignServiceImpl implements ICampaignService {
     }
 
     private void replaceCampaignBranches(Long campaignId, List<Long> branchIds) {
-        campaignBranchRepository.deleteByCampaignId(campaignId);
-        saveCampaignBranches(campaignId, branchIds);
+        List<Long> desired = branchIds == null ? List.of() : branchIds;
+        List<CampaignBranchModel> existing = campaignBranchRepository.findByCampaignId(campaignId);
+        java.util.Set<Long> existingIds = existing.stream()
+                .map(CampaignBranchModel::getBranchId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        java.util.Set<Long> desiredIds = new java.util.LinkedHashSet<>(desired);
+
+        List<CampaignBranchModel> toRemove = existing.stream()
+                .filter(row -> !desiredIds.contains(row.getBranchId()))
+                .toList();
+        if (!toRemove.isEmpty()) {
+            campaignBranchRepository.deleteAllInBatch(toRemove);
+            campaignBranchRepository.flush();
+        }
+
+        List<Long> toAdd = desiredIds.stream()
+                .filter(branchId -> !existingIds.contains(branchId))
+                .toList();
+        saveCampaignBranches(campaignId, toAdd);
     }
 
     private void saveCampaignBranches(Long campaignId, List<Long> branchIds) {
