@@ -22,6 +22,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -162,47 +163,46 @@ class CategoryServiceImplTest {
     }
 
     @Test
-    void deleteRejectsWhenProductsUseCategory() {
-        when(categoryRepository.findById(1)).thenReturn(Optional.of(category(1, "Snacks")));
-        when(productRepository.existsByCategory_Id(1)).thenReturn(true);
-
+    void deleteAlwaysRejectsInFavorOfDeactivate() {
         ConflictException error = assertThrows(ConflictException.class, () -> service.delete(1));
 
-        assertEquals("Category is being used by existing products.", error.getMessage());
+        assertTrue(error.getMessage().contains("Deactivate"));
         verify(categoryRepository, never()).delete(any(CategoryModel.class));
+        verify(categoryRepository, never()).findById(any());
     }
 
     @Test
-    void deleteRejectsWhenChildCategoriesExist() {
-        when(categoryRepository.findById(1)).thenReturn(Optional.of(category(1, "Parent")));
-        when(productRepository.existsByCategory_Id(1)).thenReturn(false);
-        when(categoryRepository.existsByParentCategoryId(1)).thenReturn(true);
-
-        ConflictException error = assertThrows(ConflictException.class, () -> service.delete(1));
-
-        assertEquals("Cannot delete category because it has child categories.", error.getMessage());
-        verify(categoryRepository, never()).delete(any(CategoryModel.class));
-    }
-
-    @Test
-    void deleteRemovesUnusedLeafCategory() {
-        CategoryModel category = category(1, "Leaf");
+    void deactivateSetsActiveFalse() {
+        CategoryModel category = category(1, "Snacks");
+        category.setActive(true);
         when(categoryRepository.findById(1)).thenReturn(Optional.of(category));
-        when(productRepository.existsByCategory_Id(1)).thenReturn(false);
         when(categoryRepository.existsByParentCategoryId(1)).thenReturn(false);
+        when(categoryRepository.save(any(CategoryModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        CategoryResponse mapped = new CategoryResponse();
+        mapped.setActive(false);
+        when(categoryMapper.toResponse(any(CategoryModel.class))).thenReturn(mapped);
 
-        service.delete(1);
+        CategoryResponse response = service.deactivate(1);
 
-        verify(categoryRepository).delete(category);
+        assertEquals(false, response.getActive());
+        assertEquals(false, category.getActive());
+        verify(categoryRepository).save(category);
     }
 
     @Test
-    void deleteThrowsWhenCategoryMissing() {
-        when(categoryRepository.findById(88)).thenReturn(Optional.empty());
+    void activateSetsActiveTrue() {
+        CategoryModel category = category(1, "Snacks");
+        category.setActive(false);
+        when(categoryRepository.findById(1)).thenReturn(Optional.of(category));
+        when(categoryRepository.save(any(CategoryModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        CategoryResponse mapped = new CategoryResponse();
+        mapped.setActive(true);
+        when(categoryMapper.toResponse(any(CategoryModel.class))).thenReturn(mapped);
 
-        NotFoundException error = assertThrows(NotFoundException.class, () -> service.delete(88));
+        CategoryResponse response = service.activate(1);
 
-        assertEquals("Category not found.", error.getMessage());
+        assertEquals(true, response.getActive());
+        assertEquals(true, category.getActive());
     }
 
     private static CreateCategoryRequest createRequest(String name, Integer parentId, String description) {

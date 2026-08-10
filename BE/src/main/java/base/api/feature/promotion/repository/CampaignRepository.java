@@ -3,6 +3,7 @@ package base.api.feature.promotion.repository;
 import base.api.shared.entity.CampaignModel;
 import base.api.shared.enums.CampaignScope;
 import base.api.shared.enums.CampaignStatus;
+import base.api.shared.enums.CampaignType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -25,6 +26,8 @@ public interface CampaignRepository extends JpaRepository<CampaignModel, Long>, 
     List<CampaignModel> findByIdIn(Collection<Long> ids);
 
     List<CampaignModel> findByStatus(CampaignStatus status);
+
+    List<CampaignModel> findByType(CampaignType type);
 
     long countByStatus(CampaignStatus status);
 

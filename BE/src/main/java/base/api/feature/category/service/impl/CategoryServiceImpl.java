@@ -45,6 +45,8 @@ public class CategoryServiceImpl implements ICategoryService {
         category.setName(normalizedName);
         category.setDescription(normalizeNullableText(request.getDescription()));
         category.setParentCategory(resolveParentCategory(request.getParentId(), null));
+        category.setActive(true);
+        category.setShortDate(false);
 
         return categoryMapper.toResponse(categoryRepository.save(category));
     }
@@ -67,17 +69,41 @@ public class CategoryServiceImpl implements ICategoryService {
     @Override
     @Transactional
     public void delete(Integer id) {
+        throw new ConflictException(
+                "Categories cannot be deleted. Deactivate the category instead.");
+    }
+
+    @Override
+    @Transactional
+    public CategoryResponse deactivate(Integer id) {
         CategoryModel category = findCategoryOrThrow(id);
-
-        if (productRepository.existsByCategory_Id(id)) {
-            throw new ConflictException("Category is being used by existing products.");
+        if (Boolean.FALSE.equals(category.getActive())) {
+            return categoryMapper.toResponse(category);
         }
-
         if (categoryRepository.existsByParentCategoryId(id)) {
-            throw new ConflictException("Cannot delete category because it has child categories.");
+            boolean hasActiveChild = categoryRepository.findAll().stream()
+                    .anyMatch(c -> c.getParentCategory() != null
+                            && id.equals(c.getParentCategory().getId())
+                            && !Boolean.FALSE.equals(c.getActive()));
+            if (hasActiveChild) {
+                throw new ConflictException(
+                        "Cannot deactivate category while it has active child categories.");
+            }
         }
+        category.setActive(false);
+        return categoryMapper.toResponse(categoryRepository.save(category));
+    }
 
-        categoryRepository.delete(category);
+    @Override
+    @Transactional
+    public CategoryResponse activate(Integer id) {
+        CategoryModel category = findCategoryOrThrow(id);
+        if (category.getParentCategory() != null
+                && Boolean.FALSE.equals(category.getParentCategory().getActive())) {
+            throw new BadRequestException("Cannot activate category while its parent is inactive.");
+        }
+        category.setActive(true);
+        return categoryMapper.toResponse(categoryRepository.save(category));
     }
 
     @Override
@@ -86,16 +112,21 @@ public class CategoryServiceImpl implements ICategoryService {
     }
 
     @Override
-    public List<CategoryResponse> getAll() {
-        return categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
-                .map(categoryMapper::toResponse)
-                .toList();
+    public List<CategoryResponse> getAll(boolean includeInactive) {
+        List<CategoryModel> categories = includeInactive
+                ? categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "id"))
+                : categoryRepository.findByActiveTrue(Sort.by(Sort.Direction.ASC, "id"));
+        return categories.stream().map(categoryMapper::toResponse).toList();
     }
 
     @Override
-    public Page<CategoryResponse> getPage(PageRequestDTO pageRequest) {
+    public Page<CategoryResponse> getPage(PageRequestDTO pageRequest, boolean includeInactive) {
         PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
         Specification<CategoryModel> specification = (root, ignored, cb) -> cb.conjunction();
+        if (!includeInactive) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(root.get("active"), true));
+        }
         String search = query.normalizedSearch();
         if (search != null) {
             String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
@@ -134,8 +165,12 @@ public class CategoryServiceImpl implements ICategoryService {
             throw new BadRequestException("Category cannot be its own parent.");
         }
 
-        return categoryRepository.findById(parentId)
+        CategoryModel parent = categoryRepository.findById(parentId)
                 .orElseThrow(() -> new BadRequestException("Parent category not found."));
+        if (Boolean.FALSE.equals(parent.getActive())) {
+            throw new BadRequestException("Parent category is inactive.");
+        }
+        return parent;
     }
 
     private String normalizeName(String name) {

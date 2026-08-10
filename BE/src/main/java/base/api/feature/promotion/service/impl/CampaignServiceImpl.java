@@ -137,6 +137,7 @@ public class CampaignServiceImpl implements ICampaignService {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanModifyCampaign(campaign);
         assertCampaignNotActive(campaign, "edited");
+        UserRole currentRole = currentUserProvider.getCurrentUserRole();
 
         String normalizedName = normalizeRequiredText(request.getName(), "Promotion name is required.");
         validateDuplicateName(normalizedName, id);
@@ -149,7 +150,31 @@ public class CampaignServiceImpl implements ICampaignService {
         campaign.setStartAt(request.getStartAt());
         campaign.setEndAt(request.getEndAt());
 
-        return campaignMapper.toResponse(campaignRepository.save(campaign), getBranchIds(id));
+        List<Long> branchIds;
+        if (canManageChainPromotions(currentRole)) {
+            if (request.getScope() != null && !request.getScope().isBlank()) {
+                CampaignScope requestedScope = parseScope(request.getScope());
+                if (requestedScope != CampaignScope.CHAIN) {
+                    throw new BadRequestException(
+                            "Administrator and promotion director can only manage chain promotions.");
+                }
+                campaign.setScope(CampaignScope.CHAIN);
+            } else if (campaign.getScope() != CampaignScope.CHAIN) {
+                campaign.setScope(CampaignScope.CHAIN);
+            }
+            branchIds = normalizeBranchIds(request.getBranchIds());
+            validateBranchesExist(branchIds);
+            campaignRepository.save(campaign);
+            replaceCampaignBranches(id, branchIds);
+        } else if (currentRole == UserRole.BRANCH_MANAGER) {
+            // Branch managers cannot retarget other stores — keep existing mapping.
+            campaignRepository.save(campaign);
+            branchIds = getBranchIds(id);
+        } else {
+            throw new ForbiddenException("Access denied.");
+        }
+
+        return campaignMapper.toResponse(campaign, branchIds);
     }
 
     @Override
@@ -507,7 +532,7 @@ public class CampaignServiceImpl implements ICampaignService {
      */
     private void assertCampaignNotActive(CampaignModel campaign, String action) {
         if (campaign.getStatus() == CampaignStatus.ACTIVE) {
-            throw new ConflictException(
+            throw new BadRequestException(
                     "Active promotions cannot be " + action + ". Deactivate the promotion first.");
         }
     }
@@ -602,7 +627,11 @@ public class CampaignServiceImpl implements ICampaignService {
             throw new BadRequestException("Promotion type is required.");
         }
         try {
-            return CampaignType.valueOf(normalized);
+            CampaignType type = CampaignType.valueOf(normalized);
+            if (type == CampaignType.BUY_X_GET_Y) {
+                throw new BadRequestException("Buy X get Y promotions are no longer supported.");
+            }
+            return type;
         } catch (IllegalArgumentException ex) {
             throw new BadRequestException("Invalid promotion type.");
         }
@@ -703,6 +732,28 @@ public class CampaignServiceImpl implements ICampaignService {
         if (branchRepository.findAllById(branchIds).size() != branchIds.size()) {
             throw new NotFoundException("Branch not found.");
         }
+    }
+
+    private void replaceCampaignBranches(Long campaignId, List<Long> branchIds) {
+        List<Long> desired = branchIds == null ? List.of() : branchIds;
+        List<CampaignBranchModel> existing = campaignBranchRepository.findByCampaignId(campaignId);
+        java.util.Set<Long> existingIds = existing.stream()
+                .map(CampaignBranchModel::getBranchId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        java.util.Set<Long> desiredIds = new java.util.LinkedHashSet<>(desired);
+
+        List<CampaignBranchModel> toRemove = existing.stream()
+                .filter(row -> !desiredIds.contains(row.getBranchId()))
+                .toList();
+        if (!toRemove.isEmpty()) {
+            campaignBranchRepository.deleteAllInBatch(toRemove);
+            campaignBranchRepository.flush();
+        }
+
+        List<Long> toAdd = desiredIds.stream()
+                .filter(branchId -> !existingIds.contains(branchId))
+                .toList();
+        saveCampaignBranches(campaignId, toAdd);
     }
 
     private void saveCampaignBranches(Long campaignId, List<Long> branchIds) {

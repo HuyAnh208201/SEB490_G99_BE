@@ -7,11 +7,13 @@ import base.api.feature.dispatch.dto.response.DispatchOrderResponse;
 import base.api.feature.dispatch.mapper.DispatchMapper;
 import base.api.feature.dispatch.repository.DispatchOrderRepository;
 import base.api.feature.dispatch.repository.DispatchOrderRequestRepository;
+import base.api.feature.dispatch.repository.DispatchOrderSupplierRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
+import base.api.feature.supplier.repository.ISupplierRepository;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.DispatchOrderModel;
 import base.api.shared.entity.DispatchOrderRequestModel;
@@ -25,6 +27,7 @@ import base.api.shared.enums.PurchaseRequestStatus;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -58,17 +61,26 @@ class DispatchServiceImplTest {
 
     @Mock private DispatchOrderRepository dispatchOrderRepository;
     @Mock private DispatchOrderRequestRepository dispatchOrderRequestRepository;
+    @Mock private DispatchOrderSupplierRepository dispatchOrderSupplierRepository;
     @Mock private PurchaseRequestRepository purchaseRequestRepository;
     @Mock private PurchaseRequestDetailRepository detailRepository;
     @Mock private WarehouseInventoryRepository warehouseInventoryRepository;
     @Mock private IBranchRepository branchRepository;
     @Mock private IProductRepository productRepository;
+    @Mock private ISupplierRepository supplierRepository;
     @Mock private DispatchMapper dispatchMapper;
     @Mock private CurrentUserProvider currentUserProvider;
     @Mock private ProductPackagingService productPackagingService;
 
     @InjectMocks
     private DispatchServiceImpl service;
+
+    @BeforeEach
+    void stubSupplierLookups() {
+        when(dispatchOrderSupplierRepository.findByDispatchOrderId(any())).thenReturn(List.of());
+        when(dispatchOrderSupplierRepository.findByDispatchOrderIdIn(anyCollection())).thenReturn(List.of());
+        when(dispatchOrderSupplierRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+    }
 
     @Test
     void createDispatchOrderRejectsNullRequestId() {

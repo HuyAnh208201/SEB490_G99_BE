@@ -17,11 +17,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ModelAttribute;
 
@@ -46,18 +48,20 @@ public class CategoryController extends BaseAPIController {
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
-    @Operation(summary = "Get all categories")
+    @Operation(summary = "Get categories (active only by default)")
     @GetMapping
-    public ResponseEntity<TFUResponse<List<CategoryResponse>>> getAll() {
-        return success(categoryService.getAll());
+    public ResponseEntity<TFUResponse<List<CategoryResponse>>> getAll(
+            @RequestParam(defaultValue = "false") boolean includeInactive) {
+        return success(categoryService.getAll(includeInactive));
     }
 
     @Operation(summary = "Search and paginate categories")
     @PreAuthorize("@permissionChecker.has('CATEGORY_MANAGEMENT')")
     @GetMapping("/page")
     public ResponseEntity<TFUResponse<PageResponseDTO<CategoryResponse>>> getPage(
-            @ModelAttribute PageRequestDTO pageRequest) {
-        return successPage(categoryService.getPage(pageRequest));
+            @ModelAttribute PageRequestDTO pageRequest,
+            @RequestParam(defaultValue = "true") boolean includeInactive) {
+        return successPage(categoryService.getPage(pageRequest, includeInactive));
     }
 
     @Operation(summary = "Get category detail")
@@ -75,11 +79,25 @@ public class CategoryController extends BaseAPIController {
         return success(categoryService.update(id, request), "Category updated successfully.");
     }
 
-    @Operation(summary = "Delete category")
+    @Operation(summary = "Deactivate category (soft hide — delete is not allowed)")
+    @PreAuthorize("@permissionChecker.has('CATEGORY_MANAGEMENT')")
+    @PatchMapping("/{id}/deactivate")
+    public ResponseEntity<TFUResponse<CategoryResponse>> deactivate(@PathVariable Integer id) {
+        return success(categoryService.deactivate(id), "Category deactivated.");
+    }
+
+    @Operation(summary = "Activate category")
+    @PreAuthorize("@permissionChecker.has('CATEGORY_MANAGEMENT')")
+    @PatchMapping("/{id}/activate")
+    public ResponseEntity<TFUResponse<CategoryResponse>> activate(@PathVariable Integer id) {
+        return success(categoryService.activate(id), "Category activated.");
+    }
+
+    @Operation(summary = "Delete category — disabled; use deactivate")
     @PreAuthorize("@permissionChecker.has('CATEGORY_MANAGEMENT')")
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Integer id) {
+    public ResponseEntity<TFUResponse<Void>> delete(@PathVariable Integer id) {
         categoryService.delete(id);
-        return ResponseEntity.noContent().build();
+        return success(null);
     }
 }
