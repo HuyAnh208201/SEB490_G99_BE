@@ -134,7 +134,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     @Value("${shift.auto-close.grace-minutes:30}")
     private int autoCloseGraceMinutes;
 
-    @Value("${url.client-url:http://localhost:5173}")
+    @Value("${url.client-url:http://localhost:5175}")
     private String clientUrl;
 
     @Override

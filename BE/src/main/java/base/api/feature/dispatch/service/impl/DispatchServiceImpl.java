@@ -8,19 +8,23 @@ import base.api.feature.dispatch.dto.response.DispatchOrderResponse;
 import base.api.feature.dispatch.mapper.DispatchMapper;
 import base.api.feature.dispatch.repository.DispatchOrderRepository;
 import base.api.feature.dispatch.repository.DispatchOrderRequestRepository;
+import base.api.feature.dispatch.repository.DispatchOrderSupplierRepository;
 import base.api.feature.dispatch.service.IDispatchService;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
+import base.api.feature.supplier.repository.ISupplierRepository;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.DispatchOrderModel;
 import base.api.shared.entity.DispatchOrderRequestModel;
+import base.api.shared.entity.DispatchOrderSupplierModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.ProductPackagingModel;
 import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
+import base.api.shared.entity.SupplierModel;
 import base.api.shared.entity.WarehouseInventoryModel;
 import base.api.shared.enums.DispatchStatus;
 import base.api.shared.enums.PurchaseRequestStatus;
@@ -42,6 +46,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Locale;
@@ -57,6 +62,9 @@ public class DispatchServiceImpl implements IDispatchService {
     private DispatchOrderRequestRepository dispatchOrderRequestRepository;
 
     @Autowired
+    private DispatchOrderSupplierRepository dispatchOrderSupplierRepository;
+
+    @Autowired
     private PurchaseRequestRepository purchaseRequestRepository;
 
     @Autowired
@@ -70,6 +78,9 @@ public class DispatchServiceImpl implements IDispatchService {
 
     @Autowired
     private IProductRepository productRepository;
+
+    @Autowired
+    private ISupplierRepository supplierRepository;
 
     @Autowired
     private DispatchMapper dispatchMapper;
@@ -177,7 +188,11 @@ public class DispatchServiceImpl implements IDispatchService {
             response.setArea(branch == null ? null : branch.getArea());
             response.setRoute(branch == null ? null : branch.getRoute());
             response.setItemCount(details.size());
-            response.setCategories(distinctCategories(details, productsById));
+            List<String> categories = distinctCategories(details, productsById);
+            List<String> shortDateCategories = distinctShortDateCategories(details, productsById);
+            response.setCategories(categories);
+            response.setShortDateCategories(shortDateCategories);
+            response.setHasShortDateCategories(!shortDateCategories.isEmpty());
             response.setCreatedAt(request.getCreatedAt());
             result.add(response);
         }
@@ -204,40 +219,56 @@ public class DispatchServiceImpl implements IDispatchService {
         Map<Integer, ProductModel> productsById = loadProducts(List.of(details));
         Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
 
+        boolean hasShortDate = details.stream()
+                .map(d -> productsById.get(d.getProductId()))
+                .anyMatch(this::isShortDateProduct);
+        List<Integer> supplierIds = normalizeSupplierIds(request.getSupplierIds());
+        if (hasShortDate && supplierIds.isEmpty()) {
+            throw new BadRequestException(
+                    "Select at least one supplier for short-date (perishable) categories.");
+        }
+        if (!supplierIds.isEmpty()) {
+            validateSuppliersExist(supplierIds);
+        }
+
         Map<Integer, Integer> neededByProduct = new HashMap<>();
         for (PurchaseRequestDetailModel detail : details) {
+            ProductModel product = productsById.get(detail.getProductId());
+            if (isShortDateProduct(product)) {
+                continue; // supplier-direct — no central warehouse deduction
+            }
             int topUnitsQty = dispatchQuantity(detail);
             if (topUnitsQty > 0 && detail.getProductId() != null) {
                 ProductPackagingModel top = topPackagings.get(detail.getProductId());
                 int baseUnitsQty = top != null
                         ? productPackagingService.toBaseQty(topUnitsQty, top)
-                        : productPackagingService.toBaseQty(topUnitsQty, productsById.get(detail.getProductId()));
+                        : productPackagingService.toBaseQty(topUnitsQty, product);
                 neededByProduct.merge(detail.getProductId(), baseUnitsQty, Integer::sum);
             }
         }
 
-        Map<Integer, WarehouseInventoryModel> stockByProduct = warehouseInventoryRepository
-                .findByProductIdIn(neededByProduct.keySet()).stream()
-                .collect(Collectors.toMap(WarehouseInventoryModel::getProductId, inv -> inv, (a, b) -> a));
+        if (!neededByProduct.isEmpty()) {
+            Map<Integer, WarehouseInventoryModel> stockByProduct = warehouseInventoryRepository
+                    .findByProductIdIn(neededByProduct.keySet()).stream()
+                    .collect(Collectors.toMap(WarehouseInventoryModel::getProductId, inv -> inv, (a, b) -> a));
 
-        List<String> shortages = new ArrayList<>();
-        for (Map.Entry<Integer, Integer> entry : neededByProduct.entrySet()) {
-            WarehouseInventoryModel inv = stockByProduct.get(entry.getKey());
-            int available = inv == null ? 0 : safe(inv.getQuantity());
-            if (available < entry.getValue()) {
-                shortages.add("product " + entry.getKey() + " (need " + entry.getValue() + ", have " + available + ")");
+            List<String> shortages = new ArrayList<>();
+            for (Map.Entry<Integer, Integer> entry : neededByProduct.entrySet()) {
+                WarehouseInventoryModel inv = stockByProduct.get(entry.getKey());
+                int available = inv == null ? 0 : safe(inv.getQuantity());
+                if (available < entry.getValue()) {
+                    shortages.add("product " + entry.getKey() + " (need " + entry.getValue() + ", have " + available + ")");
+                }
             }
-        }
-        if (!shortages.isEmpty()) {
-            throw new BadRequestException("Insufficient warehouse stock for: " + String.join(", ", shortages));
-        }
-        List<WarehouseInventoryModel> stockUpdates = new ArrayList<>();
-        for (Map.Entry<Integer, Integer> entry : neededByProduct.entrySet()) {
-            WarehouseInventoryModel inv = stockByProduct.get(entry.getKey());
-            inv.setQuantity(safe(inv.getQuantity()) - entry.getValue());
-            stockUpdates.add(inv);
-        }
-        if (!stockUpdates.isEmpty()) {
+            if (!shortages.isEmpty()) {
+                throw new BadRequestException("Insufficient warehouse stock for: " + String.join(", ", shortages));
+            }
+            List<WarehouseInventoryModel> stockUpdates = new ArrayList<>();
+            for (Map.Entry<Integer, Integer> entry : neededByProduct.entrySet()) {
+                WarehouseInventoryModel inv = stockByProduct.get(entry.getKey());
+                inv.setQuantity(safe(inv.getQuantity()) - entry.getValue());
+                stockUpdates.add(inv);
+            }
             warehouseInventoryRepository.saveAll(stockUpdates);
         }
 
@@ -256,6 +287,17 @@ public class DispatchServiceImpl implements IDispatchService {
         link.setDispatchOrderId(savedOrder.getId());
         link.setPurchaseRequestId(purchaseRequest.getId());
         dispatchOrderRequestRepository.save(link);
+
+        if (!supplierIds.isEmpty()) {
+            List<DispatchOrderSupplierModel> supplierLinks = new ArrayList<>();
+            for (Integer supplierId : supplierIds) {
+                DispatchOrderSupplierModel row = new DispatchOrderSupplierModel();
+                row.setDispatchOrderId(savedOrder.getId());
+                row.setSupplierId(supplierId);
+                supplierLinks.add(row);
+            }
+            dispatchOrderSupplierRepository.saveAll(supplierLinks);
+        }
 
         purchaseRequest.setStatus(PurchaseRequestStatus.DISPATCHING);
         purchaseRequestRepository.save(purchaseRequest);
@@ -381,6 +423,7 @@ public class DispatchServiceImpl implements IDispatchService {
 
     private DispatchOrderResponse buildDetail(DispatchOrderModel order) {
         DispatchOrderResponse response = toBaseResponse(order);
+        attachSuppliers(response, List.of(order.getId()));
 
         List<Long> requestIds = dispatchOrderRequestRepository.findByDispatchOrderId(order.getId()).stream()
                 .map(DispatchOrderRequestModel::getPurchaseRequestId)
@@ -426,18 +469,61 @@ public class DispatchServiceImpl implements IDispatchService {
         Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
         Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
         Map<Long, BranchModel> branchesById = loadBranches(requests);
+        Map<Long, List<DispatchOrderSupplierModel>> suppliersByOrder = dispatchOrderSupplierRepository
+                .findByDispatchOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(DispatchOrderSupplierModel::getDispatchOrderId));
+        Map<Integer, SupplierModel> suppliersById = loadSuppliers(
+                suppliersByOrder.values().stream()
+                        .flatMap(List::stream)
+                        .map(DispatchOrderSupplierModel::getSupplierId)
+                        .collect(Collectors.toSet()));
 
         return orders.stream().map(order -> {
             DispatchOrderResponse response = toBaseResponse(order);
+            applySupplierInfo(response, suppliersByOrder.getOrDefault(order.getId(), List.of()), suppliersById);
             List<PurchaseRequestModel> orderRequests = requestIdsByOrder
                     .getOrDefault(order.getId(), List.of())
                     .stream()
                     .map(requestsById::get)
-                    .filter(java.util.Objects::nonNull)
+                    .filter(Objects::nonNull)
                     .toList();
             appendRequests(response, orderRequests, detailsByRequest, productsById, branchesById, topPackagings);
             return response;
         }).toList();
+    }
+
+    private void attachSuppliers(DispatchOrderResponse response, List<Long> orderIds) {
+        if (orderIds.isEmpty() || response.getId() == null) {
+            return;
+        }
+        List<DispatchOrderSupplierModel> links = dispatchOrderSupplierRepository.findByDispatchOrderId(response.getId());
+        Map<Integer, SupplierModel> suppliersById = loadSuppliers(
+                links.stream().map(DispatchOrderSupplierModel::getSupplierId).collect(Collectors.toSet()));
+        applySupplierInfo(response, links, suppliersById);
+    }
+
+    private void applySupplierInfo(
+            DispatchOrderResponse response,
+            List<DispatchOrderSupplierModel> links,
+            Map<Integer, SupplierModel> suppliersById
+    ) {
+        List<Integer> ids = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (DispatchOrderSupplierModel link : links) {
+            ids.add(link.getSupplierId());
+            SupplierModel supplier = suppliersById.get(link.getSupplierId());
+            names.add(supplier == null ? ("Supplier #" + link.getSupplierId()) : supplier.getName());
+        }
+        response.setSupplierIds(ids);
+        response.setSupplierNames(names);
+    }
+
+    private Map<Integer, SupplierModel> loadSuppliers(Set<Integer> supplierIds) {
+        if (supplierIds == null || supplierIds.isEmpty()) {
+            return Map.of();
+        }
+        return supplierRepository.findAllById(supplierIds).stream()
+                .collect(Collectors.toMap(SupplierModel::getId, Function.identity(), (a, b) -> a));
     }
 
     private DispatchOrderResponse toBaseResponse(DispatchOrderModel order) {
@@ -555,6 +641,40 @@ public class DispatchServiceImpl implements IDispatchService {
             }
         }
         return new ArrayList<>(categories);
+    }
+
+    private List<String> distinctShortDateCategories(
+            List<PurchaseRequestDetailModel> details,
+            Map<Integer, ProductModel> productsById
+    ) {
+        Set<String> categories = new LinkedHashSet<>();
+        for (PurchaseRequestDetailModel detail : details) {
+            ProductModel product = productsById.get(detail.getProductId());
+            if (isShortDateProduct(product) && product.getCategory().getName() != null) {
+                categories.add(product.getCategory().getName());
+            }
+        }
+        return new ArrayList<>(categories);
+    }
+
+    private boolean isShortDateProduct(ProductModel product) {
+        return product != null
+                && product.getCategory() != null
+                && Boolean.TRUE.equals(product.getCategory().getShortDate());
+    }
+
+    private List<Integer> normalizeSupplierIds(List<Integer> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        return raw.stream().filter(Objects::nonNull).distinct().toList();
+    }
+
+    private void validateSuppliersExist(List<Integer> supplierIds) {
+        List<SupplierModel> found = supplierRepository.findAllById(supplierIds);
+        if (found.size() != supplierIds.size()) {
+            throw new BadRequestException("One or more selected suppliers were not found.");
+        }
     }
 
     private int dispatchQuantity(PurchaseRequestDetailModel detail) {

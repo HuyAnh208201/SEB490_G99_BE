@@ -22,4 +22,9 @@ public class PurchaseRequestDetailResponse {
     private Integer topPackagingConversionQty;
     /** Tồn kho KHO TỔNG hiện có cho sản phẩm này (để kho tổng biết còn/hết hàng khi duyệt). */
     private Integer warehouseStock;
+    /**
+     * When true, product is in a short-date category — not held in central warehouse;
+     * stock shortage checks and warehouse reservation are skipped.
+     */
+    private Boolean shortDate;
 }

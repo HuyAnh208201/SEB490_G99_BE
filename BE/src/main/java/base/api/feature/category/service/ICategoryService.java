@@ -14,11 +14,17 @@ public interface ICategoryService {
 
     CategoryResponse update(Integer id, UpdateCategoryRequest request);
 
+    /** @deprecated Use deactivate instead — hard delete is no longer supported. */
+    @Deprecated
     void delete(Integer id);
+
+    CategoryResponse deactivate(Integer id);
+
+    CategoryResponse activate(Integer id);
 
     CategoryResponse getById(Integer id);
 
-    List<CategoryResponse> getAll();
+    List<CategoryResponse> getAll(boolean includeInactive);
 
-    Page<CategoryResponse> getPage(PageRequestDTO pageRequest);
+    Page<CategoryResponse> getPage(PageRequestDTO pageRequest, boolean includeInactive);
 }

@@ -19,6 +19,9 @@ public class DispatchApprovedRequestResponse {
     private String area;
     private String route;
     private List<String> categories;
+    /** True when any line item belongs to a category flagged short_date. */
+    private Boolean hasShortDateCategories;
+    private List<String> shortDateCategories;
     private Integer itemCount;
     private LocalDateTime createdAt;
 }

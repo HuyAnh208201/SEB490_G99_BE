@@ -61,7 +61,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveRequestWhenWorkingStockCoversNeed() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 200)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 200)));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED)).thenReturn(List.of());
         when(productRepository.findByIdInWithCategory(anyCollection()))
                 .thenReturn(List.of(product(PRODUCT_ID)));
@@ -73,7 +73,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveRequestFailsWhenStockInsufficient() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 50)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 50)));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED)).thenReturn(List.of());
         when(productRepository.findByIdInWithCategory(anyCollection()))
                 .thenReturn(List.of(product(PRODUCT_ID)));
@@ -84,10 +84,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveRequestSkipsZeroNeedAndNullProduct() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of());
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED)).thenReturn(List.of());
-        org.mockito.Mockito.doReturn(5).when(productPackagingService)
-                .toBaseQty(eq(5), org.mockito.ArgumentMatchers.<ProductModel>isNull());
 
         PurchaseRequestDetailModel zero = detail(1L, PRODUCT_ID, 0, 0);
         PurchaseRequestDetailModel noProduct = detail(2L, null, 5, 5);
@@ -97,7 +94,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveUsesRequestedQtyWhenApprovedIsNull() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED)).thenReturn(List.of());
         when(productRepository.findByIdInWithCategory(anyCollection()))
                 .thenReturn(List.of(product(PRODUCT_ID)));
@@ -109,7 +106,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void workingStockAfterApprovedReservationsDeductsReservedNeed() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 200)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 200)));
         PurchaseRequestModel approved = request(10L, LocalDateTime.now().minusHours(1));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(approved));
@@ -142,7 +139,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void filterDispatchableApprovedUsesFifoAndSkipsInsufficient() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         PurchaseRequestModel older = request(1L, LocalDateTime.now().minusDays(2));
         PurchaseRequestModel newer = request(2L, LocalDateTime.now().minusDays(1));
         when(detailRepository.findByPurchaseRequestIdIn(any()))
@@ -173,7 +170,7 @@ class WarehouseStockAllocationHelperTest {
         PurchaseRequestModel demote = request(2L, LocalDateTime.now().minusDays(1));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(keep, demote));
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         when(detailRepository.findByPurchaseRequestIdIn(any()))
                 .thenReturn(List.of(
                         detail(1L, PRODUCT_ID, 1, 1),
@@ -192,7 +189,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveExcludesSameRequestFromApprovedReservations() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         PurchaseRequestModel self = request(99L, LocalDateTime.now());
         self.setStatus(PurchaseRequestStatus.APPROVED);
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
@@ -208,7 +205,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveRequestTrueWhenExactStockEqualsNeed() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED)).thenReturn(List.of());
         when(productRepository.findByIdInWithCategory(anyCollection()))
                 .thenReturn(List.of(product(PRODUCT_ID)));
@@ -219,7 +216,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void canApproveRequestFalseWhenOtherApprovedReservesStock() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         PurchaseRequestModel other = request(10L, LocalDateTime.now().minusHours(1));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(other));
@@ -243,7 +240,7 @@ class WarehouseStockAllocationHelperTest {
     @Test
     void canApproveRequestFalseWhenOneOfMultiProductShort() {
         Integer otherProduct = 8;
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(
                 stock(PRODUCT_ID, 100),
                 stock(otherProduct, 10)));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED)).thenReturn(List.of());
@@ -261,7 +258,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void workingStockLeavesMissingProductAsZeroThenNegative() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 10)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 10)));
         PurchaseRequestModel approved = request(10L, LocalDateTime.now());
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(approved));
@@ -280,7 +277,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void filterDispatchableApprovedOrdersByCreatedAtNullsLast() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 96)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 96)));
         PurchaseRequestModel withDate = request(1L, LocalDateTime.now().minusDays(1));
         PurchaseRequestModel nullDate = request(2L, null);
         when(detailRepository.findByPurchaseRequestIdIn(any()))
@@ -300,7 +297,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void filterDispatchableApprovedReturnsBothWhenBothFit() {
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 96)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 96)));
         PurchaseRequestModel older = request(1L, LocalDateTime.now().minusDays(2));
         PurchaseRequestModel newer = request(2L, LocalDateTime.now().minusDays(1));
         when(detailRepository.findByPurchaseRequestIdIn(any()))
@@ -323,7 +320,7 @@ class WarehouseStockAllocationHelperTest {
         PurchaseRequestModel keep = request(1L, LocalDateTime.now().minusDays(1));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(keep));
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 48)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 48)));
         when(detailRepository.findByPurchaseRequestIdIn(any()))
                 .thenReturn(List.of(detail(1L, PRODUCT_ID, 1, 1)));
         when(productRepository.findByIdInWithCategory(anyCollection()))
@@ -343,7 +340,7 @@ class WarehouseStockAllocationHelperTest {
         PurchaseRequestModel second = request(2L, LocalDateTime.now().minusDays(1));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(first, second));
-        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 10)));
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 10)));
         when(detailRepository.findByPurchaseRequestIdIn(any()))
                 .thenReturn(List.of(
                         detail(1L, PRODUCT_ID, 1, 1),

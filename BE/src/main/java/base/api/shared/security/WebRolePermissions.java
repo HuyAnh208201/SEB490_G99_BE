@@ -37,7 +37,8 @@ public final class WebRolePermissions {
                 WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
-                WebPermission.VIEW_BRANCH_INVENTORY
+                WebPermission.VIEW_BRANCH_INVENTORY,
+                WebPermission.REPORTS_VIEW
         ));
 
         map.put(UserRole.DIRECTOR, EnumSet.of(

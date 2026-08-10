@@ -59,13 +59,13 @@ public class SecurityConfig {
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                             response.setContentType("application/json;charset=UTF-8");
                             response.getWriter().write(
-                                    "{\"success\":false,\"message\":\"Chưa đăng nhập\",\"statusCode\":401}");
+                                    "{\"success\":false,\"message\":\"Unauthorized\",\"statusCode\":401}");
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
                             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                             response.setContentType("application/json;charset=UTF-8");
                             response.getWriter().write(
-                                    "{\"success\":false,\"message\":\"Không có quyền truy cập\",\"statusCode\":403}");
+                                    "{\"success\":false,\"message\":\"Access denied\",\"statusCode\":403}");
                         }))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .authenticationManager(authenticationManager);
