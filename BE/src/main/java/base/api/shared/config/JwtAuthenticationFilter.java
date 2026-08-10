@@ -1,6 +1,8 @@
 package base.api.shared.config;
 
+import base.api.feature.auth.service.RevokedTokenCache;
 import base.api.feature.auth.service.impl.CustomUserDetailsService;
+import base.api.shared.util.TokenHasher;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -26,6 +28,9 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
     @Autowired
     private CustomUserDetailsService userDetailsService;
+
+    @Autowired
+    private RevokedTokenCache revokedTokenCache;
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -54,6 +59,13 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
         String token = header.substring(7);
         try {
+            if (isRevoked(token)) {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("application/json");
+                response.getWriter().write("{\"message\":\"Token revoked\"}");
+                return;
+            }
+
             String username = jwtUtil.extractUsername(token);
 
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -86,6 +98,19 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Tra cache trong RAM, không chạm DB — xem RevokedTokenCache để biết vì sao.
+     *
+     * Cache rỗng khi không nạp được (bảng chưa tạo / DB lỗi) nên hành vi ở đây là
+     * fail-open có chủ đích: tạm mất khả năng thu hồi token, đúng bằng hành vi cũ
+     * trước khi có tính năng này. Nếu ném lỗi thì rơi vào catch(Exception) phía
+     * trên và mọi request có token đều bị 401 — cả hệ thống chết. RevokedTokenCache
+     * đã log ERROR khi nạp hỏng.
+     */
+    private boolean isRevoked(String token) {
+        return revokedTokenCache.isRevoked(TokenHasher.sha256(token));
     }
 
 }

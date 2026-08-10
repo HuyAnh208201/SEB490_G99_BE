@@ -5,6 +5,13 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * Blacklist JWT sau khi logout.
+ *
+ * token_hash vừa là khóa chính vừa là thứ duy nhất cần tra cứu, nên không dùng
+ * cột id sinh tự động: thêm id chỉ tạo ra index thứ hai cho cùng một khóa logic.
+ * Lưu SHA-256 hex thay vì token thô — xem TokenHasher.
+ */
 @Data
 @Entity
 @Table(name = "revoked_tokens", indexes = {
@@ -13,22 +20,14 @@ import java.time.LocalDateTime;
 public class RevokedTokenModel {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    @Column(nullable = false, unique = true, length = 1024)
-    private String token;
+    @Column(name = "token_hash", nullable = false, length = 64)
+    private String tokenHash;
 
     @Column(nullable = false)
     private LocalDateTime expiresAt;
 
     @Column(nullable = false)
     private LocalDateTime revokedAt;
-
-    @PrePersist
-    protected void onCreate() {
-        revokedAt = LocalDateTime.now();
-    }
 
     public boolean isExpired() {
         return LocalDateTime.now().isAfter(expiresAt);

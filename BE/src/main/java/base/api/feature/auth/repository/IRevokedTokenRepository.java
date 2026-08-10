@@ -7,9 +7,9 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 
 @Repository
-public interface IRevokedTokenRepository extends JpaRepository<RevokedTokenModel, Long> {
+public interface IRevokedTokenRepository extends JpaRepository<RevokedTokenModel, String> {
 
-    boolean existsByToken(String token);
+    boolean existsByTokenHash(String tokenHash);
 
     void deleteByExpiresAtBefore(LocalDateTime dateTime);
 }

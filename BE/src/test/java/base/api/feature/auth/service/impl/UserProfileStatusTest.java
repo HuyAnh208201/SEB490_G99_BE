@@ -16,6 +16,7 @@ import base.api.shared.entity.EmailVerificationTokenModel;
 import base.api.shared.entity.ShiftAssignmentModel;
 import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.exception.ConflictException;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.ShiftStatus;
 import base.api.shared.enums.UserRole;
@@ -130,6 +131,44 @@ class UserProfileStatusTest {
         assertEquals("Nguyen", saved.getLastName());
         assertEquals("0912345678", saved.getPhone());
         verify(userRepository).save(user);
+    }
+
+    @Test
+    void updateProfileRejectsPhoneTakenByAnotherAccount() {
+        UserModel user = user(1L, UserRole.CUSTOMER, null);
+        user.setEmail("old@chainstore.com");
+        user.setPhone("0900000001");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.existsByEmail("old@chainstore.com")).thenReturn(false);
+        when(userRepository.existsByPhone("0912345678")).thenReturn(true);
+
+        UpdateProfileDto dto = profileDto("old@chainstore.com", "A", "B");
+        dto.setPhone("0912 345 678");
+
+        ConflictException error =
+                assertThrows(ConflictException.class, () -> service.updateProfile(1L, dto));
+
+        assertTrue(error.getMessage().contains("Số điện thoại đã được sử dụng"));
+        verify(userRepository, never()).save(any(UserModel.class));
+    }
+
+    @Test
+    void updateProfileKeepsOwnPhoneWithoutConflict() {
+        UserModel user = user(1L, UserRole.CUSTOMER, null);
+        user.setEmail("old@chainstore.com");
+        user.setPhone("0912345678");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.existsByEmail("old@chainstore.com")).thenReturn(false);
+        // SĐT của chính mình luôn tồn tại trong bảng — không được tự chặn mình.
+        when(userRepository.existsByPhone("0912345678")).thenReturn(true);
+        when(userRepository.save(any(UserModel.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateProfileDto dto = profileDto("old@chainstore.com", "A", "B");
+        dto.setPhone("0912 345 678");
+
+        UserModel saved = service.updateProfile(1L, dto);
+
+        assertEquals("0912345678", saved.getPhone());
     }
 
     @Test

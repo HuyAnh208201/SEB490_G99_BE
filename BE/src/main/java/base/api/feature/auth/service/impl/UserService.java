@@ -622,6 +622,11 @@ public class UserService implements IUserService {
 
         if (dto.getPhone() != null && !dto.getPhone().trim().isEmpty()) {
             String normalizedPhone = dto.getPhone().trim().replaceAll("\\s+", "");
+            // Chỉ kiểm tra khi số thực sự đổi — giống cách xử lý email ở trên, và để
+            // user lưu lại hồ sơ mà không đổi SĐT thì không tự vướng số của chính mình.
+            if (!normalizedPhone.equals(user.getPhone()) && userRepository.existsByPhone(normalizedPhone)) {
+                throw new ConflictException("Số điện thoại đã được sử dụng bởi tài khoản khác");
+            }
             user.setPhone(normalizedPhone);
         }
 

@@ -4,6 +4,7 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
+import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
 import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
@@ -42,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -284,6 +286,112 @@ class CampaignServiceImplTest {
     }
 
     @Test
+    void createCampaignHonorsRequestedDraftStatus() {
+        asAdmin();
+        CreateCampaignRequest request = createRequest("Draft Sale", "CHAIN", "PERCENT");
+        request.setStatus("DRAFT");
+        when(campaignRepository.existsByNameIgnoreCase("Draft Sale")).thenReturn(false);
+        when(campaignRepository.save(any(CampaignModel.class))).thenAnswer(inv -> {
+            CampaignModel saved = inv.getArgument(0);
+            saved.setId(9L);
+            return saved;
+        });
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList()))
+                .thenReturn(new CampaignResponse());
+
+        service.createCampaign(request);
+
+        ArgumentCaptor<CampaignModel> captor = ArgumentCaptor.forClass(CampaignModel.class);
+        verify(campaignRepository).save(captor.capture());
+        assertEquals(CampaignStatus.DRAFT, captor.getValue().getStatus());
+    }
+
+    @Test
+    void createCampaignRejectsCreatingDirectlyAsActive() {
+        asAdmin();
+        CreateCampaignRequest request = createRequest("Instant Sale", "CHAIN", "PERCENT");
+        request.setStatus("ACTIVE");
+
+        BadRequestException error =
+                assertThrows(BadRequestException.class, () -> service.createCampaign(request));
+
+        // Tạo thẳng ACTIVE sẽ lách được bộ kiểm tra trong activateCampaign.
+        assertTrue(error.getMessage().contains("DRAFT or DEACTIVATED"));
+        verify(campaignRepository, never()).save(any(CampaignModel.class));
+    }
+
+    @Test
+    void createCampaignRejectsStartDateInThePast() {
+        asAdmin();
+        CreateCampaignRequest request = createRequest("Past Sale", "CHAIN", "PERCENT");
+        request.setStartAt(LocalDateTime.now().minusDays(3));
+        request.setEndAt(LocalDateTime.now().plusDays(3));
+
+        BadRequestException error =
+                assertThrows(BadRequestException.class, () -> service.createCampaign(request));
+
+        assertEquals("Start date must be today or later.", error.getMessage());
+        verify(campaignRepository, never()).save(any(CampaignModel.class));
+    }
+
+    @Test
+    void deleteCampaignRejectsActivePromotion() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.deleteCampaign(1L));
+
+        assertTrue(error.getMessage().contains("cannot be deleted"));
+        verify(campaignRepository, never()).delete(any(CampaignModel.class));
+        verify(campaignBranchRepository, never()).deleteByCampaignId(1L);
+        verify(campaignBranchExclusionRepository, never()).deleteByCampaignId(1L);
+    }
+
+    @Test
+    void deleteCampaignSucceedsForDeactivatedPromotion() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.DEACTIVATED, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+
+        service.deleteCampaign(1L);
+
+        verify(campaignBranchRepository).deleteByCampaignId(1L);
+        verify(campaignBranchExclusionRepository).deleteByCampaignId(1L);
+        verify(campaignRepository).delete(campaign);
+    }
+
+    @Test
+    void updateCampaignRejectsActivePromotion() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+
+        ConflictException error = assertThrows(
+                ConflictException.class, () -> service.updateCampaign(1L, updateRequest("Renamed")));
+
+        assertTrue(error.getMessage().contains("cannot be edited"));
+        assertEquals("Campaign 1", campaign.getName());
+        verify(campaignRepository, never()).save(any(CampaignModel.class));
+    }
+
+    @Test
+    void updateCampaignSucceedsForDeactivatedPromotion() {
+        asAdmin();
+        CampaignModel campaign = campaign(1L, CampaignStatus.DEACTIVATED, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.existsByNameIgnoreCase("Renamed")).thenReturn(false);
+        when(campaignRepository.save(any(CampaignModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(List.of());
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList()))
+                .thenReturn(new CampaignResponse());
+
+        service.updateCampaign(1L, updateRequest("Renamed"));
+
+        assertEquals("Renamed", campaign.getName());
+    }
+
+    @Test
     void getCampaignThrowsWhenMissing() {
         when(campaignRepository.findById(99L)).thenReturn(Optional.empty());
 
@@ -305,6 +413,17 @@ class CampaignServiceImplTest {
         user.setBranchId(branchId);
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(user);
         when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.BRANCH_MANAGER);
+    }
+
+    private static UpdateCampaignRequest updateRequest(String name) {
+        UpdateCampaignRequest request = new UpdateCampaignRequest();
+        request.setName(name);
+        request.setType("PERCENT");
+        request.setDiscountValue(new BigDecimal("15"));
+        request.setPriority(2);
+        request.setStartAt(LocalDateTime.now().plusDays(1));
+        request.setEndAt(LocalDateTime.now().plusDays(10));
+        return request;
     }
 
     private static CreateCampaignRequest createRequest(String name, String scope, String type) {

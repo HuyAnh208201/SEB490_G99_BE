@@ -99,9 +99,10 @@ public class CampaignServiceImpl implements ICampaignService {
         campaign.setDiscountValue(validateDiscountValue(request.getDiscountValue()));
         campaign.setConditions(serializeConditions(request.getConditions()));
         campaign.setPriority(request.getPriority() == null ? 0 : request.getPriority());
+        validateCreateDates(request.getStartAt(), request.getEndAt());
         campaign.setStartAt(request.getStartAt());
         campaign.setEndAt(request.getEndAt());
-        campaign.setStatus(CampaignStatus.DEACTIVATED);
+        campaign.setStatus(parseCreateStatus(request.getStatus()));
         campaign.setCreatedBy(currentUser.getId());
 
         List<Long> branchIds;
@@ -135,6 +136,7 @@ public class CampaignServiceImpl implements ICampaignService {
     public CampaignResponse updateCampaign(Long id, UpdateCampaignRequest request) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanModifyCampaign(campaign);
+        assertCampaignNotActive(campaign, "edited");
 
         String normalizedName = normalizeRequiredText(request.getName(), "Promotion name is required.");
         validateDuplicateName(normalizedName, id);
@@ -155,6 +157,7 @@ public class CampaignServiceImpl implements ICampaignService {
     public void deleteCampaign(Long id) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanModifyCampaign(campaign);
+        assertCampaignNotActive(campaign, "deleted");
 
         campaignBranchRepository.deleteByCampaignId(id);
         campaignBranchExclusionRepository.deleteByCampaignId(id);
@@ -498,6 +501,17 @@ public class CampaignServiceImpl implements ICampaignService {
         throw new ForbiddenException("Access denied.");
     }
 
+    /**
+     * Campaign đang chạy đã áp giá lên đơn hàng thực tế, nên phải deactivate trước
+     * khi sửa hoặc xóa. Quyền hạn được kiểm tra riêng ở assertCanModifyCampaign.
+     */
+    private void assertCampaignNotActive(CampaignModel campaign, String action) {
+        if (campaign.getStatus() == CampaignStatus.ACTIVE) {
+            throw new ConflictException(
+                    "Active promotions cannot be " + action + ". Deactivate the promotion first.");
+        }
+    }
+
     private void assertCanModifyCampaign(CampaignModel campaign) {
         UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
         UserRole currentRole = currentUserProvider.getCurrentUserRole();
@@ -591,6 +605,41 @@ public class CampaignServiceImpl implements ICampaignService {
             return CampaignType.valueOf(normalized);
         } catch (IllegalArgumentException ex) {
             throw new BadRequestException("Invalid promotion type.");
+        }
+    }
+
+    /**
+     * Chỉ nhận DRAFT hoặc DEACTIVATED. ACTIVE phải đi qua activateCampaign để không
+     * lách được bộ kiểm tra ngày và quyền ở đó; SUSPENDED là giá trị cũ, không tạo mới.
+     */
+    private CampaignStatus parseCreateStatus(String value) {
+        String normalized = normalizeEnumToken(value);
+        if (normalized == null || normalized.isBlank()) {
+            return CampaignStatus.DEACTIVATED;
+        }
+        CampaignStatus status;
+        try {
+            status = CampaignStatus.valueOf(normalized);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Invalid promotion status.");
+        }
+        if (status != CampaignStatus.DRAFT && status != CampaignStatus.DEACTIVATED) {
+            throw new BadRequestException(
+                    "New promotions can only be created as DRAFT or DEACTIVATED. Use activate to start it.");
+        }
+        return status;
+    }
+
+    /**
+     * activateCampaign đã chặn ngày quá khứ; chặn luôn từ lúc tạo để người dùng biết
+     * ngay, thay vì soạn xong mới bị từ chối lúc bật.
+     */
+    private void validateCreateDates(LocalDateTime startAt, LocalDateTime endAt) {
+        if (startAt != null && startAt.toLocalDate().isBefore(LocalDate.now())) {
+            throw new BadRequestException("Start date must be today or later.");
+        }
+        if (startAt != null && endAt != null && !endAt.isAfter(startAt)) {
+            throw new BadRequestException("End date must be after start date.");
         }
     }
 

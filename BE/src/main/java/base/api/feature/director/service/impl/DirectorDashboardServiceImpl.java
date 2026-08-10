@@ -104,7 +104,10 @@ public class DirectorDashboardServiceImpl implements IDirectorDashboardService {
         // Same window as customer mobile: ACTIVE and currently within [startAt, endAt].
         long activePromos = campaignRepository.countLiveByStatus(CampaignStatus.ACTIVE, now);
         long draftPromos = campaignRepository.countByStatus(CampaignStatus.DRAFT);
-        long suspendedPromos = campaignRepository.countByStatus(CampaignStatus.SUSPENDED);
+        // suspendCampaign() ghi DEACTIVATED, không phải SUSPENDED — chỉ đếm SUSPENDED
+        // thì ô này luôn bằng 0. Vẫn cộng SUSPENDED để gom nốt dữ liệu cũ còn sót.
+        long suspendedPromos = campaignRepository.countByStatus(CampaignStatus.DEACTIVATED)
+                + campaignRepository.countByStatus(CampaignStatus.SUSPENDED);
 
         List<PromoSummary> activeCampaigns = campaignService.getAllCampaigns().stream()
                 .filter(c -> CampaignStatus.ACTIVE.name().equalsIgnoreCase(c.getStatus()))

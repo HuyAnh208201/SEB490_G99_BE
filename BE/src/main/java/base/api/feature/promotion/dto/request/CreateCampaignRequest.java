@@ -43,6 +43,13 @@ public class CreateCampaignRequest {
     @NotBlank(message = "Promotion scope is required.")
     private String scope;
 
+    /**
+     * DRAFT (đang soạn) hoặc DEACTIVATED (soạn xong, chờ bật). Bỏ trống thì mặc định
+     * DEACTIVATED để giữ nguyên hành vi cũ. Không cho tạo thẳng ACTIVE — phải qua
+     * activateCampaign để chạy đủ bộ kiểm tra ngày và quyền.
+     */
+    private String status;
+
     private List<Long> branchIds;
 
     @AssertTrue(message = "End date must be after start date.")
