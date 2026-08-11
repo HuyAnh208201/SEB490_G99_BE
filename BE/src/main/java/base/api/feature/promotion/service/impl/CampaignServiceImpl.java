@@ -136,7 +136,11 @@ public class CampaignServiceImpl implements ICampaignService {
     public CampaignResponse updateCampaign(Long id, UpdateCampaignRequest request) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanModifyCampaign(campaign);
-        assertCampaignNotActive(campaign, "edited");
+        // Campaign đang chạy đã áp giá lên đơn hàng thực tế nên phải deactivate trước khi sửa.
+        if (campaign.getStatus() == CampaignStatus.ACTIVE) {
+            throw new BadRequestException(
+                    "Active promotions cannot be edited. Deactivate the promotion first.");
+        }
         UserRole currentRole = currentUserProvider.getCurrentUserRole();
 
         String normalizedName = normalizeRequiredText(request.getName(), "Promotion name is required.");
@@ -182,7 +186,10 @@ public class CampaignServiceImpl implements ICampaignService {
     public void deleteCampaign(Long id) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanModifyCampaign(campaign);
-        assertCampaignNotActive(campaign, "deleted");
+        if (campaign.getStatus() == CampaignStatus.ACTIVE) {
+            throw new BadRequestException(
+                    "Active promotions cannot be deleted. Deactivate the promotion first.");
+        }
 
         campaignBranchRepository.deleteByCampaignId(id);
         campaignBranchExclusionRepository.deleteByCampaignId(id);
@@ -524,17 +531,6 @@ public class CampaignServiceImpl implements ICampaignService {
         }
 
         throw new ForbiddenException("Access denied.");
-    }
-
-    /**
-     * Campaign đang chạy đã áp giá lên đơn hàng thực tế, nên phải deactivate trước
-     * khi sửa hoặc xóa. Quyền hạn được kiểm tra riêng ở assertCanModifyCampaign.
-     */
-    private void assertCampaignNotActive(CampaignModel campaign, String action) {
-        if (campaign.getStatus() == CampaignStatus.ACTIVE) {
-            throw new BadRequestException(
-                    "Active promotions cannot be " + action + ". Deactivate the promotion first.");
-        }
     }
 
     private void assertCanModifyCampaign(CampaignModel campaign) {
