@@ -285,32 +285,23 @@ public class CampaignServiceImpl implements ICampaignService {
         }
 
         List<Long> branchIds = getBranchIds(id);
-        if (branchIds.isEmpty()) {
-            if (campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
-                throw new ConflictException("Promotion already deactivated for this branch.");
-            }
-            CampaignBranchExclusionModel exclusion = new CampaignBranchExclusionModel();
-            exclusion.setCampaignId(id);
-            exclusion.setBranchId(branchId);
-            campaignBranchExclusionRepository.save(exclusion);
-            return campaignMapper.toResponse(campaign, branchIds);
+        // Danh sách rỗng = khuyến mãi chuỗi áp cho mọi chi nhánh nên chi nhánh nào cũng hợp lệ.
+        if (!branchIds.isEmpty() && !branchIds.contains(branchId)) {
+            throw new ForbiddenException("Promotion is not applied to this branch.");
         }
 
-        CampaignBranchModel branchMapping = campaignBranchRepository.findByCampaignIdAndBranchId(id, branchId)
-                .orElse(null);
-        if (branchMapping != null) {
-            campaignBranchRepository.delete(branchMapping);
-        } else {
-            if (campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
-                throw new ConflictException("Promotion already deactivated for this branch.");
-            }
-            CampaignBranchExclusionModel exclusion = new CampaignBranchExclusionModel();
-            exclusion.setCampaignId(id);
-            exclusion.setBranchId(branchId);
-            campaignBranchExclusionRepository.save(exclusion);
+        // Tắt = ghi một dòng loại trừ. Tuyệt đối không xoá dòng trong campaign_branches:
+        // đó là cấu hình của Admin, và xoá đi thì không còn cách nào phân biệt
+        // "chi nhánh tự tắt" với "chi nhánh chưa bao giờ được thêm vào".
+        if (campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+            throw new ConflictException("Promotion already deactivated for this branch.");
         }
-        List<Long> remainingBranchIds = getBranchIds(id);
-        return campaignMapper.toResponse(campaign, remainingBranchIds);
+        CampaignBranchExclusionModel exclusion = new CampaignBranchExclusionModel();
+        exclusion.setCampaignId(id);
+        exclusion.setBranchId(branchId);
+        campaignBranchExclusionRepository.save(exclusion);
+
+        return campaignMapper.toResponse(campaign, branchIds);
     }
 
     @Override
@@ -329,19 +320,20 @@ public class CampaignServiceImpl implements ICampaignService {
         }
 
         List<Long> branchIds = getBranchIds(id);
-        if (branchIds.isEmpty()) {
-            if (!campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
-                throw new BadRequestException("Promotion is not deactivated for this branch.");
-            }
-            campaignBranchExclusionRepository.deleteByCampaignIdAndBranchId(id, branchId);
-            return campaignMapper.toResponse(campaign, branchIds);
-        }
-
-        if (!campaignBranchRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+        // Danh sách rỗng = khuyến mãi chuỗi áp cho mọi chi nhánh nên chi nhánh nào cũng hợp lệ.
+        if (!branchIds.isEmpty() && !branchIds.contains(branchId)) {
             throw new ForbiddenException("Promotion is not applied to this branch.");
         }
 
-        return campaignMapper.toResponse(campaign, getBranchIds(id));
+        // Chiều ngược của deactivateCampaignForBranch: gỡ đúng dòng loại trừ mà hàm kia ghi.
+        // Hai hàm phải luôn đối xứng — sửa một bên mà quên bên kia thì bật/tắt lệch nhau
+        // mà không có lỗi nào báo.
+        if (!campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
+            throw new BadRequestException("Promotion is not deactivated for this branch.");
+        }
+        campaignBranchExclusionRepository.deleteByCampaignIdAndBranchId(id, branchId);
+
+        return campaignMapper.toResponse(campaign, branchIds);
     }
 
     @Override

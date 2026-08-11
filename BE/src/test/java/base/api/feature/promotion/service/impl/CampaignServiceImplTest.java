@@ -12,6 +12,7 @@ import base.api.feature.promotion.repository.CampaignBranchRepository;
 import base.api.feature.promotion.repository.CampaignRepository;
 import base.api.feature.promotion.service.CampaignExpiryService;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.CampaignBranchExclusionModel;
 import base.api.shared.entity.CampaignBranchModel;
 import base.api.shared.entity.CampaignModel;
 import base.api.shared.entity.UserModel;
@@ -471,6 +472,164 @@ class CampaignServiceImplTest {
         BadRequestException error = assertThrows(BadRequestException.class, () -> service.createCampaign(request));
 
         assertEquals("Buy X get Y promotions are no longer supported.", error.getMessage());
+    }
+
+    // ─── Bật/tắt khuyến mãi chuỗi cho riêng một chi nhánh ───────────────────────
+    // Cặp deactivate/activate phải đối xứng: tắt ghi một dòng loại trừ, bật gỡ đúng
+    // dòng đó. Nhóm test này chốt cả hai chiều cho campaign CÓ và KHÔNG chỉ định
+    // chi nhánh, vì trước đây hai trường hợp đó đi hai đường khác nhau.
+
+    @Test
+    void deactivateForBranchWritesExclusionAndKeepsBranchMapping() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(branchMappings(1L, 5L, 6L));
+        when(campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(1L, 5L)).thenReturn(false);
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList())).thenReturn(new CampaignResponse());
+
+        service.deactivateCampaignForBranch(1L);
+
+        ArgumentCaptor<CampaignBranchExclusionModel> captor =
+                ArgumentCaptor.forClass(CampaignBranchExclusionModel.class);
+        verify(campaignBranchExclusionRepository).save(captor.capture());
+        assertEquals(1L, captor.getValue().getCampaignId());
+        assertEquals(5L, captor.getValue().getBranchId());
+        // Cấu hình chi nhánh là của Admin — tắt cho một chi nhánh không được đụng tới nó.
+        verify(campaignBranchRepository, never()).delete(any(CampaignBranchModel.class));
+    }
+
+    @Test
+    void deactivateForBranchWritesExclusionWhenCampaignTargetsNoBranch() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(List.of());
+        when(campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(1L, 5L)).thenReturn(false);
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList())).thenReturn(new CampaignResponse());
+
+        service.deactivateCampaignForBranch(1L);
+
+        verify(campaignBranchExclusionRepository).save(any(CampaignBranchExclusionModel.class));
+    }
+
+    @Test
+    void activateForBranchRemovesExclusionWhenCampaignTargetsBranches() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(branchMappings(1L, 5L, 6L));
+        when(campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(1L, 5L)).thenReturn(true);
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList())).thenReturn(new CampaignResponse());
+
+        service.activateCampaignForBranch(1L);
+
+        verify(campaignBranchExclusionRepository).deleteByCampaignIdAndBranchId(1L, 5L);
+    }
+
+    @Test
+    void activateForBranchRemovesExclusionWhenCampaignTargetsNoBranch() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(List.of());
+        when(campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(1L, 5L)).thenReturn(true);
+        when(campaignMapper.toResponse(any(CampaignModel.class), anyList())).thenReturn(new CampaignResponse());
+
+        service.activateCampaignForBranch(1L);
+
+        verify(campaignBranchExclusionRepository).deleteByCampaignIdAndBranchId(1L, 5L);
+    }
+
+    @Test
+    void deactivateForBranchRejectsSecondCall() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(branchMappings(1L, 5L));
+        when(campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(1L, 5L)).thenReturn(true);
+
+        ConflictException error = assertThrows(ConflictException.class,
+                () -> service.deactivateCampaignForBranch(1L));
+
+        assertEquals("Promotion already deactivated for this branch.", error.getMessage());
+        verify(campaignBranchExclusionRepository, never()).save(any(CampaignBranchExclusionModel.class));
+    }
+
+    @Test
+    void activateForBranchRejectsWhenNotDeactivated() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(branchMappings(1L, 5L));
+        when(campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(1L, 5L)).thenReturn(false);
+
+        BadRequestException error = assertThrows(BadRequestException.class,
+                () -> service.activateCampaignForBranch(1L));
+
+        assertEquals("Promotion is not deactivated for this branch.", error.getMessage());
+        verify(campaignBranchExclusionRepository, never()).deleteByCampaignIdAndBranchId(1L, 5L);
+    }
+
+    @Test
+    void deactivateForBranchRejectsBranchOutsideCampaignTargets() {
+        asBranchManager(9L);
+        stubBranchExists(9L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+        when(campaignBranchRepository.findByCampaignId(1L)).thenReturn(branchMappings(1L, 5L, 6L));
+
+        ForbiddenException error = assertThrows(ForbiddenException.class,
+                () -> service.deactivateCampaignForBranch(1L));
+
+        assertEquals("Promotion is not applied to this branch.", error.getMessage());
+        verify(campaignBranchExclusionRepository, never()).save(any(CampaignBranchExclusionModel.class));
+    }
+
+    @Test
+    void deactivateForBranchRejectsNonBranchManager() {
+        asAdmin();
+
+        ForbiddenException error = assertThrows(ForbiddenException.class,
+                () -> service.deactivateCampaignForBranch(1L));
+
+        assertEquals("Access denied.", error.getMessage());
+    }
+
+    @Test
+    void activateForBranchRejectsBranchScopedCampaign() {
+        asBranchManager(5L);
+        stubBranchExists(5L);
+        CampaignModel campaign = campaign(1L, CampaignStatus.ACTIVE, CampaignScope.BRANCH);
+        when(campaignRepository.findById(1L)).thenReturn(Optional.of(campaign));
+
+        ForbiddenException error = assertThrows(ForbiddenException.class,
+                () -> service.activateCampaignForBranch(1L));
+
+        assertEquals("Cannot activate branch promotions with this action.", error.getMessage());
+    }
+
+    private void stubBranchExists(Long branchId) {
+        BranchModel branch = new BranchModel();
+        branch.setId(branchId);
+        when(branchRepository.findAllById(List.of(branchId))).thenReturn(List.of(branch));
+    }
+
+    private static List<CampaignBranchModel> branchMappings(Long campaignId, Long... branchIds) {
+        return java.util.Arrays.stream(branchIds)
+                .map(branchId -> {
+                    CampaignBranchModel mapping = new CampaignBranchModel();
+                    mapping.setCampaignId(campaignId);
+                    mapping.setBranchId(branchId);
+                    return mapping;
+                })
+                .toList();
     }
 
     private void asAdmin() {
