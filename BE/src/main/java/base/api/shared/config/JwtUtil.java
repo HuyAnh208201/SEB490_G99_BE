@@ -5,6 +5,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
@@ -17,8 +18,9 @@ public class JwtUtil {
 
     private final SecretKey key;
 
-    public JwtUtil() {
-        String secret = "MyVerySecretKeyThatIsLongEnough123456789";
+    // Khoá ký đọc từ jwt.secret thay vì viết cứng, để mỗi môi trường dùng một khoá riêng.
+    // hmacShaKeyFor yêu cầu tối thiểu 32 byte cho HS256 — khoá ngắn hơn sẽ chặn ngay lúc khởi động.
+    public JwtUtil(@Value("${jwt.secret}") String secret) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
