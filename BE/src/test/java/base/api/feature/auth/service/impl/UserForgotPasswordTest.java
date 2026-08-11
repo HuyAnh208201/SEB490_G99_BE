@@ -59,6 +59,7 @@ class UserForgotPasswordTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(service, "apiBaseUrl", "http://localhost:1328");
+        ReflectionTestUtils.setField(service, "clientBaseUrl", "http://localhost:5175");
     }
 
     // -------------------------------------------------------------------------
@@ -106,6 +107,22 @@ class UserForgotPasswordTest {
         verify(passwordResetTokenRepository).deleteByUserId(1L);
         verify(passwordResetTokenRepository).save(any(PasswordResetTokenModel.class));
         verify(emailService).sendHtmlEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void initiateForgotPasswordBuildsResetLinkFromClientBaseUrl() throws Exception {
+        UserModel user = user(1L, "alice", "alice@example.com");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(user));
+        when(passwordResetTokenRepository.save(any(PasswordResetTokenModel.class)))
+                .thenAnswer(call -> call.getArgument(0));
+
+        service.initiateForgotPassword("alice@example.com");
+
+        org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendHtmlEmail(anyString(), anyString(), body.capture());
+        // Link phải trỏ về FE đang cấu hình, không phải một host/cổng viết cứng trong code.
+        assertTrue(body.getValue().contains("http://localhost:5175/reset-password?token="),
+                "Reset link must be built from url.client-url, got: " + body.getValue());
     }
 
     @Test

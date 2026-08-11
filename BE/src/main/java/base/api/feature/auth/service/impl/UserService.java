@@ -93,6 +93,9 @@ public class UserService implements IUserService {
     @Value("${url.api-url:http://localhost:1328}")
     private String apiBaseUrl;
 
+    @Value("${url.client-url:http://localhost:5175}")
+    private String clientBaseUrl;
+
     @Override
     public UserModel createUser(UserModel model) {
         return userRepository.save(model);
@@ -352,7 +355,8 @@ public class UserService implements IUserService {
                 fullName = user.getUserName();
             }
 
-            String resetUrl = "https://localhost:5173/reset-password?token=" + resetToken;
+            // Trang nhập mật khẩu mới nằm bên FE nên dùng client-url, khác verify-email đi thẳng vào BE.
+            String resetUrl = clientBaseUrl + "/reset-password?token=" + resetToken;
 
             String body = String.format(
                     "<html>" +
@@ -509,7 +513,7 @@ public class UserService implements IUserService {
                             "</div>" +
                             "<p>Bạn có thể bắt đầu sử dụng hệ thống ngay bây giờ!</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='https://localhost:5173/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
                             "</div>" +
                             "<p style='color: #666; font-size: 14px;'>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
@@ -519,7 +523,8 @@ public class UserService implements IUserService {
                             "</html>",
                     fullName,
                     user.getUserName(),
-                    user.getEmail()
+                    user.getEmail(),
+                    clientBaseUrl
             );
 
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
@@ -766,7 +771,7 @@ public class UserService implements IUserService {
                     dto.getEmail(),
                     tempPassword,
                     dto.getRole().name(),
-                    "https://localhost:5173/login"
+                    clientBaseUrl + "/login"
             );
 
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
