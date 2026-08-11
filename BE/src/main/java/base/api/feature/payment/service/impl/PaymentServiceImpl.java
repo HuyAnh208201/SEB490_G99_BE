@@ -8,6 +8,7 @@ import base.api.feature.payment.service.IPaymentService;
 import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.repository.PaymentRepository;
+import base.api.feature.posorder.service.VoucherReleaseService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.shared.entity.OrderItemModel;
@@ -51,6 +52,9 @@ public class PaymentServiceImpl implements IPaymentService {
 
     @Autowired
     private OrderItemRepository orderItemRepository;
+
+    @Autowired
+    private VoucherReleaseService voucherReleaseService;
 
     @Autowired
     private BranchInventoryRepository branchInventoryRepository;
@@ -282,6 +286,9 @@ public class PaymentServiceImpl implements IPaymentService {
             branchInventoryRepository.addStock(
                     order.getBranchId(), item.getProductId(), item.getQuantity());
         }
+
+        // Mã giảm giá bị khoá ngay lúc tạo link thanh toán, phải nhả cùng lúc với kho.
+        voucherReleaseService.releaseForOrder(order.getId());
 
         if (order.getCustomerId() == null) {
             return;

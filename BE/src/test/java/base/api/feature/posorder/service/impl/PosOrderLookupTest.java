@@ -16,6 +16,7 @@ import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.shift.repository.ShiftRepository;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.entity.VoucherCatalogModel;
 import base.api.shared.entity.VoucherModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
@@ -181,6 +182,39 @@ class PosOrderLookupTest {
         order.setTotal(new BigDecimal("24000"));
         order.setCreatedAt(LocalDateTime.now());
         return order;
+    }
+
+    @Test
+    void lookupVoucherRejectsCodeIssuedToAnotherCustomer() {
+        VoucherModel voucher = voucher("MINE", "active", LocalDateTime.now().plusDays(1));
+        voucher.setCustomerId(77L);
+        when(voucherRepository.findByCodeIgnoreCase("MINE")).thenReturn(Optional.of(voucher));
+        UserModel other = new UserModel();
+        other.setId(7L);
+        when(userRepository.findByPhone("0909111222")).thenReturn(Optional.of(other));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.lookupVoucher("MINE", "0909111222"));
+
+        assertTrue(error.getMessage().contains("belongs to another customer"));
+    }
+
+    @Test
+    void lookupVoucherRejectsCodeFromInactiveCatalog() {
+        VoucherModel voucher = voucher("OFF", "active", LocalDateTime.now().plusDays(1));
+        when(voucherRepository.findByCodeIgnoreCase("OFF")).thenReturn(Optional.of(voucher));
+        VoucherCatalogModel catalog = new VoucherCatalogModel();
+        catalog.setId(1L);
+        catalog.setName("Promo");
+        catalog.setDiscountType("FIXED");
+        catalog.setDiscountValue(new BigDecimal("5000"));
+        catalog.setStatus("inactive");
+        when(voucherCatalogRepository.findById(1L)).thenReturn(Optional.of(catalog));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.lookupVoucher("OFF"));
+
+        assertTrue(error.getMessage().contains("no longer available"));
     }
 
     private static VoucherModel voucher(String code, String status, LocalDateTime expiresAt) {

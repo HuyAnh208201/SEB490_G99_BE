@@ -2,9 +2,12 @@ package base.api.feature.cashier.service;
 
 import base.api.feature.cashier.dto.request.AddPointsRequest;
 import base.api.feature.cashier.dto.request.CreateCustomerRequest;
+import base.api.feature.cashier.dto.request.RedeemVoucherRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
 import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
+import base.api.feature.cashier.dto.response.RedeemVoucherResponse;
+import base.api.feature.cashier.dto.response.RedeemableVoucherResponse;
 import base.api.shared.entity.UserModel;
 
 import java.math.BigDecimal;
@@ -51,4 +54,13 @@ public interface ICashierService {
      * add-points và luồng chốt đơn POS, phải chạy trong transaction của caller.
      */
     PointSettlement settlePoints(UserModel customer, BigDecimal invoiceAmount, long pointsToRedeem);
+
+    /**
+     * Khách đổi điểm tích lũy lấy một mã giảm giá. Trừ điểm và sinh mã trong cùng một
+     * transaction: không thể mất điểm mà không có mã, cũng không thể có mã miễn phí.
+     */
+    RedeemVoucherResponse redeemVoucher(RedeemVoucherRequest request);
+
+    /** Các loại voucher đang mở cho đổi điểm — quầy đọc để hiện lựa chọn cho khách. */
+    List<RedeemableVoucherResponse> getRedeemableVouchers();
 }

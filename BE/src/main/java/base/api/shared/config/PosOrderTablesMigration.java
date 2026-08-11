@@ -128,9 +128,57 @@ public class PosOrderTablesMigration {
             // customers phải gỡ, nếu không mọi đơn có khách đều vi phạm ràng buộc.
             dropForeignKeyIfPresent("orders", "customer_id", "customers");
 
+            // vouchers.customer_id mắc đúng lỗi đó: schema gốc trỏ customers(id) trong khi
+            // checkout so nó với users.id, nên mã phát riêng cho khách sẽ khớp nhầm người.
+            // Ánh xạ lại đúng một lần — chỉ khi FK còn đó, tức DB chưa từng được chuyển.
+            if (dropForeignKeyIfPresent("vouchers", "customer_id", "customers")) {
+                remapVoucherCustomerIds();
+            }
+
             log.info("Ensured POS order tables exist");
         } catch (Exception ex) {
             log.warn("POS order tables migration skipped: {}", ex.getMessage());
+        }
+    }
+
+    /**
+     * Chỉ chạy đúng một lần, ngay sau khi gỡ FK — mốc "DB còn ở schema gốc". Vì thế
+     * hỏng ở đây là hỏng vĩnh viễn: mã sẽ khớp nhầm một users.id không liên quan.
+     * Log ERROR kèm việc cần làm thay vì để lẫn vào cảnh báo chung của migration.
+     */
+    private void remapVoucherCustomerIds() {
+        try {
+            Integer orphans = jdbcTemplate.queryForObject(
+                    """
+                            SELECT COUNT(*) FROM vouchers v
+                            JOIN customers c ON v.customer_id = c.id
+                            WHERE c.user_id IS NULL
+                            """,
+                    Integer.class);
+            int remapped = jdbcTemplate.update(
+                    """
+                            UPDATE vouchers v
+                            JOIN customers c ON v.customer_id = c.id
+                            SET v.customer_id = c.user_id
+                            WHERE c.user_id IS NOT NULL
+                            """);
+            if (remapped > 0) {
+                log.info("Re-pointed {} voucher(s) from customers.id to users.id", remapped);
+            }
+            if (orphans != null && orphans > 0) {
+                log.error(
+                        "{} voucher(s) point at customers rows without user_id and were left "
+                                + "in the old ID space. They will match the wrong customer at "
+                                + "checkout — fix vouchers.customer_id for these rows by hand.",
+                        orphans);
+            }
+        } catch (Exception ex) {
+            log.error(
+                    "Failed to re-point vouchers.customer_id from customers.id to users.id. "
+                            + "The FK is already dropped so this will NOT be retried: run the "
+                            + "UPDATE manually or customer-specific codes will match the wrong "
+                            + "customer. Cause: {}",
+                    ex.getMessage(), ex);
         }
     }
 
@@ -151,8 +199,12 @@ public class PosOrderTablesMigration {
         }
     }
 
-    /** Tên FK do MySQL tự sinh nên tra theo cột/bảng đích thay vì đoán tên. */
-    private void dropForeignKeyIfPresent(String table, String column, String referencedTable) {
+    /**
+     * Tên FK do MySQL tự sinh nên tra theo cột/bảng đích thay vì đoán tên.
+     * Trả về true khi vừa gỡ được FK — dùng làm mốc "DB còn ở schema gốc" cho các
+     * bước chuyển dữ liệu chỉ được chạy một lần.
+     */
+    private boolean dropForeignKeyIfPresent(String table, String column, String referencedTable) {
         String constraintName = jdbcTemplate.query(
                 """
                         SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
@@ -166,9 +218,11 @@ public class PosOrderTablesMigration {
                 table,
                 column,
                 referencedTable);
-        if (constraintName != null) {
-            jdbcTemplate.execute("ALTER TABLE " + table + " DROP FOREIGN KEY " + constraintName);
-            log.info("Dropped FK {} on {}.{}", constraintName, table, column);
+        if (constraintName == null) {
+            return false;
         }
+        jdbcTemplate.execute("ALTER TABLE " + table + " DROP FOREIGN KEY " + constraintName);
+        log.info("Dropped FK {} on {}.{}", constraintName, table, column);
+        return true;
     }
 }

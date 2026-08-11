@@ -4,15 +4,23 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.auth.service.IUserService;
 import base.api.feature.cashier.dto.request.AddPointsRequest;
 import base.api.feature.cashier.dto.request.CreateCustomerRequest;
+import base.api.feature.cashier.dto.request.RedeemVoucherRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
 import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
+import base.api.feature.cashier.dto.response.RedeemVoucherResponse;
+import base.api.feature.cashier.dto.response.RedeemableVoucherResponse;
 import base.api.feature.cashier.service.ICashierService;
+import base.api.feature.posorder.repository.VoucherCatalogRepository;
+import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.system.repository.MembershipTierRepository;
+import base.api.feature.voucher.service.VoucherCodeGenerator;
 import base.api.shared.entity.MembershipTierModel;
 import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.entity.VoucherCatalogModel;
+import base.api.shared.entity.VoucherModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BadRequestException;
 import base.api.shared.exception.NotFoundException;
@@ -40,8 +48,21 @@ public class CashierServiceImpl implements ICashierService {
     @Value("${loyalty.point-value-vnd:1000}")
     private long pointValueVnd;
 
+    /** Mã đổi từ điểm sống được bao nhiêu ngày. */
+    @Value("${voucher.redeem-expiry-days:30}")
+    private long voucherExpiryDays;
+
     @Autowired
     private IUserRepository userRepository;
+
+    @Autowired
+    private VoucherRepository voucherRepository;
+
+    @Autowired
+    private VoucherCatalogRepository voucherCatalogRepository;
+
+    @Autowired
+    private VoucherCodeGenerator voucherCodeGenerator;
 
     @Autowired
     private IUserService userService;
@@ -111,6 +132,74 @@ public class CashierServiceImpl implements ICashierService {
     @Override
     public LoyaltyConfigResponse getLoyaltyConfig() {
         return new LoyaltyConfigResponse(vndPerPoint, pointValueVnd);
+    }
+
+    @Override
+    public List<RedeemableVoucherResponse> getRedeemableVouchers() {
+        return voucherCatalogRepository.findAllByOrderByIdAsc().stream()
+                .filter(catalog -> "active".equalsIgnoreCase(catalog.getStatus()))
+                .filter(catalog -> catalog.getPointsRequired() != null && catalog.getPointsRequired() > 0)
+                .map(catalog -> {
+                    RedeemableVoucherResponse response = new RedeemableVoucherResponse();
+                    response.setVoucherCatalogId(catalog.getId());
+                    response.setName(catalog.getName());
+                    response.setDiscountType(catalog.getDiscountType());
+                    response.setDiscountValue(catalog.getDiscountValue());
+                    response.setPointsRequired(catalog.getPointsRequired());
+                    return response;
+                })
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public RedeemVoucherResponse redeemVoucher(RedeemVoucherRequest request) {
+        UserModel customer = findCustomerByPhoneOrEmail(request.getCustomerPhone());
+
+        VoucherCatalogModel catalog = voucherCatalogRepository.findById(request.getVoucherCatalogId())
+                .orElseThrow(() -> new NotFoundException("Discount type not found."));
+        if (!"active".equalsIgnoreCase(catalog.getStatus())) {
+            throw new BadRequestException("This discount type is no longer available.");
+        }
+        int pointsRequired = catalog.getPointsRequired() == null ? 0 : catalog.getPointsRequired();
+        if (pointsRequired <= 0) {
+            throw new BadRequestException("This discount type cannot be redeemed with points.");
+        }
+
+        // Trừ atomic: hai quầy cùng đổi cho một khách thì quầy thiếu điểm khớp 0 row
+        // thay vì cả hai cùng trừ và đẩy số dư xuống âm.
+        if (userRepository.deductPointsAtomic(customer.getId(), (long) pointsRequired) == 0) {
+            throw new BadRequestException("Customer does not have enough points.");
+        }
+        savePointTransaction(customer.getId(), -pointsRequired, "VOUCHER_REDEEM");
+
+        VoucherModel voucher = new VoucherModel();
+        voucher.setCode(voucherCodeGenerator.generate(VoucherCodeGenerator.DEFAULT_PREFIX));
+        voucher.setVoucherCatalogId(catalog.getId());
+        // customer_id trỏ users.id — cùng ID space với lúc chốt đơn, nếu không thì mã
+        // vừa đổi lại bị từ chối vì "thuộc về khách khác".
+        voucher.setCustomerId(customer.getId());
+        voucher.setStatus("active");
+        voucher.setExpiresAt(LocalDateTime.now().plusDays(voucherExpiryDays));
+        voucher.setCreatedAt(LocalDateTime.now());
+        VoucherModel saved = voucherRepository.save(voucher);
+
+        // deductPointsAtomic là bulk update, không đụng tới entity đã nạp — lấy points
+        // từ nó sẽ báo số dư cao hơn thực tế khi hai quầy cùng đổi cho một khách.
+        long pointsRemaining = userRepository.findById(customer.getId())
+                .map(fresh -> fresh.getPoints() == null ? 0L : fresh.getPoints())
+                .orElse(0L);
+
+        RedeemVoucherResponse response = new RedeemVoucherResponse();
+        response.setVoucherId(saved.getId());
+        response.setCode(saved.getCode());
+        response.setName(catalog.getName());
+        response.setDiscountType(catalog.getDiscountType());
+        response.setDiscountValue(catalog.getDiscountValue());
+        response.setExpiresAt(saved.getExpiresAt());
+        response.setPointsSpent(pointsRequired);
+        response.setPointsRemaining(pointsRemaining);
+        return response;
     }
 
     @Override

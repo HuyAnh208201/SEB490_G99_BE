@@ -6,6 +6,7 @@ import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRefundRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.service.RefundService;
+import base.api.feature.posorder.service.VoucherReleaseService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.shared.entity.OrderItemModel;
@@ -50,6 +51,9 @@ public class RefundServiceImpl implements RefundService {
 
     @Autowired
     private BranchInventoryRepository branchInventoryRepository;
+
+    @Autowired
+    private VoucherReleaseService voucherReleaseService;
 
     @Autowired
     private IUserRepository userRepository;
@@ -137,7 +141,12 @@ public class RefundServiceImpl implements RefundService {
                     order.getBranchId(), item.getProductId(), item.getQuantity());
         }
 
-        // 2. Thu hồi điểm — best-effort, KHÔNG làm fail refund. Các query atomic chỉ trả
+        // 2. Nhả lại mã giảm giá đã áp: đơn bị hoàn nghĩa là khách không thực sự
+        //    hưởng ưu đãi, giữ mã ở 'used' là lấy không của khách. Cùng cách xử lý
+        //    với huỷ đơn PAYOS — xem PaymentServiceImpl#releaseOrder.
+        voucherReleaseService.releaseForOrder(order.getId());
+
+        // 3. Thu hồi điểm — best-effort, KHÔNG làm fail refund. Các query atomic chỉ trả
         //    về số row update (0 khi khách đã tiêu hết điểm tặng) chứ không ném lỗi.
         if (order.getCustomerId() != null) {
             long earned = order.getPointsEarned() == null ? 0L : order.getPointsEarned();
@@ -155,7 +164,7 @@ public class RefundServiceImpl implements RefundService {
             recordReversalHistory(order.getCustomerId(), order.getId(), earned, redeemed);
         }
 
-        // 3. Đơn chuyển REFUNDED để loại khỏi doanh thu.
+        // 4. Đơn chuyển REFUNDED để loại khỏi doanh thu.
         order.setStatus("REFUNDED");
         orderRepository.save(order);
 

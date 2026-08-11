@@ -29,6 +29,14 @@ public interface IPosOrderService {
 
     OrderResponse getOrderById(Long id);
 
-    /** Tra mã giảm giá trước khi chốt đơn để cashier thấy ngay số tiền giảm. */
-    VoucherResponse lookupVoucher(String code);
+    /**
+     * Tra mã giảm giá trước khi chốt đơn để cashier thấy ngay số tiền giảm.
+     * Truyền SĐT khách nếu đã có, để mã phát riêng cho khách khác bị chặn ngay
+     * tại bước tra thay vì chờ đến lúc chốt đơn mới báo lỗi.
+     */
+    VoucherResponse lookupVoucher(String code, String customerPhone);
+
+    default VoucherResponse lookupVoucher(String code) {
+        return lookupVoucher(code, null);
+    }
 }

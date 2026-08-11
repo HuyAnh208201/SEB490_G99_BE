@@ -140,13 +140,15 @@ public class PosOrderServiceImpl implements IPosOrderService {
             subtotal = subtotal.add(lineTotal);
         }
 
-        // 3. Voucher: server tự tính số tiền giảm từ loại voucher.
+        // 3. Khách hàng: tạo nhanh nếu SĐT chưa có. Phải có trước voucher vì mã phát
+        //    riêng cho khách chỉ hợp lệ khi đúng người đó đứng tên đơn.
+        UserModel customer = resolveCustomer(request);
+
+        // 4. Voucher: server tự tính số tiền giảm từ loại voucher.
         VoucherModel voucher = resolveVoucher(request.getVoucherCode());
+        assertVoucherBelongsTo(voucher, customer);
         BigDecimal voucherDiscount = voucherDiscountFor(voucher, subtotal);
         BigDecimal afterVoucher = subtotal.subtract(voucherDiscount);
-
-        // 4. Khách hàng: tạo nhanh nếu SĐT chưa có.
-        UserModel customer = resolveCustomer(request);
 
         // 5. Điểm đổi: chặn trên theo số tiền còn lại, không để đổi thừa mất điểm oan.
         long pointsToRedeem = affordablePoints(request.getPointsToRedeem(), customer, afterVoucher);
@@ -315,11 +317,16 @@ public class PosOrderServiceImpl implements IPosOrderService {
     }
 
     @Override
-    public VoucherResponse lookupVoucher(String code) {
+    public VoucherResponse lookupVoucher(String code, String customerPhone) {
         VoucherModel voucher = resolveVoucher(code);
         if (voucher == null) {
             throw new NotFoundException("Discount code not found.");
         }
+        // Tra cứu là thao tác chỉ đọc: tìm khách theo SĐT chứ không tạo mới như lúc checkout.
+        UserModel customer = customerPhone == null || customerPhone.isBlank()
+                ? null
+                : userRepository.findByPhone(customerPhone.trim().replaceAll("\\s+", "")).orElse(null);
+        assertVoucherBelongsTo(voucher, customer);
         VoucherCatalogModel catalog = catalogOf(voucher);
 
         VoucherResponse response = new VoucherResponse();
@@ -359,6 +366,9 @@ public class PosOrderServiceImpl implements IPosOrderService {
         }
         VoucherModel voucher = voucherRepository.findByCodeIgnoreCase(code.trim())
                 .orElseThrow(() -> new NotFoundException("Discount code not found."));
+        if ("revoked".equalsIgnoreCase(voucher.getStatus())) {
+            throw new BusinessException("This discount code has been revoked.");
+        }
         if (!"active".equalsIgnoreCase(voucher.getStatus())) {
             throw new BusinessException("This discount code has already been used.");
         }
@@ -368,12 +378,36 @@ public class PosOrderServiceImpl implements IPosOrderService {
         return voucher;
     }
 
+    /**
+     * Mã có customer_id là mã phát riêng cho một khách; null nghĩa là ai dùng cũng được.
+     * Không kiểm tra ở đây thì mã riêng của khách này áp được lên đơn của khách khác.
+     */
+    private void assertVoucherBelongsTo(VoucherModel voucher, UserModel customer) {
+        if (voucher == null || voucher.getCustomerId() == null) {
+            return;
+        }
+        // Chưa biết khách là ai thì chưa kết luận được mã của người khác — báo đúng
+        // việc cần làm, thay vì đổ cho cashier là dùng nhầm mã.
+        if (customer == null) {
+            throw new BusinessException(
+                    "This discount code is issued to a specific customer. Enter their phone number first.");
+        }
+        if (!voucher.getCustomerId().equals(customer.getId())) {
+            throw new BusinessException("This discount code belongs to another customer.");
+        }
+    }
+
     private VoucherCatalogModel catalogOf(VoucherModel voucher) {
         if (voucher.getVoucherCatalogId() == null) {
             throw new BusinessException("This discount code is not linked to a discount type.");
         }
-        return voucherCatalogRepository.findById(voucher.getVoucherCatalogId())
+        VoucherCatalogModel catalog = voucherCatalogRepository.findById(voucher.getVoucherCatalogId())
                 .orElseThrow(() -> new NotFoundException("Discount type not found."));
+        // Tắt một loại voucher trong catalog phải chặn được mọi mã thuộc loại đó.
+        if (!"active".equalsIgnoreCase(catalog.getStatus())) {
+            throw new BusinessException("This discount code is no longer available.");
+        }
+        return catalog;
     }
 
     private BigDecimal voucherDiscountFor(VoucherModel voucher, BigDecimal subtotal) {

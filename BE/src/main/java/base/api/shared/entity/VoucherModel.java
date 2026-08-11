@@ -32,7 +32,7 @@ public class VoucherModel {
     @Column(name = "customer_id")
     private Long customerId;
 
-    /** active hoặc used. */
+    /** active, used (đã áp vào đơn) hoặc revoked (admin thu hồi). */
     @Column(nullable = false, length = 32)
     private String status = "active";
 

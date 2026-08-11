@@ -2,9 +2,12 @@ package base.api.feature.cashier.controller;
 
 import base.api.feature.cashier.dto.request.AddPointsRequest;
 import base.api.feature.cashier.dto.request.CreateCustomerRequest;
+import base.api.feature.cashier.dto.request.RedeemVoucherRequest;
 import base.api.feature.cashier.dto.response.AddPointsResponse;
 import base.api.feature.cashier.dto.response.CustomerLookupResponse;
 import base.api.feature.cashier.dto.response.LoyaltyConfigResponse;
+import base.api.feature.cashier.dto.response.RedeemVoucherResponse;
+import base.api.feature.cashier.dto.response.RedeemableVoucherResponse;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
@@ -118,5 +121,41 @@ public class CashierController extends BaseAPIController {
         AddPointsResponse result = cashierService.addPointsFromInvoice(request);
         return success(result, "Loyalty points settled. Earned " + result.getPointsEarned()
                 + ", redeemed " + result.getPointsRedeemed() + ".");
+    }
+
+    /**
+     * Các loại voucher khách đang đổi được bằng điểm.
+     *
+     * GET /api/cashier/vouchers/redeemable
+     */
+    @Operation(
+            summary = "Loại voucher đổi được bằng điểm",
+            description = "Chỉ trả loại đang bật và có đặt số điểm đổi. Rỗng nghĩa là chưa "
+                    + "mở loại nào cho đổi điểm, không phải lỗi."
+    )
+    @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
+    @GetMapping("/vouchers/redeemable")
+    public ResponseEntity<TFUResponse<List<RedeemableVoucherResponse>>> redeemableVouchers() {
+        return success(cashierService.getRedeemableVouchers());
+    }
+
+    /**
+     * Khách đổi điểm tích lũy lấy một mã giảm giá dùng cho lần mua sau.
+     *
+     * POST /api/cashier/vouchers/redeem
+     */
+    @Operation(
+            summary = "Đổi điểm lấy mã giảm giá",
+            description = "Trừ số điểm của loại voucher rồi sinh mã gán riêng cho khách, trong "
+                    + "cùng một transaction. Không đủ điểm thì không mất gì."
+    )
+    @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
+    @PostMapping("/vouchers/redeem")
+    public ResponseEntity<TFUResponse<RedeemVoucherResponse>> redeemVoucher(
+            @Valid @RequestBody RedeemVoucherRequest request) {
+
+        RedeemVoucherResponse result = cashierService.redeemVoucher(request);
+        return success(result, "Discount code " + result.getCode() + " issued for "
+                + result.getPointsSpent() + " points.");
     }
 }

@@ -321,6 +321,163 @@ class PosOrderCheckoutExtraTest {
         assertTrue(error.getMessage().contains("not linked to a discount type"));
     }
 
+    @Test
+    void voucherIssuedToAnotherCustomerIsRejected() {
+        stubProduct(1, "Milk", "12000");
+        VoucherModel voucher = voucherShell("MINE");
+        voucher.setCustomerId(77L);
+        when(voucherRepository.findByCodeIgnoreCase("MINE")).thenReturn(Optional.of(voucher));
+        when(userService.getOrCreateGuestByPhone(eq("0909111222"), any())).thenReturn(customer(7L, 0L));
+
+        CheckoutRequest request = cashWithVoucher(1, 1, "20000", "MINE");
+        request.setCustomerPhone("0909111222");
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.checkout(request));
+
+        assertTrue(error.getMessage().contains("belongs to another customer"));
+        verify(branchInventoryRepository, never()).deductStock(anyLong(), anyInt(), anyInt());
+        verify(voucherRepository, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void customerOnlyVoucherIsRejectedForWalkIn() {
+        stubProduct(1, "Milk", "12000");
+        VoucherModel voucher = voucherShell("MINE");
+        voucher.setCustomerId(77L);
+        when(voucherRepository.findByCodeIgnoreCase("MINE")).thenReturn(Optional.of(voucher));
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.checkout(cashWithVoucher(1, 1, "20000", "MINE")));
+
+        // Chưa có khách trên đơn thì chưa biết mã của ai — báo việc cần làm, không
+        // đổ cho cashier là dùng nhầm mã của người khác.
+        assertTrue(error.getMessage().contains("issued to a specific customer"));
+        verify(voucherRepository, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void voucherOfOwnerIsAccepted() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
+        stubActiveVoucher("MINE", "FIXED", "2000");
+        VoucherModel voucher = voucherShell("MINE");
+        voucher.setCustomerId(7L);
+        when(voucherRepository.findByCodeIgnoreCase("MINE")).thenReturn(Optional.of(voucher));
+        when(voucherRepository.markUsed(11L)).thenReturn(1);
+        UserModel customer = customer(7L, 0L);
+        when(userService.getOrCreateGuestByPhone(eq("0909111222"), any())).thenReturn(customer);
+        when(cashierService.settlePoints(any(), any(), eq(0L)))
+                .thenReturn(new ICashierService.PointSettlement(0L, 1L, 1L));
+
+        CheckoutRequest request = cashWithVoucher(1, 1, "20000", "MINE");
+        request.setCustomerPhone("0909111222");
+
+        OrderResponse response = service.checkout(request);
+
+        assertEquals(0, new BigDecimal("10000").compareTo(response.getTotal()));
+        verify(voucherRepository).markUsed(11L);
+    }
+
+    @Test
+    void voucherFromInactiveCatalogIsRejected() {
+        stubProduct(1, "Milk", "12000");
+        VoucherModel voucher = voucherShell("OFF");
+        when(voucherRepository.findByCodeIgnoreCase("OFF")).thenReturn(Optional.of(voucher));
+        VoucherCatalogModel catalog = new VoucherCatalogModel();
+        catalog.setId(21L);
+        catalog.setName("Promo");
+        catalog.setDiscountType("FIXED");
+        catalog.setDiscountValue(new BigDecimal("5000"));
+        catalog.setStatus("inactive");
+        when(voucherCatalogRepository.findById(21L)).thenReturn(Optional.of(catalog));
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.checkout(cashWithVoucher(1, 1, "20000", "OFF")));
+
+        assertTrue(error.getMessage().contains("no longer available"));
+        verify(voucherRepository, never()).markUsed(anyLong());
+    }
+
+    /**
+     * Phản biện fix "catalog phải active": cột status là chuỗi tự do, dữ liệu cũ có thể
+     * ghi hoa. Chặn nhầm 'ACTIVE' sẽ làm chết mọi mã đang chạy, nên khoá hành vi lại đây.
+     */
+    @Test
+    void uppercaseActiveCatalogStatusIsStillAccepted() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
+        VoucherModel voucher = voucherShell("OK");
+        when(voucherRepository.findByCodeIgnoreCase("OK")).thenReturn(Optional.of(voucher));
+        VoucherCatalogModel catalog = new VoucherCatalogModel();
+        catalog.setId(21L);
+        catalog.setName("Promo");
+        catalog.setDiscountType("FIXED");
+        catalog.setDiscountValue(new BigDecimal("2000"));
+        catalog.setStatus("ACTIVE");
+        when(voucherCatalogRepository.findById(21L)).thenReturn(Optional.of(catalog));
+        when(voucherRepository.markUsed(11L)).thenReturn(1);
+
+        OrderResponse response = service.checkout(cashWithVoucher(1, 1, "20000", "OK"));
+
+        assertEquals(0, new BigDecimal("10000").compareTo(response.getTotal()));
+    }
+
+    /** Mã dùng chung (customer_id null) vẫn phải áp được cho khách vãng lai. */
+    @Test
+    void sharedVoucherStillWorksForWalkIn() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
+        stubActiveVoucher("SHARED", "FIXED", "2000");
+        when(voucherRepository.markUsed(11L)).thenReturn(1);
+
+        OrderResponse response = service.checkout(cashWithVoucher(1, 1, "20000", "SHARED"));
+
+        assertEquals(0, new BigDecimal("10000").compareTo(response.getTotal()));
+        verify(voucherRepository).markUsed(11L);
+    }
+
+    /** Cashier gõ thừa khoảng trắng và sai hoa/thường vẫn phải ra đúng mã. */
+    @Test
+    void voucherCodeIsTrimmedBeforeLookup() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
+        stubActiveVoucher("save5k", "FIXED", "5000");
+        when(voucherRepository.markUsed(11L)).thenReturn(1);
+
+        service.checkout(cashWithVoucher(1, 1, "20000", "  save5k  "));
+
+        verify(voucherRepository).findByCodeIgnoreCase("save5k");
+    }
+
+    /**
+     * Thứ tự tính tiền: trừ voucher trước rồi mới quy đổi điểm. Đảo lại thì khách
+     * bị đốt nhiều điểm hơn mức cần để phủ số tiền còn lại.
+     */
+    @Test
+    void voucherIsAppliedBeforePointsAreRedeemed() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
+        stubActiveVoucher("SAVE5K", "FIXED", "5000");
+        when(voucherRepository.markUsed(11L)).thenReturn(1);
+        UserModel customer = customer(7L, 100L);
+        when(userService.getOrCreateGuestByPhone(eq("0909111222"), any())).thenReturn(customer);
+        when(cashierService.settlePoints(any(), any(), eq(7L)))
+                .thenReturn(new ICashierService.PointSettlement(7L, 0L, 93L));
+
+        CheckoutRequest request = cashWithVoucher(1, 1, "20000", "SAVE5K");
+        request.setCustomerPhone("0909111222");
+        request.setPointsToRedeem(100L);
+
+        OrderResponse response = service.checkout(request);
+
+        // 12000 - 5000 voucher = 7000 còn lại → chỉ đổi 7 điểm, không phải 12.
+        assertEquals(7L, response.getPointsRedeemed());
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getTotal()));
+        assertEquals(0, new BigDecimal("12000").compareTo(response.getDiscountAmount()));
+    }
+
     private void stubProduct(int id, String name, String price) {
         ProductModel product = new ProductModel();
         product.setId(id);

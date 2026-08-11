@@ -111,7 +111,9 @@ public class PosOrderController extends BaseAPIController {
     )
     @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
     @GetMapping("/vouchers/{code}")
-    public ResponseEntity<TFUResponse<VoucherResponse>> lookupVoucher(@PathVariable String code) {
-        return success(posOrderService.lookupVoucher(code));
+    public ResponseEntity<TFUResponse<VoucherResponse>> lookupVoucher(
+            @PathVariable String code,
+            @RequestParam(required = false) String customerPhone) {
+        return success(posOrderService.lookupVoucher(code, customerPhone));
     }
 }

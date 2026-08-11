@@ -53,6 +53,7 @@ class RefundServiceTest {
     @Mock private OrderRepository orderRepository;
     @Mock private OrderItemRepository orderItemRepository;
     @Mock private BranchInventoryRepository branchInventoryRepository;
+    @Mock private base.api.feature.posorder.service.VoucherReleaseService voucherReleaseService;
     @Mock private IUserRepository userRepository;
     @Mock private PointTransactionRepository pointTransactionRepository;
     @Mock private base.api.shared.security.CurrentUserProvider currentUserProvider;
@@ -219,6 +220,40 @@ class RefundServiceTest {
         assertEquals("APPROVED", refund.getStatus());
         assertEquals("APPROVED", response.getStatus());
         assertEquals(REFUND_ID, response.getRefundId());
+    }
+
+    /**
+     * Đơn bị hoàn nghĩa là khách không thực sự hưởng ưu đãi, nên mã phải được trả về
+     * dùng được — cùng cách xử lý với huỷ đơn PAYOS.
+     */
+    @Test
+    void approveRefundReleasesTheDiscountCode() {
+        asManager();
+        OrderRefundModel refund = pendingRefund();
+        when(orderRefundRepository.findById(REFUND_ID)).thenReturn(Optional.of(refund));
+        OrderModel order = completedOrder();
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderIdIn(List.of(ORDER_ID))).thenReturn(List.of());
+        when(orderRefundRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(orderRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        service.approveRefund(REFUND_ID, "Approved by BM");
+
+        verify(voucherReleaseService).releaseForOrder(ORDER_ID);
+    }
+
+    /** Từ chối hoàn thì đơn vẫn đứng, mã phải giữ nguyên trạng thái đã dùng. */
+    @Test
+    void rejectRefundDoesNotReleaseTheDiscountCode() {
+        asManager();
+        OrderRefundModel refund = pendingRefund();
+        when(orderRefundRepository.findById(REFUND_ID)).thenReturn(Optional.of(refund));
+        when(orderRefundRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(completedOrder()));
+
+        service.rejectRefund(REFUND_ID, "Refund not justified");
+
+        verify(voucherReleaseService, never()).releaseForOrder(anyLong());
     }
 
     // =========================================================================
