@@ -51,6 +51,6 @@ public class CheckoutRequest {
     @Min(value = 0, message = "Redeemed points must be greater than or equal to 0.")
     private Long pointsToRedeem;
 
-    // Không có trường nào cho khuyến mãi của cửa hàng: server tự áp mọi campaign đang
-    // chạy của chi nhánh. Khách nào cũng được hưởng nên quầy không được phép chọn.
+    // No field for store campaigns: the server applies every campaign running at the
+    // branch. They are for every customer, so the counter is not allowed to pick.
 }

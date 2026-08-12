@@ -48,7 +48,7 @@ public class CashierServiceImpl implements ICashierService {
     @Value("${loyalty.point-value-vnd:1000}")
     private long pointValueVnd;
 
-    /** Mã đổi từ điểm sống được bao nhiêu ngày. */
+    /** How many days a code bought with points stays valid. */
     @Value("${voucher.redeem-expiry-days:30}")
     private long voucherExpiryDays;
 
@@ -166,8 +166,8 @@ public class CashierServiceImpl implements ICashierService {
             throw new BadRequestException("This discount type cannot be redeemed with points.");
         }
 
-        // Trừ atomic: hai quầy cùng đổi cho một khách thì quầy thiếu điểm khớp 0 row
-        // thay vì cả hai cùng trừ và đẩy số dư xuống âm.
+        // Atomic deduction: if two counters redeem for one customer, the one without enough
+        // points matches zero rows instead of both deducting and driving the balance negative.
         if (userRepository.deductPointsAtomic(customer.getId(), (long) pointsRequired) == 0) {
             throw new BadRequestException("Customer does not have enough points.");
         }
@@ -176,16 +176,16 @@ public class CashierServiceImpl implements ICashierService {
         VoucherModel voucher = new VoucherModel();
         voucher.setCode(voucherCodeGenerator.generate(VoucherCodeGenerator.DEFAULT_PREFIX));
         voucher.setVoucherCatalogId(catalog.getId());
-        // customer_id trỏ users.id — cùng ID space với lúc chốt đơn, nếu không thì mã
-        // vừa đổi lại bị từ chối vì "thuộc về khách khác".
+        // customer_id points at users.id — the same id space checkout uses; otherwise the code
+        // just issued would be refused as "belongs to another customer".
         voucher.setCustomerId(customer.getId());
         voucher.setStatus("active");
         voucher.setExpiresAt(LocalDateTime.now().plusDays(voucherExpiryDays));
         voucher.setCreatedAt(LocalDateTime.now());
         VoucherModel saved = voucherRepository.save(voucher);
 
-        // deductPointsAtomic là bulk update, không đụng tới entity đã nạp — lấy points
-        // từ nó sẽ báo số dư cao hơn thực tế khi hai quầy cùng đổi cho một khách.
+        // deductPointsAtomic is a bulk update and does not touch the loaded entity, so reading
+        // points from it would overstate the balance when two counters redeem at once.
         long pointsRemaining = userRepository.findById(customer.getId())
                 .map(fresh -> fresh.getPoints() == null ? 0L : fresh.getPoints())
                 .orElse(0L);

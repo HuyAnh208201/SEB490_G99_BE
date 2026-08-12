@@ -18,7 +18,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Nhả mã dùng chung cho huỷ đơn PAYOS và duyệt hoàn đơn. */
+/** Code release, shared by PAYOS cancellation and approved refunds. */
 @ExtendWith(MockitoExtension.class)
 class VoucherReleaseServiceTest {
 
@@ -40,7 +40,7 @@ class VoucherReleaseServiceTest {
         assertEquals(2, service.releaseForOrder(ORDER_ID));
     }
 
-    /** Dòng giảm giá thủ công không gắn mã — không được gọi markActive(null). */
+    /** A manual discount row carries no code — markActive(null) must never be called. */
     @Test
     void skipsDiscountRowsWithoutVoucherId() {
         when(orderDiscountRepository.findByOrderId(ORDER_ID)).thenReturn(List.of(discount(null)));
@@ -50,8 +50,8 @@ class VoucherReleaseServiceTest {
     }
 
     /**
-     * markActive chỉ khớp mã đang ở 'used'. Khớp 0 row (đã active sẵn do huỷ hai lần)
-     * thì không được tính là đã nhả.
+     * markActive only matches codes at 'used'. Zero rows — already active from a double
+     * cancel — must not be counted as a release.
      */
     @Test
     void countsOnlyRowsActuallyFlippedBack() {

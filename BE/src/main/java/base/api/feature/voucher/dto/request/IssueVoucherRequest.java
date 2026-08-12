@@ -9,7 +9,7 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-/** Phát mã giảm giá: một mã cho khách cụ thể, hoặc một lô mã dùng chung. */
+/** Issues codes: one for a named customer, or a batch of shared codes. */
 @Getter
 @Setter
 public class IssueVoucherRequest {
@@ -18,16 +18,16 @@ public class IssueVoucherRequest {
     private Long voucherCatalogId;
 
     /**
-     * ID người dùng (users.id) của khách được phát riêng. Bỏ trống nghĩa là mã dùng
-     * chung, ai cũng áp được.
+     * users.id of the customer the code is reserved for. Empty means a shared code that
+     * anyone may apply.
      */
     private Long customerId;
 
-    /** Tiền tố mã cho dễ đọc tại quầy; bỏ trống thì dùng mặc định. */
+    /** Code prefix, to keep codes readable at the counter; empty uses the default. */
     @Size(max = 16, message = "Code prefix must not exceed 16 characters.")
     private String codePrefix;
 
-    /** Số mã cần sinh. Mã phát riêng cho khách chỉ được sinh 1. */
+    /** How many codes to generate. A code reserved for a customer is always exactly one. */
     @Min(value = 1, message = "Quantity must be at least 1.")
     @Max(value = 200, message = "Cannot issue more than 200 codes at once.")
     private Integer quantity;

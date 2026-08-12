@@ -57,9 +57,9 @@ import java.util.stream.Collectors;
 public class CampaignServiceImpl implements ICampaignService {
 
     /**
-     * Thứ tự áp khuyến mãi lên một đơn: priority cao trước, hoà thì id nhỏ trước.
-     * Phải cố định vì giảm 10% rồi 20% ra số khác 20% rồi 10%. Quầy bán hàng dựa
-     * vào đúng thứ tự này để tính ra cùng con số với màn hình thu ngân.
+     * Apply order for campaigns on an order: highest priority first, then lowest id.
+     * It has to be fixed because 10% then 20% is not the same money as 20% then 10%.
+     * POS relies on this order to reach the same number the cashier sees on screen.
      */
     private static final Comparator<CampaignModel> APPLY_ORDER =
             Comparator.comparing(
@@ -147,7 +147,7 @@ public class CampaignServiceImpl implements ICampaignService {
     public CampaignResponse updateCampaign(Long id, UpdateCampaignRequest request) {
         CampaignModel campaign = findCampaignOrThrow(id);
         assertCanModifyCampaign(campaign);
-        // Campaign đang chạy đã áp giá lên đơn hàng thực tế nên phải deactivate trước khi sửa.
+        // A running campaign is already discounting real orders, so deactivate before editing.
         if (campaign.getStatus() == CampaignStatus.ACTIVE) {
             throw new BadRequestException(
                     "Active promotions cannot be edited. Deactivate the promotion first.");
@@ -296,14 +296,14 @@ public class CampaignServiceImpl implements ICampaignService {
         }
 
         List<Long> branchIds = getBranchIds(id);
-        // Danh sách rỗng = khuyến mãi chuỗi áp cho mọi chi nhánh nên chi nhánh nào cũng hợp lệ.
+        // An empty list means a chain campaign covering every branch, so any branch is valid.
         if (!branchIds.isEmpty() && !branchIds.contains(branchId)) {
             throw new ForbiddenException("Promotion is not applied to this branch.");
         }
 
-        // Tắt = ghi một dòng loại trừ. Tuyệt đối không xoá dòng trong campaign_branches:
-        // đó là cấu hình của Admin, và xoá đi thì không còn cách nào phân biệt
-        // "chi nhánh tự tắt" với "chi nhánh chưa bao giờ được thêm vào".
+        // Turning off writes an exclusion row. Never delete from campaign_branches: that is
+        // the Admin's configuration, and deleting it removes any way to tell
+        // "the branch opted out" from "the branch was never added".
         if (campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
             throw new ConflictException("Promotion already deactivated for this branch.");
         }
@@ -331,14 +331,14 @@ public class CampaignServiceImpl implements ICampaignService {
         }
 
         List<Long> branchIds = getBranchIds(id);
-        // Danh sách rỗng = khuyến mãi chuỗi áp cho mọi chi nhánh nên chi nhánh nào cũng hợp lệ.
+        // An empty list means a chain campaign covering every branch, so any branch is valid.
         if (!branchIds.isEmpty() && !branchIds.contains(branchId)) {
             throw new ForbiddenException("Promotion is not applied to this branch.");
         }
 
-        // Chiều ngược của deactivateCampaignForBranch: gỡ đúng dòng loại trừ mà hàm kia ghi.
-        // Hai hàm phải luôn đối xứng — sửa một bên mà quên bên kia thì bật/tắt lệch nhau
-        // mà không có lỗi nào báo.
+        // The inverse of deactivateCampaignForBranch: removes the exclusion row it wrote.
+        // The two must stay symmetric — changing one and forgetting the other makes enable and
+        // disable disagree, and nothing reports it.
         if (!campaignBranchExclusionRepository.existsByCampaignIdAndBranchId(id, branchId)) {
             throw new BadRequestException("Promotion is not deactivated for this branch.");
         }
@@ -400,17 +400,17 @@ public class CampaignServiceImpl implements ICampaignService {
                 .map(CampaignBranchExclusionModel::getCampaignId)
                 .collect(Collectors.toSet());
 
-        // Phải đi qua findCampaignsVisibleToBranch chứ không phải findByStatus(ACTIVE):
-        // isDeactivatedForBranch chỉ soi danh sách chi nhánh với campaign scope CHAIN,
-        // nên campaign scope BRANCH của chi nhánh khác sẽ lọt nếu không lọc từ đây.
+        // Must go through findCampaignsVisibleToBranch rather than findByStatus(ACTIVE):
+        // isDeactivatedForBranch only inspects the branch list for CHAIN-scoped campaigns, so
+        // another branch's BRANCH-scoped campaign would slip through without this filter.
         List<CampaignModel> visible = findCampaignsVisibleToBranch(branchId).stream()
                 .filter(campaign -> campaign.getStatus() == CampaignStatus.ACTIVE)
                 .toList();
         Map<Long, List<Long>> branchIdsByCampaign = loadBranchIdsByCampaign(visible);
 
-        // Trạng thái ACTIVE không đủ: job hết hạn chạy mỗi phút nên vẫn có cửa sổ
-        // campaign đã quá endAt mà chưa kịp bị tắt. So thẳng với mốc thời gian.
-        // Thiếu ngày thì loại — đây là đường tính tiền, không đoán mò hộ dữ liệu.
+        // ACTIVE alone is not enough: the expiry job runs once a minute, so there is a window
+        // where a campaign is past endAt but not yet switched off. Compare the dates directly.
+        // Missing dates are excluded — this path computes money, it does not guess for the data.
         return visible.stream()
                 .filter(campaign -> campaign.getStartAt() != null
                         && campaign.getEndAt() != null
@@ -674,8 +674,8 @@ public class CampaignServiceImpl implements ICampaignService {
     }
 
     /**
-     * Chỉ nhận DRAFT hoặc DEACTIVATED. ACTIVE phải đi qua activateCampaign để không
-     * lách được bộ kiểm tra ngày và quyền ở đó; SUSPENDED là giá trị cũ, không tạo mới.
+     * Accepts DRAFT or DEACTIVATED only. ACTIVE must go through activateCampaign so the
+     * date and permission checks cannot be bypassed; SUSPENDED is legacy, never created.
      */
     private CampaignStatus parseCreateStatus(String value) {
         String normalized = normalizeEnumToken(value);
@@ -696,8 +696,8 @@ public class CampaignServiceImpl implements ICampaignService {
     }
 
     /**
-     * activateCampaign đã chặn ngày quá khứ; chặn luôn từ lúc tạo để người dùng biết
-     * ngay, thay vì soạn xong mới bị từ chối lúc bật.
+     * activateCampaign already refuses past dates; refusing at creation too tells the user
+     * straight away instead of after they finish and try to switch it on.
      */
     private void validateCreateDates(LocalDateTime startAt, LocalDateTime endAt) {
         if (startAt != null && startAt.toLocalDate().isBefore(LocalDate.now())) {

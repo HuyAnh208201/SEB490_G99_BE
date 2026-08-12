@@ -141,12 +141,12 @@ public class RefundServiceImpl implements RefundService {
                     order.getBranchId(), item.getProductId(), item.getQuantity());
         }
 
-        // 2. Nhả lại mã giảm giá đã áp: đơn bị hoàn nghĩa là khách không thực sự
-        //    hưởng ưu đãi, giữ mã ở 'used' là lấy không của khách. Cùng cách xử lý
-        //    với huỷ đơn PAYOS — xem PaymentServiceImpl#releaseOrder.
+        // 2. Release the voucher: a refunded order means the customer never actually got the
+        //    discount, so leaving the code at 'used' takes it from them for nothing. Same
+        //    handling as a cancelled PAYOS order — see PaymentServiceImpl#releaseOrder.
         voucherReleaseService.releaseForOrder(order.getId());
 
-        // 3. Thu hồi điểm — best-effort, KHÔNG làm fail refund. Các query atomic chỉ trả
+        // 3. Reverse the points — best effort, never fails the refund. The atomic queries only
         //    về số row update (0 khi khách đã tiêu hết điểm tặng) chứ không ném lỗi.
         if (order.getCustomerId() != null) {
             long earned = order.getPointsEarned() == null ? 0L : order.getPointsEarned();
@@ -164,7 +164,7 @@ public class RefundServiceImpl implements RefundService {
             recordReversalHistory(order.getCustomerId(), order.getId(), earned, redeemed);
         }
 
-        // 4. Đơn chuyển REFUNDED để loại khỏi doanh thu.
+        // 4. The order becomes REFUNDED so it drops out of revenue.
         order.setStatus("REFUNDED");
         orderRepository.save(order);
 

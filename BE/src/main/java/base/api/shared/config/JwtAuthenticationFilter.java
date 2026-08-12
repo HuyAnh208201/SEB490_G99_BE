@@ -101,13 +101,13 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
     }
 
     /**
-     * Tra cache trong RAM, không chạm DB — xem RevokedTokenCache để biết vì sao.
+     * Reads the in-memory cache and never touches the database — see RevokedTokenCache.
      *
-     * Cache rỗng khi không nạp được (bảng chưa tạo / DB lỗi) nên hành vi ở đây là
-     * fail-open có chủ đích: tạm mất khả năng thu hồi token, đúng bằng hành vi cũ
-     * trước khi có tính năng này. Nếu ném lỗi thì rơi vào catch(Exception) phía
-     * trên và mọi request có token đều bị 401 — cả hệ thống chết. RevokedTokenCache
-     * đã log ERROR khi nạp hỏng.
+     * The cache is empty when it cannot be loaded (table missing, database down), so this
+     * deliberately fails open: revocation stops working for a while, which is a far smaller
+     * cost than the alternative. Throwing here lands in the catch(Exception) above and
+     * every authenticated request takes a 401, which stops the whole system.
+     * RevokedTokenCache already logs an ERROR when the load fails.
      */
     private boolean isRevoked(String token) {
         return revokedTokenCache.isRevoked(TokenHasher.sha256(token));

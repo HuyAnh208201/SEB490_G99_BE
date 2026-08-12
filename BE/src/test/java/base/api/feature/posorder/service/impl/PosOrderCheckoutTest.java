@@ -65,7 +65,7 @@ class PosOrderCheckoutTest {
     @Mock private ShiftRepository shiftRepository;
     @Mock private IUserService userService;
     @Mock private ICashierService cashierService;
-    /** Checkout luôn hỏi khuyến mãi của chi nhánh; mock rỗng = chi nhánh không có cái nào. */
+    /** Checkout always asks for branch campaigns; an empty mock means the branch has none. */
     @Mock private ICampaignService campaignService;
     @Mock private PointTransactionRepository pointTransactionRepository;
     @Mock private CurrentUserProvider currentUserProvider;

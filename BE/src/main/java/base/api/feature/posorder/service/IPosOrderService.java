@@ -31,16 +31,16 @@ public interface IPosOrderService {
     OrderResponse getOrderById(Long id);
 
     /**
-     * Khuyến mãi cashier chọn được cho đơn đang lập, lấy theo chi nhánh của chính
-     * cashier đó. Đây cũng là tập hợp mà {@link #checkout} kiểm lại — chọn thứ không
-     * nằm trong danh sách này thì chốt đơn bị từ chối.
+     * Campaigns that apply to the order being rung up, taken from the cashier's own
+     * branch. {@link #checkout} resolves the same set again and applies all of it; this
+     * call exists so the screen can show the customer what is being taken off.
      */
     List<CampaignSummaryResponse> getApplicablePromotions();
 
     /**
-     * Tra mã giảm giá trước khi chốt đơn để cashier thấy ngay số tiền giảm.
-     * Truyền SĐT khách nếu đã có, để mã phát riêng cho khách khác bị chặn ngay
-     * tại bước tra thay vì chờ đến lúc chốt đơn mới báo lỗi.
+     * Looks a voucher up before checkout so the cashier sees the discount immediately.
+     * Pass the customer phone when known so a code issued to somebody else is refused
+     * at lookup instead of failing at checkout.
      */
     VoucherResponse lookupVoucher(String code, String customerPhone);
 

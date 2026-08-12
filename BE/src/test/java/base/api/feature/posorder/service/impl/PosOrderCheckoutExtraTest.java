@@ -356,8 +356,8 @@ class PosOrderCheckoutExtraTest {
                 BusinessException.class,
                 () -> service.checkout(cashWithVoucher(1, 1, "20000", "MINE")));
 
-        // Chưa có khách trên đơn thì chưa biết mã của ai — báo việc cần làm, không
-        // đổ cho cashier là dùng nhầm mã của người khác.
+        // With no customer on the order we cannot know whose code it is: say what to do,
+        // rather than accusing the cashier of using somebody else's code.
         assertTrue(error.getMessage().contains("issued to a specific customer"));
         verify(voucherRepository, never()).markUsed(anyLong());
     }
@@ -407,8 +407,8 @@ class PosOrderCheckoutExtraTest {
     }
 
     /**
-     * Phản biện fix "catalog phải active": cột status là chuỗi tự do, dữ liệu cũ có thể
-     * ghi hoa. Chặn nhầm 'ACTIVE' sẽ làm chết mọi mã đang chạy, nên khoá hành vi lại đây.
+     * Guards the "catalog must be active" rule: status is a free-text column and older data
+     * may be upper case. Refusing 'ACTIVE' would kill every live code, so pin the behaviour.
      */
     @Test
     void uppercaseActiveCatalogStatusIsStillAccepted() {
@@ -430,7 +430,7 @@ class PosOrderCheckoutExtraTest {
         assertEquals(0, new BigDecimal("10000").compareTo(response.getTotal()));
     }
 
-    /** Mã dùng chung (customer_id null) vẫn phải áp được cho khách vãng lai. */
+    /** A shared code (customer_id null) must still apply for a walk-in customer. */
     @Test
     void sharedVoucherStillWorksForWalkIn() {
         stubProduct(1, "Milk", "12000");
@@ -444,7 +444,7 @@ class PosOrderCheckoutExtraTest {
         verify(voucherRepository).markUsed(11L);
     }
 
-    /** Cashier gõ thừa khoảng trắng và sai hoa/thường vẫn phải ra đúng mã. */
+    /** Extra spaces and the wrong case must still resolve to the right code. */
     @Test
     void voucherCodeIsTrimmedBeforeLookup() {
         stubProduct(1, "Milk", "12000");
@@ -458,8 +458,8 @@ class PosOrderCheckoutExtraTest {
     }
 
     /**
-     * Thứ tự tính tiền: trừ voucher trước rồi mới quy đổi điểm. Đảo lại thì khách
-     * bị đốt nhiều điểm hơn mức cần để phủ số tiền còn lại.
+     * Order of operations: the voucher comes off before points are converted. Reversed,
+     * the customer burns more points than the remaining amount needs.
      */
     @Test
     void voucherIsAppliedBeforePointsAreRedeemed() {
@@ -478,14 +478,14 @@ class PosOrderCheckoutExtraTest {
 
         OrderResponse response = service.checkout(request);
 
-        // 12000 - 5000 voucher = 7000 còn lại → chỉ đổi 7 điểm, không phải 12.
+        // 12000 - 5000 voucher leaves 7000, so only 7 points are spent, not 12.
         assertEquals(7L, response.getPointsRedeemed());
         assertEquals(0, BigDecimal.ZERO.compareTo(response.getTotal()));
         assertEquals(0, new BigDecimal("12000").compareTo(response.getDiscountAmount()));
     }
 
     // -------------------------------------------------------------------------
-    // Khuyến mãi cửa hàng (campaign) — áp tự động, quầy không chọn được
+    // Store campaigns — applied automatically, the counter cannot pick
     // -------------------------------------------------------------------------
 
     @Test
@@ -494,7 +494,7 @@ class PosOrderCheckoutExtraTest {
         when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
         stubApplicable(summary(5L, "Summer Sale", "PERCENT", "10"));
 
-        // Request KHÔNG mang thông tin khuyến mãi nào — server tự áp.
+        // The request carries no campaign information at all — the server applies them.
         OrderResponse response = service.checkout(cashRequest(1, 2, "30000"));
 
         assertEquals(0, new BigDecimal("21600").compareTo(response.getTotal()));
@@ -502,7 +502,7 @@ class PosOrderCheckoutExtraTest {
 
         ArgumentCaptor<OrderDiscountModel> row = ArgumentCaptor.forClass(OrderDiscountModel.class);
         verify(orderDiscountRepository).save(row.capture());
-        // voucher_id null là điều kiện để VoucherReleaseService bỏ qua dòng này lúc hoàn đơn.
+        // A null voucher_id is what makes VoucherReleaseService skip this row on a refund.
         assertNull(row.getValue().getVoucherId());
         assertEquals("Summer Sale", row.getValue().getCode());
         assertEquals(0, new BigDecimal("2400").compareTo(row.getValue().getDiscountAmount()));
@@ -518,14 +518,14 @@ class PosOrderCheckoutExtraTest {
 
         OrderResponse response = service.checkout(cashRequest(1, 2, "30000"));
 
-        // 24000 → −10% (2400) → 21600 → −5000 = 16600. Thứ tự do getApplicableForBranch
-        // quyết định, quầy không đảo được.
+        // 24000 → −10% (2400) → 21600 → −5000 = 16600. getApplicableForBranch fixes the order
+        // and the counter cannot change it.
         assertEquals(0, new BigDecimal("16600").compareTo(response.getTotal()));
         assertEquals(0, new BigDecimal("7400").compareTo(response.getDiscountAmount()));
         verify(orderDiscountRepository, times(2)).save(any());
     }
 
-    /** Chi nhánh không có khuyến mãi nào thì đơn giữ nguyên giá, không lỗi. */
+    /** A branch with no campaigns pays full price, with no error. */
     @Test
     void checkoutWithoutAnyApplicableCampaignKeepsSubtotal() {
         stubProduct(1, "Milk", "12000");
@@ -540,8 +540,8 @@ class PosOrderCheckoutExtraTest {
     }
 
     /**
-     * Khuyến mãi lấy theo chi nhánh của chính cashier. Quầy không gửi lên được chi
-     * nhánh nào khác, và cũng không gửi được danh sách khuyến mãi nào.
+     * Campaigns come from the cashier's own branch. The counter cannot send a different
+     * branch, and cannot send a campaign list either.
      */
     @Test
     void campaignsAreLookedUpForTheCashierOwnBranch() {

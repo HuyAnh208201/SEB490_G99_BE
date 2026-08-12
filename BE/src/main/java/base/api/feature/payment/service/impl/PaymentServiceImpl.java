@@ -287,7 +287,7 @@ public class PaymentServiceImpl implements IPaymentService {
                     order.getBranchId(), item.getProductId(), item.getQuantity());
         }
 
-        // Mã giảm giá bị khoá ngay lúc tạo link thanh toán, phải nhả cùng lúc với kho.
+        // The code is locked when the payment link is created, so release it with the stock.
         voucherReleaseService.releaseForOrder(order.getId());
 
         if (order.getCustomerId() == null) {

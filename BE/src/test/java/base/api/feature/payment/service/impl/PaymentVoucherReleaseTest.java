@@ -33,9 +33,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Huỷ/hết hạn đơn PAYOS phải nhả lại mã giảm giá đã khoá lúc chốt đơn.
- * Không nhả thì khách mất mã vĩnh viễn dù chưa hề thanh toán.
- * Chi tiết cách nhả từng dòng nằm ở {@code VoucherReleaseServiceTest}.
+ * Cancelling or expiring a PAYOS order must release the code locked at checkout.
+ * Without that the customer loses the code for good without ever having paid.
+ * Per-row release behaviour is covered in {@code VoucherReleaseServiceTest}.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -78,7 +78,7 @@ class PaymentVoucherReleaseTest {
         service.cancelPaymentLink(ORDER_CODE);
 
         verify(voucherReleaseService).releaseForOrder(ORDER_ID);
-        // Kho cũng phải được hoàn cùng lúc — nhả mã không được thay thế việc nhả hàng.
+        // Stock must come back at the same time — releasing a code does not replace that.
         verify(branchInventoryRepository).addStock(BRANCH_ID, 1, 2);
     }
 
@@ -94,8 +94,8 @@ class PaymentVoucherReleaseTest {
     }
 
     /**
-     * Cashier bấm huỷ rồi FE lại poll thấy CANCELLED — lần hai đơn đã rời
-     * PENDING_PAYMENT nên không được nhả mã (và nhả kho) thêm lần nữa.
+     * A cashier cancels and the web app then polls and also sees CANCELLED. By the second
+     * pass the order has left PENDING_PAYMENT, so neither code nor stock is released again.
      */
     @Test
     void alreadyCancelledOrderIsNotReleasedTwice() {
@@ -107,7 +107,7 @@ class PaymentVoucherReleaseTest {
         verify(branchInventoryRepository, never()).addStock(anyLong(), anyInt(), anyInt());
     }
 
-    /** Đơn đã trả tiền xong thì mã coi như đã tiêu, huỷ link không được nhả lại. */
+    /** Once an order is paid the code is spent; cancelling the link must not release it. */
     @Test
     void completedOrderIsNotReleased() {
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order("COMPLETED")));

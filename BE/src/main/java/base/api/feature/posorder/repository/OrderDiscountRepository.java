@@ -11,6 +11,6 @@ public interface OrderDiscountRepository extends JpaRepository<OrderDiscountMode
 
     List<OrderDiscountModel> findByOrderId(Long orderId);
 
-    /** Mã đã từng áp vào hoá đơn thì không được xoá, kể cả khi đã nhả về active. */
+    /** A code once applied to an invoice cannot be deleted, even after it returns to active. */
     boolean existsByVoucherId(Long voucherId);
 }

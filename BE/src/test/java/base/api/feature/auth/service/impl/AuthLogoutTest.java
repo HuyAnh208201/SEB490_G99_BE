@@ -90,8 +90,8 @@ class AuthLogoutTest {
         assertEquals(
                 LocalDateTime.ofInstant(expiration.toInstant(), ZoneId.systemDefault()),
                 saved.getExpiresAt());
-        // revoked_at là NOT NULL và @PrePersist không chạy trên nhánh merge, nên
-        // service phải tự gán — thiếu là logout lần hai vỡ ràng buộc.
+        // revoked_at is NOT NULL and @PrePersist does not run on the merge path, so the
+        // service must set it — without that a second logout breaks the constraint.
         assertNotNull(saved.getRevokedAt());
     }
 
@@ -103,7 +103,7 @@ class AuthLogoutTest {
         service.logout("jwt-token");
         service.logout("jwt-token");
 
-        // token_hash là khóa chính do mình gán → save() là upsert, không vỡ khóa trùng.
+        // token_hash is an assigned primary key, so save() is an upsert and cannot collide.
         ArgumentCaptor<RevokedTokenModel> captor = ArgumentCaptor.forClass(RevokedTokenModel.class);
         verify(revokedTokenRepository, times(2)).save(captor.capture());
         assertEquals(
@@ -118,8 +118,8 @@ class AuthLogoutTest {
 
         service.logout("jwt-token");
 
-        // Vào cache trước rồi DB hỏng sẽ báo đã thu hồi nhưng restart lại mất —
-        // token sống lại. Ghi DB trước thì lỗi DB nổi lên thành lỗi thật.
+        // Caching first and then failing the write would report success while a restart loses
+        // it — the token returns. Writing the database first surfaces the failure as a failure.
         InOrder inOrder = inOrder(revokedTokenRepository, revokedTokenCache);
         inOrder.verify(revokedTokenRepository).save(any(RevokedTokenModel.class));
         inOrder.verify(revokedTokenCache).remember(

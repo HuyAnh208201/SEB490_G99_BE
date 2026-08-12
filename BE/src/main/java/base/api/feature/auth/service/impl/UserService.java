@@ -355,7 +355,7 @@ public class UserService implements IUserService {
                 fullName = user.getUserName();
             }
 
-            // Trang nhập mật khẩu mới nằm bên FE nên dùng client-url, khác verify-email đi thẳng vào BE.
+            // The new-password page lives in the web app, so this uses client-url, unlike verify-email.
             String resetUrl = clientBaseUrl + "/reset-password?token=" + resetToken;
 
             String body = String.format(
@@ -617,12 +617,12 @@ public class UserService implements IUserService {
         UserModel user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
 
-        // Email cố tình không đọc từ dto — xem UpdateProfileDto. Hồ sơ tự sửa
-        // không đổi được email, nên user.getEmail() giữ nguyên qua lệnh lưu này.
+        // Email is deliberately not read from the dto — see UpdateProfileDto. Self-service
+        // edits cannot change it, so user.getEmail() survives this save untouched.
         if (dto.getPhone() != null && !dto.getPhone().trim().isEmpty()) {
             String normalizedPhone = dto.getPhone().trim().replaceAll("\\s+", "");
-            // Chỉ kiểm tra khi số thực sự đổi, để user lưu lại hồ sơ mà không đổi SĐT
-            // thì không tự vướng số của chính mình.
+            // Only checked when the number actually changes, so saving a profile without
+            // touching the phone does not collide with the user's own number.
             if (!normalizedPhone.equals(user.getPhone()) && userRepository.existsByPhone(normalizedPhone)) {
                 throw new ConflictException("Số điện thoại đã được sử dụng bởi tài khoản khác");
             }

@@ -128,9 +128,9 @@ public class PosOrderTablesMigration {
             // customers phải gỡ, nếu không mọi đơn có khách đều vi phạm ràng buộc.
             dropForeignKeyIfPresent("orders", "customer_id", "customers");
 
-            // vouchers.customer_id mắc đúng lỗi đó: schema gốc trỏ customers(id) trong khi
-            // checkout so nó với users.id, nên mã phát riêng cho khách sẽ khớp nhầm người.
-            // Ánh xạ lại đúng một lần — chỉ khi FK còn đó, tức DB chưa từng được chuyển.
+            // vouchers.customer_id has exactly that defect: the original schema points at
+            // customers(id) while checkout compares it with users.id, so a personal code matches
+            // the wrong person. Remapped once, only while the FK is still there.
             if (dropForeignKeyIfPresent("vouchers", "customer_id", "customers")) {
                 remapVoucherCustomerIds();
             }
@@ -142,9 +142,9 @@ public class PosOrderTablesMigration {
     }
 
     /**
-     * Chỉ chạy đúng một lần, ngay sau khi gỡ FK — mốc "DB còn ở schema gốc". Vì thế
-     * hỏng ở đây là hỏng vĩnh viễn: mã sẽ khớp nhầm một users.id không liên quan.
-     * Log ERROR kèm việc cần làm thay vì để lẫn vào cảnh báo chung của migration.
+     * Runs exactly once, right after the FK is dropped, which marks "still on the original
+     * schema". Failing here is permanent: codes then match an unrelated users.id.
+     * Logs an ERROR with the action to take rather than blending into migration warnings.
      */
     private void remapVoucherCustomerIds() {
         try {
@@ -200,9 +200,9 @@ public class PosOrderTablesMigration {
     }
 
     /**
-     * Tên FK do MySQL tự sinh nên tra theo cột/bảng đích thay vì đoán tên.
-     * Trả về true khi vừa gỡ được FK — dùng làm mốc "DB còn ở schema gốc" cho các
-     * bước chuyển dữ liệu chỉ được chạy một lần.
+     * MySQL generates the FK name, so look it up by column and target table, never by name.
+     * Returns true when an FK was just dropped, which marks "still on the original schema"
+     * for the data moves that may run only once.
      */
     private boolean dropForeignKeyIfPresent(String table, String column, String referencedTable) {
         String constraintName = jdbcTemplate.query(

@@ -17,9 +17,9 @@ public class UpdateProfileDto {
 
     private String avatar;
 
-    // Không có email ở đây là chủ ý: email là địa chỉ nhận link đặt lại mật khẩu,
-    // nên tự đổi được email nghĩa là tự chuyển được quyền khôi phục tài khoản.
-    // Đổi email phải đi qua Admin. Client gửi kèm "email" thì Jackson bỏ qua.
+    // Email is deliberately absent: it is the address the password reset link goes to,
+    // so being able to change it means being able to hand account recovery to someone else.
+    // Changing an email goes through an Admin. A client that sends "email" is ignored.
 
     @Pattern(regexp = "^(0|\\+84)[0-9]{9,10}$", message = "Số điện thoại không hợp lệ (VD: 0912345678 hoặc +84912345678)")
     private String phone;

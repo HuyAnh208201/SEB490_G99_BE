@@ -13,8 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * Token đã hết hạn tự nhiên thì filter chặn sẵn, không cần giữ trong blacklist.
- * Dọn cả DB lẫn cache để hai bên không lệch nhau.
+ * A token past its own expiry is already refused by the filter, so the blacklist
+ * need not keep it. Both the table and the cache are cleaned so they stay in step.
  */
 @Component
 public class RevokedTokenCleanupJob {
@@ -34,7 +34,7 @@ public class RevokedTokenCleanupJob {
         try {
             revokedTokenRepository.deleteByExpiresAtBefore(LocalDateTime.now());
         } catch (DataAccessException ex) {
-            // Cache đã dọn xong; DB dọn hụt một vòng cũng không sai kết quả.
+            // The cache is already clean; a missed database sweep changes no outcome.
             log.warn("Không dọn được token hết hạn trong DB: {}", ex.getMessage());
         }
         log.debug("Blacklist token còn {} entry trong cache", remaining);

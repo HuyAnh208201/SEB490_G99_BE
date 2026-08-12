@@ -9,16 +9,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * DB dùng ddl-auto=none nên @Entity mới không tự tạo bảng.
+ * The database runs with ddl-auto=none, so a new @Entity creates no table by itself.
  *
- * Bảng revoked_tokens là blacklist JWT sau khi logout. Khác các *TableMigration
- * khác, migration này KHÔNG gate sau app.startup.bootstrap-enabled: bảng chưa
- * từng tồn tại trên DB dùng chung, thiếu nó thì logout hỏng. CREATE TABLE IF NOT
- * EXISTS là idempotent nên chạy mỗi lần khởi động vẫn rẻ.
+ * revoked_tokens holds JWTs invalidated by logout. Unlike the other *TableMigration
+ * classes this one is NOT gated behind app.startup.bootstrap-enabled: the table has
+ * never existed on the shared database and logout breaks without it. CREATE TABLE IF
+ * NOT EXISTS is idempotent, so running it on every startup stays cheap.
  *
- * Lưu token_hash (SHA-256 hex, 64 ký tự) thay vì token thô: JWT nguyên văn là
- * credential, và VARCHAR(1024) utf8mb4 = 4096 byte vượt trần index 3072 byte của
- * InnoDB nên không đánh UNIQUE được.
+ * Stores token_hash (SHA-256 hex, 64 chars) rather than the raw token: a JWT is a
+ * credential, and VARCHAR(1024) utf8mb4 is 4096 bytes, over the 3072-byte index limit
+ * InnoDB allows, so it could not be made UNIQUE.
  */
 @Component
 @Order(0)

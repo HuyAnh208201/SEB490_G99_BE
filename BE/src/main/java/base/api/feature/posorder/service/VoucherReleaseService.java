@@ -10,9 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Trả mã giảm giá về trạng thái dùng được khi đơn bị huỷ hoặc được duyệt hoàn.
- * Mã bị khoá ngay lúc chốt đơn, nên đơn không đi đến cùng mà không nhả mã thì
- * khách mất mã vĩnh viễn dù chưa hề hưởng ưu đãi.
+ * Returns voucher codes to usable when an order is cancelled or a refund is approved.
+ * A code is locked at checkout, so an order that never completes would cost the
+ * customer their code for good without them ever getting the discount.
  */
 @Service
 public class VoucherReleaseService {
@@ -26,9 +26,9 @@ public class VoucherReleaseService {
     private VoucherRepository voucherRepository;
 
     /**
-     * Nhả mọi mã đã áp lên đơn. Dòng giảm giá không gắn voucher (giảm tay) bị bỏ qua.
+     * Releases every code applied to the order. Discount rows with no voucher are skipped.
      *
-     * @return số mã thực sự được trả về active
+     * @return how many codes actually returned to active
      */
     @Transactional
     public int releaseForOrder(Long orderId) {

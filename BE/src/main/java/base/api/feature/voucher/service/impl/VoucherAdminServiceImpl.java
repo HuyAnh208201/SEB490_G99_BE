@@ -72,7 +72,7 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
     private VoucherAdminMapper voucherAdminMapper;
 
     // =========================================================================
-    // Loại voucher
+    // Voucher types
     // =========================================================================
 
     @Override
@@ -123,8 +123,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
             throw new ConflictException("Discount type already exists.");
         }
 
-        // Khách đã cầm mã của loại này (có khi vừa đổi bằng điểm), nên đổi mức giảm là
-        // đổi giá trị thứ họ đã mua. Tên, điểm đổi và bật/tắt vẫn sửa được.
+        // Customers already hold codes of this type, some bought with points, so changing the
+        // discount changes what they paid for. Name, point price and status stay editable.
         boolean inUse = isCatalogInUse(id);
         if (inUse && discountChanged(catalog, request)) {
             throw new ConflictException(
@@ -151,8 +151,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
     @Transactional
     public void deleteCatalog(Long id) {
         VoucherCatalogModel catalog = findCatalogOrThrow(id);
-        // Xoá loại khi còn mã tham chiếu sẽ để lại mã mồ côi — tại quầy chúng bị từ
-        // chối với thông báo khó hiểu. Bắt dùng inactive để mã cũ vẫn tra được lịch sử.
+        // Deleting a type that still has codes leaves them orphaned, and the counter then
+        // refuses them with a confusing message. Use inactive so old codes remain traceable.
         if (isCatalogInUse(id)) {
             throw new ConflictException(
                     "This discount type has issued codes. Set it to inactive instead of deleting.");
@@ -161,7 +161,7 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
     }
 
     // =========================================================================
-    // Mã đã phát
+    // Issued codes
     // =========================================================================
 
     @Override
@@ -211,8 +211,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
 
         UserModel customer = resolveCustomer(request.getCustomerId());
         int quantity = request.getQuantity() == null ? 1 : request.getQuantity();
-        // Mã phát riêng cho một người mà sinh hàng loạt thì mọi mã đều thuộc về người
-        // đó — vô nghĩa và dễ nhầm là mã dùng chung.
+        // Batch-generating codes reserved for one person would make every code belong to that
+        // person — pointless, and easily mistaken for shared codes.
         if (customer != null && quantity != 1) {
             throw new BadRequestException("A customer-specific code can only be issued one at a time.");
         }
@@ -245,8 +245,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
         if (STATUS_REVOKED.equalsIgnoreCase(voucher.getStatus())) {
             throw new BadRequestException("This code has already been revoked.");
         }
-        // Trạng thái riêng thay vì bịa hạn dùng trong quá khứ. markActive chỉ lật
-        // 'used' → 'active' nên hoàn đơn cũng không hồi sinh được mã đã thu hồi.
+        // A status of its own rather than a fake past expiry. markActive only flips 'used' to
+        // 'active', so a refund cannot resurrect a code an admin revoked.
         voucher.setStatus(STATUS_REVOKED);
         VoucherModel saved = voucherRepository.save(voucher);
         return voucherAdminMapper.toResponse(saved, catalogOrNull(saved), customerOrNull(saved));
@@ -256,8 +256,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
     @Transactional
     public void deleteVoucher(Long id) {
         VoucherModel voucher = findVoucherOrThrow(id);
-        // Không xét status: hoàn đơn nhả mã về 'active' trong khi order_discounts vẫn
-        // trỏ tới nó, xoá lúc đó sẽ để lại tham chiếu mồ côi trên hoá đơn cũ.
+        // Status is not consulted: a refund returns a code to 'active' while order_discounts
+        // still points at it, so deleting then would orphan a reference on an old invoice.
         if (STATUS_USED.equalsIgnoreCase(voucher.getStatus())
                 || orderDiscountRepository.existsByVoucherId(id)) {
             throw new ConflictException(
@@ -283,8 +283,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
 
         catalog.setDiscountType(discountType);
         catalog.setDiscountValue(value);
-        // Bỏ trống là "giữ nguyên", không phải "gỡ khỏi đổi điểm" — reset ngầm về 0 sẽ
-        // âm thầm tắt luồng đổi điểm của loại này. Tạo mới thì mặc định 0.
+        // Empty means "leave as is", not "remove from point redemption": silently resetting to
+        // 0 would quietly switch that flow off for this type. On create the default is 0.
         if (request.getPointsRequired() != null) {
             catalog.setPointsRequired(request.getPointsRequired());
         } else if (catalog.getPointsRequired() == null) {
@@ -292,7 +292,7 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
         }
     }
 
-    /** So sánh theo compareTo: 10000 và 10000.00 là cùng một mức giảm. */
+    /** Compared with compareTo: 10000 and 10000.00 are the same discount. */
     private boolean discountChanged(VoucherCatalogModel catalog, SaveVoucherCatalogRequest request) {
         if (!parseDiscountType(request.getDiscountType()).equalsIgnoreCase(catalog.getDiscountType())) {
             return true;
@@ -328,8 +328,8 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
     }
 
     /**
-     * customer_id trỏ users.id chứ không phải customers.id — nhầm ID space chính là
-     * lỗi khiến mã phát riêng khớp nhầm người. Chỉ nhận đúng user role CUSTOMER.
+     * customer_id points at users.id, not customers.id — mixing the two id spaces is exactly
+     * the bug that matches a personal code to the wrong person. Only a CUSTOMER user is accepted.
      */
     private UserModel resolveCustomer(Long customerId) {
         if (customerId == null) {
@@ -369,7 +369,7 @@ public class VoucherAdminServiceImpl implements IVoucherAdminService {
                 : userRepository.findById(voucher.getCustomerId()).orElse(null);
     }
 
-    /** Nạp catalog và khách theo lô để danh sách không bắn N+1 query. */
+    /** Loads types and customers in bulk so the list does not fire N+1 queries. */
     private Page<VoucherAdminResponse> hydrate(Page<VoucherModel> vouchers) {
         List<Long> catalogIds = vouchers.getContent().stream()
                 .map(VoucherModel::getVoucherCatalogId)

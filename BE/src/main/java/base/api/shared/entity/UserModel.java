@@ -43,8 +43,8 @@ public class UserModel extends BaseModel {
         @Column(unique = true)
         public String email;
 
-        // WRITE_ONLY: hash không được đi ra response. Không dùng @JsonIgnore vì nó khoá
-        // cả chiều đọc JSON vào, sau này deserialize UserModel sẽ mất mật khẩu mà không báo lỗi.
+        // WRITE_ONLY: the hash must never reach a response. @JsonIgnore is wrong here because
+        // it also blocks reading JSON in, so deserialising a UserModel would silently drop the password.
         @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
         @Column(name = "password_hash", nullable = false)
         public String password;

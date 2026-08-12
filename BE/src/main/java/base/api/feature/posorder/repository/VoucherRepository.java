@@ -19,7 +19,7 @@ public interface VoucherRepository extends JpaRepository<VoucherModel, Long>,
 
     boolean existsByCodeIgnoreCase(String code);
 
-    /** Dùng để chặn xoá một loại voucher khi còn mã đã phát tham chiếu tới nó. */
+    /** Used to refuse deleting a voucher type while issued codes still reference it. */
     boolean existsByVoucherCatalogId(Long voucherCatalogId);
 
     /**
@@ -32,8 +32,8 @@ public interface VoucherRepository extends JpaRepository<VoucherModel, Long>,
     int markUsed(@Param("id") Long id);
 
     /**
-     * Nhả mã về lại trạng thái dùng được khi đơn PAYOS bị huỷ/hết hạn. Điều kiện
-     * status = 'used' để hai lần huỷ liên tiếp không nhả nhầm mã đã dùng cho đơn khác.
+     * Returns a code to usable when a PAYOS order is cancelled or expires. The status =
+     * 'used' guard stops a second cancel from releasing a code spent on another order.
      */
     @Modifying
     @Transactional

@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
-/** Khách đổi điểm tích lũy lấy một mã giảm giá tại quầy. */
+/** Spends customer points on a voucher code at the counter. */
 @Getter
 @Setter
 public class RedeemVoucherRequest {

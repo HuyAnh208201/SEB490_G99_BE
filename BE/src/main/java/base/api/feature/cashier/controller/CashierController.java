@@ -124,7 +124,7 @@ public class CashierController extends BaseAPIController {
     }
 
     /**
-     * Các loại voucher khách đang đổi được bằng điểm.
+     * Voucher types the customer can currently buy with points.
      *
      * GET /api/cashier/vouchers/redeemable
      */
@@ -140,7 +140,7 @@ public class CashierController extends BaseAPIController {
     }
 
     /**
-     * Khách đổi điểm tích lũy lấy một mã giảm giá dùng cho lần mua sau.
+     * Spends the customer's points on a voucher code for a later purchase.
      *
      * POST /api/cashier/vouchers/redeem
      */

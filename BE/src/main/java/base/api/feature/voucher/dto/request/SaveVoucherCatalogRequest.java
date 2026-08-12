@@ -10,7 +10,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-/** Tạo hoặc sửa một loại voucher (PERCENT hay FIXED). */
+/** Creates or edits a voucher type (PERCENT or FIXED). */
 @Getter
 @Setter
 public class SaveVoucherCatalogRequest {
@@ -19,19 +19,19 @@ public class SaveVoucherCatalogRequest {
     @Size(max = 255, message = "Discount type name must not exceed 255 characters.")
     private String name;
 
-    /** PERCENT hoặc FIXED. */
+    /** PERCENT or FIXED. */
     @NotBlank(message = "Discount type is required.")
     private String discountType;
 
-    /** PERCENT thì là số phần trăm (0-100), FIXED thì là số tiền VNĐ. */
+    /** A percentage (0-100) for PERCENT, an amount in VND for FIXED. */
     @NotNull(message = "Discount value is required.")
     @DecimalMin(value = "0", message = "Discount value must be greater than or equal to 0.")
     private BigDecimal discountValue;
 
-    /** Số điểm khách phải đổi để lấy mã; 0 nghĩa là không phát qua đổi điểm. */
+    /** Points a customer pays for the code; 0 means it is not sold for points. */
     @Min(value = 0, message = "Points required must be greater than or equal to 0.")
     private Integer pointsRequired;
 
-    /** active hoặc inactive. Bỏ trống khi tạo thì mặc định active. */
+    /** active or inactive. Empty on create defaults to active. */
     private String status;
 }

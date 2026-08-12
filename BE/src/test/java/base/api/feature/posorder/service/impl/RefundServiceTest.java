@@ -223,8 +223,8 @@ class RefundServiceTest {
     }
 
     /**
-     * Đơn bị hoàn nghĩa là khách không thực sự hưởng ưu đãi, nên mã phải được trả về
-     * dùng được — cùng cách xử lý với huỷ đơn PAYOS.
+     * A refunded order means the customer never got the discount, so the code goes back to
+     * usable — the same handling as a cancelled PAYOS order.
      */
     @Test
     void approveRefundReleasesTheDiscountCode() {
@@ -242,7 +242,7 @@ class RefundServiceTest {
         verify(voucherReleaseService).releaseForOrder(ORDER_ID);
     }
 
-    /** Từ chối hoàn thì đơn vẫn đứng, mã phải giữ nguyên trạng thái đã dùng. */
+    /** A rejected refund leaves the order standing, so the code stays used. */
     @Test
     void rejectRefundDoesNotReleaseTheDiscountCode() {
         asManager();

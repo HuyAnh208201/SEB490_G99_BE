@@ -18,8 +18,8 @@ public class JwtUtil {
 
     private final SecretKey key;
 
-    // Khoá ký đọc từ jwt.secret thay vì viết cứng, để mỗi môi trường dùng một khoá riêng.
-    // hmacShaKeyFor yêu cầu tối thiểu 32 byte cho HS256 — khoá ngắn hơn sẽ chặn ngay lúc khởi động.
+    // The signing key comes from jwt.secret, not a literal, so each environment has its own.
+    // hmacShaKeyFor requires at least 32 bytes for HS256 — a shorter key fails at startup.
     public JwtUtil(@Value("${jwt.secret}") String secret) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }

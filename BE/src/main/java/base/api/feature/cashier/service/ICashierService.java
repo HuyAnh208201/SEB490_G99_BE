@@ -56,11 +56,11 @@ public interface ICashierService {
     PointSettlement settlePoints(UserModel customer, BigDecimal invoiceAmount, long pointsToRedeem);
 
     /**
-     * Khách đổi điểm tích lũy lấy một mã giảm giá. Trừ điểm và sinh mã trong cùng một
-     * transaction: không thể mất điểm mà không có mã, cũng không thể có mã miễn phí.
+     * Spends customer points on a voucher code. The deduction and the code are written in
+     * one transaction: no losing points without a code, and no free code.
      */
     RedeemVoucherResponse redeemVoucher(RedeemVoucherRequest request);
 
-    /** Các loại voucher đang mở cho đổi điểm — quầy đọc để hiện lựa chọn cho khách. */
+    /** Voucher types open for point redemption — the counter reads this to offer choices. */
     List<RedeemableVoucherResponse> getRedeemableVouchers();
 }

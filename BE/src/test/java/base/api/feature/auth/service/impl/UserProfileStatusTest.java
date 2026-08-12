@@ -98,7 +98,7 @@ class UserProfileStatusTest {
 
         UserModel saved = service.updateProfile(1L, dto);
 
-        // Email giữ nguyên là điều kiện của UC-07: đổi email phải đi qua Admin.
+        // Keeping the email is a UC-07 requirement: changing it has to go through an Admin.
         assertEquals("old@chainstore.com", saved.getEmail());
         assertEquals("Nguyen", saved.getLastName());
         assertEquals("0912345678", saved.getPhone());
@@ -130,7 +130,7 @@ class UserProfileStatusTest {
         user.setEmail("old@chainstore.com");
         user.setPhone("0912345678");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        // SĐT của chính mình luôn tồn tại trong bảng — không được tự chặn mình.
+        // A user's own phone is always in the table — they must not be blocked by themselves.
         when(userRepository.existsByPhone("0912345678")).thenReturn(true);
         when(userRepository.save(any(UserModel.class))).thenAnswer(inv -> inv.getArgument(0));
 

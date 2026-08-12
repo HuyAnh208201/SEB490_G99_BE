@@ -60,8 +60,8 @@ class VoucherAdminServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        // Generator thật chạy trên repository đã mock: các test dưới kiểm chính hành vi
-        // sinh mã (tiền tố, trùng lặp) nên mock nó đi là mất hết ý nghĩa.
+        // The real generator runs against a mocked repository: the tests below check the
+        // generation behaviour itself (prefix, collisions), so mocking it would prove nothing.
         VoucherCodeGenerator generator = new VoucherCodeGenerator();
         ReflectionTestUtils.setField(generator, "voucherRepository", voucherRepository);
         ReflectionTestUtils.setField(service, "voucherCodeGenerator", generator);
@@ -83,7 +83,7 @@ class VoucherAdminServiceImplTest {
     }
 
     // =========================================================================
-    // Loại voucher
+    // Voucher types
     // =========================================================================
 
     @Test
@@ -112,7 +112,7 @@ class VoucherAdminServiceImplTest {
         assertTrue(error.getMessage().contains("PERCENT or FIXED"));
     }
 
-    /** Seed data ghi 'percent'/'fixed' thường — không được từ chối dữ liệu hợp lệ. */
+    /** Seed data stores lower-case 'percent'/'fixed' — valid data must not be refused. */
     @Test
     void lowercaseDiscountTypeIsNormalized() {
         VoucherCatalogResponse response =
@@ -161,8 +161,8 @@ class VoucherAdminServiceImplTest {
     }
 
     /**
-     * Khách đã cầm mã của loại này (có khi vừa đổi bằng điểm) — đổi mức giảm là đổi
-     * giá trị thứ họ đã mua.
+     * Customers already hold codes of this type, some bought with points, so changing the
+     * discount changes what they paid for.
      */
     @Test
     void changingDiscountValueOfAnInUseCatalogIsRejected() {
@@ -177,7 +177,7 @@ class VoucherAdminServiceImplTest {
         verify(voucherCatalogRepository, never()).save(any());
     }
 
-    /** Vẫn phải đổi được tên và số điểm — chỉ mức giảm là bị khoá. */
+    /** Name and point price stay editable — only the discount is locked. */
     @Test
     void renamingAnInUseCatalogIsAllowed() {
         when(voucherCatalogRepository.findById(CATALOG_ID)).thenReturn(Optional.of(catalog()));
@@ -192,7 +192,7 @@ class VoucherAdminServiceImplTest {
         assertEquals(250, response.getPointsRequired());
     }
 
-    /** Bỏ trống pointsRequired là "giữ nguyên", không phải "gỡ khỏi đổi điểm". */
+    /** An empty pointsRequired means "leave as is", not "remove from point redemption". */
     @Test
     void omittingPointsRequiredKeepsTheExistingValue() {
         when(voucherCatalogRepository.findById(CATALOG_ID)).thenReturn(Optional.of(catalog()));
@@ -204,7 +204,7 @@ class VoucherAdminServiceImplTest {
     }
 
     // =========================================================================
-    // Phát mã
+    // Issuing codes
     // =========================================================================
 
     @Test
@@ -229,8 +229,8 @@ class VoucherAdminServiceImplTest {
     }
 
     /**
-     * customer_id trỏ users.id — chính là bug ID space đã tìm ra. Không được nhận
-     * id của tài khoản không phải khách.
+     * customer_id points at users.id — the id-space bug this pins down. An account that is
+     * not a customer must be rejected.
      */
     @Test
     void issuingToNonCustomerAccountIsRejected() {
@@ -255,7 +255,7 @@ class VoucherAdminServiceImplTest {
         assertThrows(NotFoundException.class, () -> service.issueVouchers(issueRequest(CUSTOMER_ID, 1)));
     }
 
-    /** Sinh hàng loạt cho một khách là vô nghĩa — mọi mã đều thuộc về đúng người đó. */
+    /** Batch-generating for one customer is pointless — every code would belong to them. */
     @Test
     void bulkIssuingToOneCustomerIsRejected() {
         when(voucherCatalogRepository.findById(CATALOG_ID)).thenReturn(Optional.of(catalog()));
@@ -287,7 +287,7 @@ class VoucherAdminServiceImplTest {
 
         assertEquals(3, issued.size());
         assertTrue(issued.stream().allMatch(v -> v.getCustomerId() == null));
-        // Mã phải khác nhau, nếu không lô phát ra chỉ dùng được một lần.
+        // The codes must differ, otherwise a whole batch is usable only once.
         assertEquals(3, issued.stream().map(VoucherAdminResponse::getCode).distinct().count());
     }
 
@@ -302,7 +302,7 @@ class VoucherAdminServiceImplTest {
         assertTrue(code.startsWith("TET2027"), "Prefix phải được chuẩn hoá, nhận: " + code);
     }
 
-    /** Đụng unique key liên tục là dấu hiệu hỏng, không được ném mã trùng vào DB. */
+    /** Repeated unique-key collisions signal a fault; never push a duplicate to the database. */
     @Test
     void givesUpWhenCodeSpaceKeepsColliding() {
         when(voucherCatalogRepository.findById(CATALOG_ID)).thenReturn(Optional.of(catalog()));
@@ -313,7 +313,7 @@ class VoucherAdminServiceImplTest {
     }
 
     // =========================================================================
-    // Thu hồi / xoá mã
+    // Revoking and deleting codes
     // =========================================================================
 
     @Test
@@ -340,19 +340,19 @@ class VoucherAdminServiceImplTest {
         assertThrows(BadRequestException.class, () -> service.revokeVoucher(99L));
     }
 
-    /** Mã đã dùng phải giữ để đối soát với order_discounts. */
+    /** A used code is kept so it can be reconciled against order_discounts. */
     @Test
     void deletingUsedCodeIsRejected() {
         when(voucherRepository.findById(99L)).thenReturn(Optional.of(voucher("used")));
 
         assertThrows(ConflictException.class, () -> service.deleteVoucher(99L));
-        // delete(..) bị nạp chồng bởi JpaSpecificationExecutor nên phải nêu rõ kiểu.
+        // delete(..) is overloaded by JpaSpecificationExecutor, so the type must be explicit.
         verify(voucherRepository, never()).delete(any(VoucherModel.class));
     }
 
     /**
-     * Hoàn đơn nhả mã về 'active' trong khi order_discounts vẫn trỏ tới nó — xoá lúc
-     * đó sẽ để lại tham chiếu mồ côi trên hoá đơn cũ.
+     * A refund returns the code to 'active' while order_discounts still points at it, so
+     * deleting then would orphan a reference on an old invoice.
      */
     @Test
     void deletingReleasedCodeStillReferencedByAnOrderIsRejected() {

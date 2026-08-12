@@ -6,7 +6,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/** Một mã đã phát, kèm thông tin loại voucher để màn quản lý không phải join tay. */
+/** One issued code, carrying its voucher type so the admin screen need not join by hand. */
 @Getter
 @Setter
 public class VoucherAdminResponse {
@@ -15,14 +15,14 @@ public class VoucherAdminResponse {
     private String code;
     private Long voucherCatalogId;
     private String catalogName;
-    /** PERCENT hoặc FIXED. */
+    /** PERCENT or FIXED. */
     private String discountType;
     private BigDecimal discountValue;
-    /** users.id của khách được phát riêng; null nghĩa là mã dùng chung. */
+    /** users.id of the customer it is reserved for; null means a shared code. */
     private Long customerId;
     private String customerName;
     private String customerPhone;
-    /** active hoặc used. */
+    /** active or used. */
     private String status;
     private LocalDateTime expiresAt;
     private LocalDateTime createdAt;

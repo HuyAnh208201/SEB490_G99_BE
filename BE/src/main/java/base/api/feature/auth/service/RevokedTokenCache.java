@@ -15,19 +15,19 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Bản sao trong RAM của blacklist token, để filter khỏi phải query DB mỗi request.
+ * In-memory mirror of the revoked-token list, so the filter never queries the database.
  *
- * Vì sao cần: MySQL nằm ở máy khác (72.61.114.184), nên mỗi query là một round-trip
- * mạng ~56ms. Đo A/B với code cũ cho thấy query blacklist làm mọi request có token
- * chậm thêm 11%. Tra RAM đưa con số đó về 0.
+ * Why: MySQL runs on another host, so every lookup is a network round trip of roughly
+ * 56ms. An A/B measurement showed the per-request lookup added about 11% latency to
+ * every authenticated request. Reading memory brings that back to zero.
  *
- * DB vẫn là nguồn chân lý: cache được nạp lại đầy đủ lúc khởi động, nên restart
- * không làm token đã thu hồi sống lại.
+ * The database stays the source of truth: the cache is reloaded in full at startup,
+ * so a restart cannot bring a revoked token back to life.
  *
- * GIỚI HẠN — chạy nhiều instance: mỗi instance giữ cache riêng, nên instance A
- * không thấy token mà instance B vừa thu hồi cho tới lần khởi động sau. Hiện dự án
- * chạy một instance nên chưa ảnh hưởng. Khi nào scale ngang thì đổi sang cache phủ
- * định có TTL ngắn (staleness bị chặn trên bằng TTL) hoặc dùng Redis dùng chung.
+ * LIMIT — multiple instances: each keeps its own copy, so instance A does not see a
+ * token instance B just revoked until A restarts. The project runs a single instance
+ * today, so this costs nothing yet. Scaling out means moving to a negative cache with
+ * a short TTL, which bounds the staleness, or to a shared Redis.
  */
 @Component
 public class RevokedTokenCache {
@@ -37,12 +37,12 @@ public class RevokedTokenCache {
     @Autowired
     private IRevokedTokenRepository revokedTokenRepository;
 
-    /** token_hash -> thời điểm token hết hạn tự nhiên. */
+    /** token_hash -> the moment the token expires on its own. */
     private final Map<String, LocalDateTime> revoked = new ConcurrentHashMap<>();
 
     /**
-     * Nạp sau khi context sẵn sàng chứ không dùng @PostConstruct: cần
-     * RevokedTokenTableMigration tạo xong bảng thì đọc mới có nghĩa.
+     * Loaded once the context is ready rather than from @PostConstruct: reading is only
+     * meaningful after RevokedTokenTableMigration has created the table.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmUp() {
@@ -55,8 +55,8 @@ public class RevokedTokenCache {
             }
             log.info("Nạp {} token đã thu hồi còn hiệu lực vào cache", revoked.size());
         } catch (DataAccessException ex) {
-            // Cùng lý do fail-open như JwtAuthenticationFilter: chết ở đây thì cả app
-            // không khởi động được, trong khi hậu quả chỉ là tạm mất khả năng thu hồi.
+            // Fail-open for the same reason as JwtAuthenticationFilter: throwing here stops the
+            // whole application from starting, while the cost is only losing revocation for now.
             log.error("Không nạp được blacklist token, tính năng thu hồi tạm ngưng. "
                     + "Kiểm tra bảng revoked_tokens: {}", ex.getMessage());
         }
@@ -67,7 +67,7 @@ public class RevokedTokenCache {
         if (expiresAt == null) {
             return false;
         }
-        // Token hết hạn tự nhiên thì filter chặn sẵn — bỏ khỏi cache cho nhẹ.
+        // A token past its own expiry is refused by the filter anyway — drop it to save room.
         if (expiresAt.isBefore(LocalDateTime.now())) {
             revoked.remove(tokenHash);
             return false;
@@ -79,7 +79,7 @@ public class RevokedTokenCache {
         revoked.put(tokenHash, expiresAt);
     }
 
-    /** Dọn các entry đã hết hạn; trả về số entry còn lại. */
+    /** Drops expired entries; returns how many remain. */
     public int purgeExpired() {
         LocalDateTime now = LocalDateTime.now();
         revoked.values().removeIf(expiresAt -> expiresAt.isBefore(now));

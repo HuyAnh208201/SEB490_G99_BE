@@ -8,15 +8,15 @@ import org.springframework.stereotype.Component;
 import java.security.SecureRandom;
 import java.util.Locale;
 
-/** Sinh mã giảm giá duy nhất. Dùng chung cho phát mã thủ công và đổi điểm lấy mã. */
+/** Generates unique voucher codes, shared by manual issuing and point redemption. */
 @Component
 public class VoucherCodeGenerator {
 
-    /** Bỏ 0/O/1/I để cashier không đọc nhầm khi gõ lại mã cho khách. */
+    /** 0/O/1/I are left out so a cashier cannot misread a code when typing it back in. */
     private static final String ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int BODY_LENGTH = 8;
     public static final String DEFAULT_PREFIX = "VC";
-    /** Đụng unique key là chuyện hiếm; vài lần thử là đủ, hơn nữa là dấu hiệu hỏng. */
+    /** Hitting the unique key is rare; a few retries suffice, more means something is wrong. */
     private static final int ATTEMPTS = 10;
 
     private final SecureRandom random = new SecureRandom();
@@ -24,7 +24,7 @@ public class VoucherCodeGenerator {
     @Autowired
     private VoucherRepository voucherRepository;
 
-    /** Chuẩn hoá tiền tố do người dùng nhập; rỗng hoặc toàn ký tự lạ thì dùng mặc định. */
+    /** Normalises a user-supplied prefix; empty or all-invalid falls back to the default. */
     public String normalizePrefix(String prefix) {
         if (prefix == null || prefix.isBlank()) {
             return DEFAULT_PREFIX;

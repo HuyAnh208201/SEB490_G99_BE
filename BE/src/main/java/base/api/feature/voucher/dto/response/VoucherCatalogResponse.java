@@ -11,11 +11,11 @@ public class VoucherCatalogResponse {
 
     private Long id;
     private String name;
-    /** PERCENT hoặc FIXED. */
+    /** PERCENT or FIXED. */
     private String discountType;
     private BigDecimal discountValue;
     private Integer pointsRequired;
     private String status;
-    /** Có mã đã phát tham chiếu loại này hay chưa — FE dùng để ẩn nút xoá. */
+    /** Whether any issued code references this type — the web app hides Delete when true. */
     private boolean inUse;
 }

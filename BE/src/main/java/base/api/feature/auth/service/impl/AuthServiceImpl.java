@@ -79,23 +79,23 @@ public class AuthServiceImpl implements IAuthService {
         try {
             expiration = jwtUtil.extractExpiration(token);
         } catch (JwtException ex) {
-            // Token hỏng hoặc đã hết hạn: không cần thu hồi, filter đã chặn sẵn.
+            // A malformed or expired token needs no revocation; the filter already refuses it.
             return;
         }
 
         String tokenHash = TokenHasher.sha256(token);
         LocalDateTime expiresAt = LocalDateTime.ofInstant(expiration.toInstant(), ZoneId.systemDefault());
 
-        // token_hash là khóa chính do mình gán, nên save() là upsert: logout hai lần
-        // hay hai request đồng thời đều chỉ ghi đè cùng một dòng, không vỡ khóa trùng.
+        // token_hash is an assigned primary key, so save() is an upsert: logging out twice,
+        // or two concurrent requests, both overwrite one row instead of colliding.
         RevokedTokenModel revoked = new RevokedTokenModel();
         revoked.setTokenHash(tokenHash);
         revoked.setExpiresAt(expiresAt);
         revoked.setRevokedAt(LocalDateTime.now());
         revokedTokenRepository.save(revoked);
 
-        // Ghi DB trước rồi mới vào cache: nếu DB hỏng thì không được báo đã thu hồi,
-        // vì restart sẽ nạp lại cache từ DB và token sẽ sống lại.
+        // Write the database first, then the cache: if the write fails we must not report
+        // success, because a restart reloads the cache from the table and the token returns.
         revokedTokenCache.remember(tokenHash, expiresAt);
     }
 

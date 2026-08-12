@@ -319,7 +319,7 @@ class CampaignServiceImplTest {
         BadRequestException error =
                 assertThrows(BadRequestException.class, () -> service.createCampaign(request));
 
-        // Tạo thẳng ACTIVE sẽ lách được bộ kiểm tra trong activateCampaign.
+        // Creating straight into ACTIVE would bypass the checks inside activateCampaign.
         assertTrue(error.getMessage().contains("DRAFT or DEACTIVATED"));
         verify(campaignRepository, never()).save(any(CampaignModel.class));
     }
@@ -476,10 +476,10 @@ class CampaignServiceImplTest {
         assertEquals("Buy X get Y promotions are no longer supported.", error.getMessage());
     }
 
-    // ─── Bật/tắt khuyến mãi chuỗi cho riêng một chi nhánh ───────────────────────
-    // Cặp deactivate/activate phải đối xứng: tắt ghi một dòng loại trừ, bật gỡ đúng
-    // dòng đó. Nhóm test này chốt cả hai chiều cho campaign CÓ và KHÔNG chỉ định
-    // chi nhánh, vì trước đây hai trường hợp đó đi hai đường khác nhau.
+    // ─── Enabling and disabling a chain campaign for one branch ─────────────────
+    // The deactivate/activate pair must stay symmetric: one writes an exclusion row, the
+    // other removes it. These tests pin both directions for campaigns with and without an
+    // explicit branch list, because those two cases take different paths.
 
     @Test
     void deactivateForBranchWritesExclusionAndKeepsBranchMapping() {
@@ -498,7 +498,7 @@ class CampaignServiceImplTest {
         verify(campaignBranchExclusionRepository).save(captor.capture());
         assertEquals(1L, captor.getValue().getCampaignId());
         assertEquals(5L, captor.getValue().getBranchId());
-        // Cấu hình chi nhánh là của Admin — tắt cho một chi nhánh không được đụng tới nó.
+        // The branch list is the Admin's configuration — opting one branch out must not touch it.
         verify(campaignBranchRepository, never()).delete(any(CampaignBranchModel.class));
     }
 
@@ -618,7 +618,7 @@ class CampaignServiceImplTest {
     }
 
     // -------------------------------------------------------------------------
-    // getApplicableForBranch — nguồn duy nhất quyết định quầy được áp campaign nào
+    // getApplicableForBranch — the single source deciding which campaigns reach the counter
     // -------------------------------------------------------------------------
 
     @Test
@@ -682,15 +682,15 @@ class CampaignServiceImplTest {
     }
 
     /**
-     * Bắt được trên dữ liệu thật: campaign scope BRANCH của chi nhánh 5 lọt vào quầy
-     * chi nhánh 1. isDeactivatedForBranch chỉ soi danh sách chi nhánh khi scope là
-     * CHAIN, nên tập đầu vào phải được lọc trước bằng findCampaignsVisibleToBranch.
+     * Found on live data: a BRANCH-scoped campaign owned by branch 5 reached the counter at
+     * branch 1. isDeactivatedForBranch only inspects the branch list when the scope is CHAIN,
+     * so the input set has to be filtered first by findCampaignsVisibleToBranch.
      */
     @Test
     void applicableForBranchDropsBranchScopedCampaignOwnedByAnotherBranch() {
         CampaignModel otherBranchPromo = liveCampaign(9L, 0);
         otherBranchPromo.setScope(CampaignScope.BRANCH);
-        // Chi nhánh 7 không có ánh xạ nào tới campaign 9 → nó không được nhìn thấy.
+        // Branch 7 has no mapping to campaign 9, so it must not see it.
         when(campaignRepository.findByScopeOrderByIdAsc(CampaignScope.CHAIN)).thenReturn(List.of());
         when(campaignBranchRepository.findCampaignIdsByBranchId(7L)).thenReturn(List.of());
         when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
@@ -700,7 +700,7 @@ class CampaignServiceImplTest {
         verify(campaignRepository, never()).findByIdIn(anyList());
     }
 
-    /** Thứ tự áp quyết định số tiền giảm, nên nó là hợp đồng chứ không phải chi tiết. */
+    /** Apply order decides the money, so it is a contract rather than an implementation detail. */
     @Test
     void applicableForBranchSortsByPriorityThenId() {
         stubVisibleToBranch(List.of(
@@ -715,9 +715,9 @@ class CampaignServiceImplTest {
     }
 
     /**
-     * Dựng đúng tập campaign mà findCampaignsVisibleToBranch trả về: campaign chuỗi
-     * cộng campaign được ánh xạ tới chi nhánh. Test nào cũng phải đi qua đây, vì đây
-     * mới là tập đầu vào thật của getApplicableForBranch.
+     * Builds exactly the set findCampaignsVisibleToBranch returns: chain campaigns plus the
+     * ones mapped to the branch. Every test goes through here, because this is the real
+     * input set for getApplicableForBranch.
      */
     private void stubVisibleToBranch(List<CampaignModel> campaigns) {
         when(campaignRepository.findByScopeOrderByIdAsc(CampaignScope.CHAIN)).thenReturn(campaigns);
@@ -728,7 +728,7 @@ class CampaignServiceImplTest {
         return rows.stream().map(CampaignSummaryResponse::getId).toList();
     }
 
-    /** Campaign ACTIVE và đang trong hạn — trạng thái mặc định của các test dưới. */
+    /** An ACTIVE campaign inside its dates — the default state for the tests below. */
     private static CampaignModel liveCampaign(Long id, int priority) {
         CampaignModel campaign = campaign(id, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
         campaign.setPriority(priority);

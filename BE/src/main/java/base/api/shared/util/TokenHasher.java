@@ -6,9 +6,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * JWT thô là credential, không lưu nguyên văn trong DB. Băm SHA-256 cho ra chuỗi
- * hex 64 ký tự, vừa đủ ngắn để đánh UNIQUE index trên MySQL (VARCHAR(1024) utf8mb4
- * vượt giới hạn 3072 byte của InnoDB).
+ * A raw JWT is a credential and is never stored verbatim. SHA-256 gives a 64-character
+ * hex string, short enough for a UNIQUE index on MySQL, where VARCHAR(1024) utf8mb4
+ * would exceed the 3072-byte InnoDB limit.
  */
 public final class TokenHasher {
 

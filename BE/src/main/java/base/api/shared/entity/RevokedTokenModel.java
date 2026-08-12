@@ -6,11 +6,11 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * Blacklist JWT sau khi logout.
+ * JWTs invalidated by logout.
  *
- * token_hash vừa là khóa chính vừa là thứ duy nhất cần tra cứu, nên không dùng
- * cột id sinh tự động: thêm id chỉ tạo ra index thứ hai cho cùng một khóa logic.
- * Lưu SHA-256 hex thay vì token thô — xem TokenHasher.
+ * token_hash is both the primary key and the only thing ever looked up, so there is no
+ * generated id column: adding one would only build a second index for the same key.
+ * Stores SHA-256 hex rather than the raw token — see TokenHasher.
  */
 @Data
 @Entity

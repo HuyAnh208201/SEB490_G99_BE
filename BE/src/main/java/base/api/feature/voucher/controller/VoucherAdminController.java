@@ -39,7 +39,7 @@ public class VoucherAdminController extends BaseAPIController {
     private IVoucherAdminService voucherAdminService;
 
     // =========================================================================
-    // Loại voucher
+    // Voucher types
     // =========================================================================
 
     @Operation(summary = "Get all discount types")
@@ -106,7 +106,7 @@ public class VoucherAdminController extends BaseAPIController {
     }
 
     // =========================================================================
-    // Mã đã phát
+    // Issued codes
     // =========================================================================
 
     @Operation(summary = "Search, filter and paginate issued codes")

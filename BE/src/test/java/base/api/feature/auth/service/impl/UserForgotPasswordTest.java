@@ -120,7 +120,7 @@ class UserForgotPasswordTest {
 
         org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(emailService).sendHtmlEmail(anyString(), anyString(), body.capture());
-        // Link phải trỏ về FE đang cấu hình, không phải một host/cổng viết cứng trong code.
+        // The link must point at the configured web app, not a host and port hard-coded here.
         assertTrue(body.getValue().contains("http://localhost:5175/reset-password?token="),
                 "Reset link must be built from url.client-url, got: " + body.getValue());
     }

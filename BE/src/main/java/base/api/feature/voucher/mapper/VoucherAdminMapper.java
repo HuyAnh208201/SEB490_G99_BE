@@ -23,8 +23,8 @@ public class VoucherAdminMapper {
     }
 
     /**
-     * @param catalog  loại voucher của mã, có thể null nếu dữ liệu cũ mất liên kết
-     * @param customer khách được phát riêng, null với mã dùng chung
+     * @param catalog  the code's voucher type; may be null when older data lost the link
+     * @param customer the customer it is reserved for, null for a shared code
      */
     public VoucherAdminResponse toResponse(
             VoucherModel voucher, VoucherCatalogModel catalog, UserModel customer) {

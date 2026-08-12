@@ -34,9 +34,9 @@ public interface ICampaignService {
     List<CampaignSummaryResponse> getAllCampaigns();
 
     /**
-     * Khuyến mãi đang áp được cho một chi nhánh tại thời điểm gọi, đã sắp theo đúng
-     * thứ tự áp lên đơn. Quầy bán hàng gọi hàm này thay vì tự lọc — luật "campaign nào
-     * áp cho chi nhánh nào" chỉ được sống một chỗ.
+     * Campaigns that apply to a branch right now, already sorted into the order they are
+     * applied to an order. POS calls this instead of filtering for itself, so the rule for
+     * which campaign reaches which branch lives in exactly one place.
      */
     List<CampaignSummaryResponse> getApplicableForBranch(Long branchId);
 

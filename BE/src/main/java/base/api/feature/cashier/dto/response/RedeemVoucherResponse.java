@@ -6,7 +6,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/** Mã vừa sinh ra cho khách, kèm số điểm còn lại để cashier đọc lại cho khách. */
+/** The freshly issued code plus the remaining points, so the cashier can read both out. */
 @Getter
 @Setter
 public class RedeemVoucherResponse {
@@ -14,7 +14,7 @@ public class RedeemVoucherResponse {
     private Long voucherId;
     private String code;
     private String name;
-    /** PERCENT hoặc FIXED. */
+    /** PERCENT or FIXED. */
     private String discountType;
     private BigDecimal discountValue;
     private LocalDateTime expiresAt;

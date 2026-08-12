@@ -40,7 +40,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Đổi điểm lấy mã giảm giá tại quầy. */
+/** Spending points on a voucher code at the counter. */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class CashierVoucherRedeemTest {
@@ -75,7 +75,7 @@ class CashierVoucherRedeemTest {
             return voucher;
         });
         when(userRepository.deductPointsAtomic(anyLong(), anyLong())).thenReturn(1);
-        // Số dư trả về phải đọc lại từ DB sau khi trừ, không lấy từ entity đã nạp.
+        // The returned balance is re-read after the deduction, not taken from the loaded entity.
         when(userRepository.findById(CUSTOMER_ID)).thenReturn(Optional.of(customer(400L)));
     }
 
@@ -86,8 +86,8 @@ class CashierVoucherRedeemTest {
         verify(userRepository).deductPointsAtomic(CUSTOMER_ID, 100L);
         ArgumentCaptor<VoucherModel> saved = ArgumentCaptor.forClass(VoucherModel.class);
         verify(voucherRepository).save(saved.capture());
-        // Phải là users.id — cùng ID space với lúc chốt đơn, nếu không mã vừa đổi
-        // lại bị từ chối vì "thuộc về khách khác".
+        // Must be users.id — the same id space checkout uses, otherwise the code just issued
+        // would be refused as "belongs to another customer".
         assertEquals(CUSTOMER_ID, saved.getValue().getCustomerId());
         assertEquals("active", saved.getValue().getStatus());
         assertEquals("VCABCDEFGH", response.getCode());
@@ -116,7 +116,7 @@ class CashierVoucherRedeemTest {
         assertTrue(response.getExpiresAt().isBefore(before.plusMinutes(1)));
     }
 
-    /** deductPointsAtomic khớp 0 row nghĩa là không đủ điểm — không được sinh mã. */
+    /** deductPointsAtomic matching zero rows means not enough points — issue nothing. */
     @Test
     void notEnoughPointsIssuesNothing() {
         when(userRepository.deductPointsAtomic(anyLong(), anyLong())).thenReturn(0);
@@ -139,7 +139,7 @@ class CashierVoucherRedeemTest {
         verify(userRepository, never()).deductPointsAtomic(anyLong(), anyLong());
     }
 
-    /** points_required = 0 nghĩa là loại chỉ phát tay, không mở cho đổi điểm. */
+    /** points_required = 0 means the type is issued by hand only, never bought with points. */
     @Test
     void catalogWithoutPointsPriceCannotBeRedeemed() {
         when(voucherCatalogRepository.findById(CATALOG_ID)).thenReturn(Optional.of(catalog(0)));
@@ -177,7 +177,7 @@ class CashierVoucherRedeemTest {
         verify(userRepository, never()).deductPointsAtomic(eq(CUSTOMER_ID), anyLong());
     }
 
-    /** Quầy chỉ được thấy loại đang bật và có giá bằng điểm. */
+    /** The counter only sees types that are enabled and priced in points. */
     @Test
     void redeemableListSkipsInactiveAndPointlessCatalogs() {
         VoucherCatalogModel inactive = catalog(100);
