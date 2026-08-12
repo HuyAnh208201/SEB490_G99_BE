@@ -50,4 +50,7 @@ public class CheckoutRequest {
     /** Số điểm khách muốn đổi; server tự chặn trên theo giá trị đơn. */
     @Min(value = 0, message = "Redeemed points must be greater than or equal to 0.")
     private Long pointsToRedeem;
+
+    // Không có trường nào cho khuyến mãi của cửa hàng: server tự áp mọi campaign đang
+    // chạy của chi nhánh. Khách nào cũng được hưởng nên quầy không được phép chọn.
 }

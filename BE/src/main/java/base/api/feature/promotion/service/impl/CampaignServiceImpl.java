@@ -56,6 +56,17 @@ import java.util.stream.Collectors;
 @Service
 public class CampaignServiceImpl implements ICampaignService {
 
+    /**
+     * Thứ tự áp khuyến mãi lên một đơn: priority cao trước, hoà thì id nhỏ trước.
+     * Phải cố định vì giảm 10% rồi 20% ra số khác 20% rồi 10%. Quầy bán hàng dựa
+     * vào đúng thứ tự này để tính ra cùng con số với màn hình thu ngân.
+     */
+    private static final Comparator<CampaignModel> APPLY_ORDER =
+            Comparator.comparing(
+                            CampaignModel::getPriority,
+                            Comparator.nullsLast(Comparator.reverseOrder()))
+                    .thenComparing(CampaignModel::getId);
+
     @Autowired
     private CampaignRepository campaignRepository;
 
@@ -374,6 +385,43 @@ public class CampaignServiceImpl implements ICampaignService {
 
         Map<Long, List<Long>> branchIdsByCampaign = loadBranchIdsByCampaign(campaigns);
         return campaigns.stream()
+                .map(campaign -> campaignMapper.toSummaryResponse(
+                        campaign,
+                        branchIdsByCampaign.getOrDefault(campaign.getId(), List.of())))
+                .toList();
+    }
+
+    @Override
+    public List<CampaignSummaryResponse> getApplicableForBranch(Long branchId) {
+        campaignExpiryService.deactivateExpiredCampaigns();
+
+        LocalDateTime now = LocalDateTime.now();
+        Set<Long> excludedCampaignIds = campaignBranchExclusionRepository.findByBranchId(branchId).stream()
+                .map(CampaignBranchExclusionModel::getCampaignId)
+                .collect(Collectors.toSet());
+
+        // Phải đi qua findCampaignsVisibleToBranch chứ không phải findByStatus(ACTIVE):
+        // isDeactivatedForBranch chỉ soi danh sách chi nhánh với campaign scope CHAIN,
+        // nên campaign scope BRANCH của chi nhánh khác sẽ lọt nếu không lọc từ đây.
+        List<CampaignModel> visible = findCampaignsVisibleToBranch(branchId).stream()
+                .filter(campaign -> campaign.getStatus() == CampaignStatus.ACTIVE)
+                .toList();
+        Map<Long, List<Long>> branchIdsByCampaign = loadBranchIdsByCampaign(visible);
+
+        // Trạng thái ACTIVE không đủ: job hết hạn chạy mỗi phút nên vẫn có cửa sổ
+        // campaign đã quá endAt mà chưa kịp bị tắt. So thẳng với mốc thời gian.
+        // Thiếu ngày thì loại — đây là đường tính tiền, không đoán mò hộ dữ liệu.
+        return visible.stream()
+                .filter(campaign -> campaign.getStartAt() != null
+                        && campaign.getEndAt() != null
+                        && !campaign.getStartAt().isAfter(now)
+                        && !campaign.getEndAt().isBefore(now))
+                .filter(campaign -> !isDeactivatedForBranch(
+                        campaign,
+                        branchId,
+                        branchIdsByCampaign.getOrDefault(campaign.getId(), List.of()),
+                        excludedCampaignIds))
+                .sorted(APPLY_ORDER)
                 .map(campaign -> campaignMapper.toSummaryResponse(
                         campaign,
                         branchIdsByCampaign.getOrDefault(campaign.getId(), List.of())))

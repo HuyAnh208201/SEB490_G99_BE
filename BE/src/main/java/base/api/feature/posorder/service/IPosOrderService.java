@@ -3,6 +3,7 @@ package base.api.feature.posorder.service;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderResponse;
 import base.api.feature.posorder.dto.response.VoucherResponse;
+import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
 import base.api.shared.dto.PageRequestDTO;
 import org.springframework.data.domain.Page;
 
@@ -28,6 +29,13 @@ public interface IPosOrderService {
             String paymentMethod);
 
     OrderResponse getOrderById(Long id);
+
+    /**
+     * Khuyến mãi cashier chọn được cho đơn đang lập, lấy theo chi nhánh của chính
+     * cashier đó. Đây cũng là tập hợp mà {@link #checkout} kiểm lại — chọn thứ không
+     * nằm trong danh sách này thì chốt đơn bị từ chối.
+     */
+    List<CampaignSummaryResponse> getApplicablePromotions();
 
     /**
      * Tra mã giảm giá trước khi chốt đơn để cashier thấy ngay số tiền giảm.

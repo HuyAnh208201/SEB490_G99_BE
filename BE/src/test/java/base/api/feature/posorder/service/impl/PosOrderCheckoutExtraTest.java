@@ -12,9 +12,12 @@ import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.posorder.repository.VoucherCatalogRepository;
 import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
+import base.api.feature.promotion.service.ICampaignService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.shift.repository.ShiftRepository;
+import base.api.shared.entity.OrderDiscountModel;
 import base.api.shared.entity.PaymentModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.UserModel;
@@ -40,6 +43,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,6 +76,7 @@ class PosOrderCheckoutExtraTest {
     @Mock private IUserService userService;
     @Mock private ICashierService cashierService;
     @Mock private PointTransactionRepository pointTransactionRepository;
+    @Mock private ICampaignService campaignService;
     @Mock private CurrentUserProvider currentUserProvider;
 
     @InjectMocks
@@ -476,6 +482,89 @@ class PosOrderCheckoutExtraTest {
         assertEquals(7L, response.getPointsRedeemed());
         assertEquals(0, BigDecimal.ZERO.compareTo(response.getTotal()));
         assertEquals(0, new BigDecimal("12000").compareTo(response.getDiscountAmount()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Khuyến mãi cửa hàng (campaign) — áp tự động, quầy không chọn được
+    // -------------------------------------------------------------------------
+
+    @Test
+    void percentCampaignAppliesAutomaticallyAndWritesDiscountRowWithoutVoucher() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
+        stubApplicable(summary(5L, "Summer Sale", "PERCENT", "10"));
+
+        // Request KHÔNG mang thông tin khuyến mãi nào — server tự áp.
+        OrderResponse response = service.checkout(cashRequest(1, 2, "30000"));
+
+        assertEquals(0, new BigDecimal("21600").compareTo(response.getTotal()));
+        assertEquals(0, new BigDecimal("2400").compareTo(response.getDiscountAmount()));
+
+        ArgumentCaptor<OrderDiscountModel> row = ArgumentCaptor.forClass(OrderDiscountModel.class);
+        verify(orderDiscountRepository).save(row.capture());
+        // voucher_id null là điều kiện để VoucherReleaseService bỏ qua dòng này lúc hoàn đơn.
+        assertNull(row.getValue().getVoucherId());
+        assertEquals("Summer Sale", row.getValue().getCode());
+        assertEquals(0, new BigDecimal("2400").compareTo(row.getValue().getDiscountAmount()));
+    }
+
+    @Test
+    void stackedCampaignsApplyOnTheRemainingAmountNotOnSubtotal() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
+        stubApplicable(
+                summary(5L, "Ten percent", "PERCENT", "10"),
+                summary(6L, "Five thousand off", "FIXED_AMOUNT", "5000"));
+
+        OrderResponse response = service.checkout(cashRequest(1, 2, "30000"));
+
+        // 24000 → −10% (2400) → 21600 → −5000 = 16600. Thứ tự do getApplicableForBranch
+        // quyết định, quầy không đảo được.
+        assertEquals(0, new BigDecimal("16600").compareTo(response.getTotal()));
+        assertEquals(0, new BigDecimal("7400").compareTo(response.getDiscountAmount()));
+        verify(orderDiscountRepository, times(2)).save(any());
+    }
+
+    /** Chi nhánh không có khuyến mãi nào thì đơn giữ nguyên giá, không lỗi. */
+    @Test
+    void checkoutWithoutAnyApplicableCampaignKeepsSubtotal() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
+        stubApplicable();
+
+        OrderResponse response = service.checkout(cashRequest(1, 2, "30000"));
+
+        assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getDiscountAmount()));
+        verify(orderDiscountRepository, never()).save(any());
+    }
+
+    /**
+     * Khuyến mãi lấy theo chi nhánh của chính cashier. Quầy không gửi lên được chi
+     * nhánh nào khác, và cũng không gửi được danh sách khuyến mãi nào.
+     */
+    @Test
+    void campaignsAreLookedUpForTheCashierOwnBranch() {
+        stubProduct(1, "Milk", "12000");
+        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
+        stubApplicable(summary(5L, "Summer Sale", "PERCENT", "10"));
+
+        service.checkout(cashRequest(1, 2, "30000"));
+
+        verify(campaignService).getApplicableForBranch(BRANCH_ID);
+    }
+
+    private void stubApplicable(CampaignSummaryResponse... campaigns) {
+        when(campaignService.getApplicableForBranch(BRANCH_ID)).thenReturn(List.of(campaigns));
+    }
+
+    private static CampaignSummaryResponse summary(Long id, String name, String type, String value) {
+        CampaignSummaryResponse response = new CampaignSummaryResponse();
+        response.setId(id);
+        response.setName(name);
+        response.setType(type);
+        response.setDiscountValue(new BigDecimal(value));
+        return response;
     }
 
     private void stubProduct(int id, String name, String price) {

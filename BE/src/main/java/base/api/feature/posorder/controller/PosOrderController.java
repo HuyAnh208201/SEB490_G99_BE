@@ -5,6 +5,7 @@ import base.api.feature.posorder.dto.response.OrderResponse;
 import base.api.feature.posorder.dto.response.VoucherResponse;
 import base.api.feature.posorder.service.IPosOrderService;
 import base.api.feature.product.dto.response.PosCatalogItemResponse;
+import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
 import base.api.feature.product.service.IProductService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
@@ -103,6 +104,18 @@ public class PosOrderController extends BaseAPIController {
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<OrderResponse>> getOrderById(@PathVariable Long id) {
         return success(posOrderService.getOrderById(id));
+    }
+
+    @Operation(
+            summary = "Khuyến mãi áp được cho chi nhánh",
+            description = "Danh sách campaign cashier chọn để áp vào đơn, đã sắp theo đúng thứ tự "
+                    + "áp. Chi nhánh lấy từ tài khoản đang đăng nhập, không nhận từ client. "
+                    + "Chỉ trả định nghĩa campaign — số tiền giảm do server tính lúc chốt đơn."
+    )
+    @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
+    @GetMapping("/promotions")
+    public ResponseEntity<TFUResponse<List<CampaignSummaryResponse>>> getApplicablePromotions() {
+        return success(posOrderService.getApplicablePromotions());
     }
 
     @Operation(

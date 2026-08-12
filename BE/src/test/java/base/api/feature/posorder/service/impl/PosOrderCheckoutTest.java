@@ -12,6 +12,7 @@ import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.posorder.repository.VoucherCatalogRepository;
 import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.promotion.service.ICampaignService;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftRepository;
@@ -64,6 +65,8 @@ class PosOrderCheckoutTest {
     @Mock private ShiftRepository shiftRepository;
     @Mock private IUserService userService;
     @Mock private ICashierService cashierService;
+    /** Checkout luôn hỏi khuyến mãi của chi nhánh; mock rỗng = chi nhánh không có cái nào. */
+    @Mock private ICampaignService campaignService;
     @Mock private PointTransactionRepository pointTransactionRepository;
     @Mock private CurrentUserProvider currentUserProvider;
 

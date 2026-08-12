@@ -33,6 +33,13 @@ public interface ICampaignService {
 
     List<CampaignSummaryResponse> getAllCampaigns();
 
+    /**
+     * Khuyến mãi đang áp được cho một chi nhánh tại thời điểm gọi, đã sắp theo đúng
+     * thứ tự áp lên đơn. Quầy bán hàng gọi hàm này thay vì tự lọc — luật "campaign nào
+     * áp cho chi nhánh nào" chỉ được sống một chỗ.
+     */
+    List<CampaignSummaryResponse> getApplicableForBranch(Long branchId);
+
     Page<CampaignSummaryResponse> getCampaignPage(
             PageRequestDTO pageRequest,
             CampaignStatus status,

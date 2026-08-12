@@ -17,6 +17,8 @@ import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.posorder.service.IPosOrderService;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
+import base.api.feature.promotion.service.ICampaignService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftRepository;
 import base.api.shared.entity.OrderDiscountModel;
@@ -97,6 +99,9 @@ public class PosOrderServiceImpl implements IPosOrderService {
     private ICashierService cashierService;
 
     @Autowired
+    private ICampaignService campaignService;
+
+    @Autowired
     private PointTransactionRepository pointTransactionRepository;
 
     @Autowired
@@ -140,17 +145,25 @@ public class PosOrderServiceImpl implements IPosOrderService {
             subtotal = subtotal.add(lineTotal);
         }
 
-        // 3. Khách hàng: tạo nhanh nếu SĐT chưa có. Phải có trước voucher vì mã phát
+        // 3. Khuyến mãi của cửa hàng: áp TỰ ĐỘNG và áp trước voucher, vì ưu đãi của
+        //    chuỗi đứng trên ưu đãi riêng của khách. Quầy không chọn được cái nào.
+        List<AppliedCampaign> appliedCampaigns = resolveCampaigns(branchId, subtotal);
+        BigDecimal campaignDiscount = appliedCampaigns.stream()
+                .map(AppliedCampaign::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal afterCampaign = subtotal.subtract(campaignDiscount);
+
+        // 4. Khách hàng: tạo nhanh nếu SĐT chưa có. Phải có trước voucher vì mã phát
         //    riêng cho khách chỉ hợp lệ khi đúng người đó đứng tên đơn.
         UserModel customer = resolveCustomer(request);
 
-        // 4. Voucher: server tự tính số tiền giảm từ loại voucher.
+        // 5. Voucher: server tự tính số tiền giảm từ loại voucher.
         VoucherModel voucher = resolveVoucher(request.getVoucherCode());
         assertVoucherBelongsTo(voucher, customer);
-        BigDecimal voucherDiscount = voucherDiscountFor(voucher, subtotal);
-        BigDecimal afterVoucher = subtotal.subtract(voucherDiscount);
+        BigDecimal voucherDiscount = voucherDiscountFor(voucher, afterCampaign);
+        BigDecimal afterVoucher = afterCampaign.subtract(voucherDiscount);
 
-        // 5. Điểm đổi: chặn trên theo số tiền còn lại, không để đổi thừa mất điểm oan.
+        // 6. Điểm đổi: chặn trên theo số tiền còn lại, không để đổi thừa mất điểm oan.
         long pointsToRedeem = affordablePoints(request.getPointsToRedeem(), customer, afterVoucher);
         BigDecimal pointsDiscount = pointsToRedeem > 0
                 ? cashierService.redeemValueOf(pointsToRedeem)
@@ -159,7 +172,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
         validatePayment(request, total);
 
-        // 6. Trừ tồn kho atomic — hết hàng thì cả đơn rollback.
+        // 7. Trừ tồn kho atomic — hết hàng thì cả đơn rollback.
         for (OrderItemModel item : items) {
             int updated = branchInventoryRepository.deductStock(
                     branchId, item.getProductId(), item.getQuantity());
@@ -169,7 +182,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
             }
         }
 
-        // 7. Chốt điểm (trừ điểm đổi + cộng điểm tích trên số tiền thực trả).
+        // 8. Chốt điểm (trừ điểm đổi + cộng điểm tích trên số tiền thực trả).
         long pointsEarned = 0;
         if (customer != null) {
             ICashierService.PointSettlement settlement =
@@ -177,7 +190,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
             pointsEarned = settlement.pointsEarned();
         }
 
-        // 8. Khoá voucher sau cùng, khi mọi thứ khác đã chắc chắn thành công.
+        // 9. Khoá voucher sau cùng, khi mọi thứ khác đã chắc chắn thành công.
         if (voucher != null && voucherRepository.markUsed(voucher.getId()) == 0) {
             throw new BusinessException("Discount code was just used on another order.");
         }
@@ -190,7 +203,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
         order.setCashierId(cashier.getId());
         order.setCustomerId(customer == null ? null : customer.getId());
         order.setSubtotal(subtotal);
-        order.setDiscountAmount(voucherDiscount.add(pointsDiscount));
+        order.setDiscountAmount(campaignDiscount.add(voucherDiscount).add(pointsDiscount));
         order.setTotal(total);
         order.setPointsRedeemed(pointsToRedeem);
         order.setPointsEarned(pointsEarned);
@@ -205,6 +218,18 @@ public class PosOrderServiceImpl implements IPosOrderService {
             item.setOrderId(order.getId());
         }
         orderItemRepository.saveAll(items);
+
+        // Mỗi khuyến mãi một dòng để in lại hoá đơn còn biết đơn được giảm bởi cái gì.
+        // voucher_id để null — VoucherReleaseService bỏ qua đúng những dòng như vậy,
+        // nên hoàn đơn không cố nhả một mã không tồn tại.
+        for (AppliedCampaign applied : appliedCampaigns) {
+            OrderDiscountModel discount = new OrderDiscountModel();
+            discount.setOrderId(order.getId());
+            discount.setVoucherId(null);
+            discount.setCode(truncateCode(applied.name()));
+            discount.setDiscountAmount(applied.amount());
+            orderDiscountRepository.save(discount);
+        }
 
         if (voucher != null) {
             OrderDiscountModel discount = new OrderDiscountModel();
@@ -317,6 +342,12 @@ public class PosOrderServiceImpl implements IPosOrderService {
     }
 
     @Override
+    public List<CampaignSummaryResponse> getApplicablePromotions() {
+        UserModel cashier = requireCashier();
+        return campaignService.getApplicableForBranch(cashier.getBranchId());
+    }
+
+    @Override
     public VoucherResponse lookupVoucher(String code, String customerPhone) {
         VoucherModel voucher = resolveVoucher(code);
         if (voucher == null) {
@@ -408,6 +439,54 @@ public class PosOrderServiceImpl implements IPosOrderService {
             throw new BusinessException("This discount code is no longer available.");
         }
         return catalog;
+    }
+
+    /** Một khuyến mãi đã áp lên đơn, kèm số tiền nó giảm. */
+    private record AppliedCampaign(Long id, String name, BigDecimal amount) {}
+
+    /**
+     * Áp mọi khuyến mãi đang chạy của chi nhánh lên đơn.
+     *
+     * Cố ý KHÔNG nhận danh sách chọn từ quầy: khuyến mãi là của cửa hàng, khách nào
+     * cũng được hưởng, nên nó không được phụ thuộc thu ngân có nhớ bấm hay không.
+     * Hệ quả kèm theo: client không có gì để gian lận ở đường này.
+     */
+    private List<AppliedCampaign> resolveCampaigns(Long branchId, BigDecimal subtotal) {
+        // Danh sách đã sắp theo thứ tự áp: giảm 10% rồi 20% ra số khác 20% rồi 10%.
+        List<CampaignSummaryResponse> applicable = campaignService.getApplicableForBranch(branchId);
+
+        List<AppliedCampaign> applied = new ArrayList<>();
+        BigDecimal remaining = subtotal;
+        for (CampaignSummaryResponse campaign : applicable) {
+            if (remaining.signum() <= 0) {
+                break;
+            }
+            BigDecimal amount = campaignAmount(campaign, remaining).min(remaining);
+            if (amount.signum() <= 0) {
+                continue;
+            }
+            applied.add(new AppliedCampaign(campaign.getId(), campaign.getName(), amount));
+            remaining = remaining.subtract(amount);
+        }
+        return applied;
+    }
+
+    /** Làm tròn giống hệt voucherDiscountFor — lệch nhau là lệch tiền lẻ giữa hai đường. */
+    private BigDecimal campaignAmount(CampaignSummaryResponse campaign, BigDecimal base) {
+        BigDecimal value = campaign.getDiscountValue() == null
+                ? BigDecimal.ZERO
+                : campaign.getDiscountValue();
+        return "PERCENT".equalsIgnoreCase(campaign.getType())
+                ? base.multiply(value).divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP)
+                : value;
+    }
+
+    /** Cột order_discounts.code là VARCHAR(64) — tên campaign dài hơn thì cắt. */
+    private String truncateCode(String name) {
+        if (name == null) {
+            return null;
+        }
+        return name.length() <= 64 ? name : name.substring(0, 64);
     }
 
     private BigDecimal voucherDiscountFor(VoucherModel voucher, BigDecimal subtotal) {

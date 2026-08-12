@@ -6,6 +6,7 @@ import base.api.feature.promotion.dto.request.ActivateCampaignRequest;
 import base.api.feature.promotion.dto.request.CreateCampaignRequest;
 import base.api.feature.promotion.dto.request.UpdateCampaignRequest;
 import base.api.feature.promotion.dto.response.CampaignResponse;
+import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
 import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
 import base.api.feature.promotion.repository.CampaignBranchRepository;
@@ -45,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -613,6 +615,137 @@ class CampaignServiceImplTest {
                 () -> service.activateCampaignForBranch(1L));
 
         assertEquals("Cannot activate branch promotions with this action.", error.getMessage());
+    }
+
+    // -------------------------------------------------------------------------
+    // getApplicableForBranch — nguồn duy nhất quyết định quầy được áp campaign nào
+    // -------------------------------------------------------------------------
+
+    @Test
+    void applicableForBranchKeepsLiveChainCampaignWithNoBranchTargeting() {
+        CampaignModel live = liveCampaign(1L, 0);
+        stubVisibleToBranch(List.of(live));
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
+        stubSummaryMapper();
+
+        List<CampaignSummaryResponse> result = service.getApplicableForBranch(7L);
+
+        assertEquals(List.of(1L), ids(result));
+        verify(campaignExpiryService).deactivateExpiredCampaigns();
+    }
+
+    @Test
+    void applicableForBranchDropsCampaignOutsideItsDateWindow() {
+        CampaignModel expired = liveCampaign(1L, 0);
+        expired.setEndAt(LocalDateTime.now().minusMinutes(1));
+        CampaignModel notStarted = liveCampaign(2L, 0);
+        notStarted.setStartAt(LocalDateTime.now().plusDays(1));
+        stubVisibleToBranch(List.of(expired, notStarted));
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
+        stubSummaryMapper();
+
+        assertTrue(service.getApplicableForBranch(7L).isEmpty());
+    }
+
+    @Test
+    void applicableForBranchDropsCampaignThatIsNotActive() {
+        CampaignModel draft = liveCampaign(1L, 0);
+        draft.setStatus(CampaignStatus.DRAFT);
+        stubVisibleToBranch(List.of(draft));
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
+        stubSummaryMapper();
+
+        assertTrue(service.getApplicableForBranch(7L).isEmpty());
+    }
+
+    @Test
+    void applicableForBranchDropsCampaignTheBranchOptedOutOf() {
+        stubVisibleToBranch(List.of(liveCampaign(1L, 0)));
+        CampaignBranchExclusionModel exclusion = new CampaignBranchExclusionModel();
+        exclusion.setCampaignId(1L);
+        exclusion.setBranchId(7L);
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of(exclusion));
+        stubSummaryMapper();
+
+        assertTrue(service.getApplicableForBranch(7L).isEmpty());
+    }
+
+    @Test
+    void applicableForBranchDropsChainCampaignAimedAtOtherBranches() {
+        stubVisibleToBranch(List.of(liveCampaign(1L, 0)));
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
+        when(campaignBranchRepository.findByCampaignIdIn(anyList()))
+                .thenReturn(branchMappings(1L, 2L, 3L));
+        stubSummaryMapper();
+
+        assertTrue(service.getApplicableForBranch(7L).isEmpty());
+    }
+
+    /**
+     * Bắt được trên dữ liệu thật: campaign scope BRANCH của chi nhánh 5 lọt vào quầy
+     * chi nhánh 1. isDeactivatedForBranch chỉ soi danh sách chi nhánh khi scope là
+     * CHAIN, nên tập đầu vào phải được lọc trước bằng findCampaignsVisibleToBranch.
+     */
+    @Test
+    void applicableForBranchDropsBranchScopedCampaignOwnedByAnotherBranch() {
+        CampaignModel otherBranchPromo = liveCampaign(9L, 0);
+        otherBranchPromo.setScope(CampaignScope.BRANCH);
+        // Chi nhánh 7 không có ánh xạ nào tới campaign 9 → nó không được nhìn thấy.
+        when(campaignRepository.findByScopeOrderByIdAsc(CampaignScope.CHAIN)).thenReturn(List.of());
+        when(campaignBranchRepository.findCampaignIdsByBranchId(7L)).thenReturn(List.of());
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
+        stubSummaryMapper();
+
+        assertTrue(service.getApplicableForBranch(7L).isEmpty());
+        verify(campaignRepository, never()).findByIdIn(anyList());
+    }
+
+    /** Thứ tự áp quyết định số tiền giảm, nên nó là hợp đồng chứ không phải chi tiết. */
+    @Test
+    void applicableForBranchSortsByPriorityThenId() {
+        stubVisibleToBranch(List.of(
+                liveCampaign(5L, 0),
+                liveCampaign(3L, 9),
+                liveCampaign(2L, 0),
+                liveCampaign(8L, 9)));
+        when(campaignBranchExclusionRepository.findByBranchId(7L)).thenReturn(List.of());
+        stubSummaryMapper();
+
+        assertEquals(List.of(3L, 8L, 2L, 5L), ids(service.getApplicableForBranch(7L)));
+    }
+
+    /**
+     * Dựng đúng tập campaign mà findCampaignsVisibleToBranch trả về: campaign chuỗi
+     * cộng campaign được ánh xạ tới chi nhánh. Test nào cũng phải đi qua đây, vì đây
+     * mới là tập đầu vào thật của getApplicableForBranch.
+     */
+    private void stubVisibleToBranch(List<CampaignModel> campaigns) {
+        when(campaignRepository.findByScopeOrderByIdAsc(CampaignScope.CHAIN)).thenReturn(campaigns);
+        when(campaignBranchRepository.findCampaignIdsByBranchId(anyLong())).thenReturn(List.of());
+    }
+
+    private static List<Long> ids(List<CampaignSummaryResponse> rows) {
+        return rows.stream().map(CampaignSummaryResponse::getId).toList();
+    }
+
+    /** Campaign ACTIVE và đang trong hạn — trạng thái mặc định của các test dưới. */
+    private static CampaignModel liveCampaign(Long id, int priority) {
+        CampaignModel campaign = campaign(id, CampaignStatus.ACTIVE, CampaignScope.CHAIN);
+        campaign.setPriority(priority);
+        campaign.setStartAt(LocalDateTime.now().minusDays(1));
+        campaign.setEndAt(LocalDateTime.now().plusDays(1));
+        return campaign;
+    }
+
+    private void stubSummaryMapper() {
+        when(campaignMapper.toSummaryResponse(any(CampaignModel.class), anyList()))
+                .thenAnswer(inv -> {
+                    CampaignModel source = inv.getArgument(0);
+                    CampaignSummaryResponse response = new CampaignSummaryResponse();
+                    response.setId(source.getId());
+                    response.setName(source.getName());
+                    return response;
+                });
     }
 
     private void stubBranchExists(Long branchId) {
