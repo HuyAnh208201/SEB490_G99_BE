@@ -617,18 +617,12 @@ public class UserService implements IUserService {
         UserModel user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
 
-        String normalizedEmail = normalizeEmail(dto.getEmail());
-        if (normalizedEmail == null || normalizedEmail.isEmpty()) {
-            throw new IllegalArgumentException("Email không được để trống");
-        }
-        if (!normalizedEmail.equalsIgnoreCase(user.getEmail()) && userRepository.existsByEmail(normalizedEmail)) {
-            throw new RuntimeException("Email đã được sử dụng bởi tài khoản khác");
-        }
-
+        // Email cố tình không đọc từ dto — xem UpdateProfileDto. Hồ sơ tự sửa
+        // không đổi được email, nên user.getEmail() giữ nguyên qua lệnh lưu này.
         if (dto.getPhone() != null && !dto.getPhone().trim().isEmpty()) {
             String normalizedPhone = dto.getPhone().trim().replaceAll("\\s+", "");
-            // Chỉ kiểm tra khi số thực sự đổi — giống cách xử lý email ở trên, và để
-            // user lưu lại hồ sơ mà không đổi SĐT thì không tự vướng số của chính mình.
+            // Chỉ kiểm tra khi số thực sự đổi, để user lưu lại hồ sơ mà không đổi SĐT
+            // thì không tự vướng số của chính mình.
             if (!normalizedPhone.equals(user.getPhone()) && userRepository.existsByPhone(normalizedPhone)) {
                 throw new ConflictException("Số điện thoại đã được sử dụng bởi tài khoản khác");
             }
@@ -637,7 +631,6 @@ public class UserService implements IUserService {
 
         user.setFirstName(dto.getFirstName());
         user.setLastName(dto.getLastName());
-        user.setEmail(normalizedEmail);
         user.setAvatar(dto.getAvatar());
         user.setBirthDate(dto.getBirthDate());
 

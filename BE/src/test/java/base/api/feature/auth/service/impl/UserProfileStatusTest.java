@@ -86,51 +86,24 @@ class UserProfileStatusTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void updateProfileRejectsBlankEmail() {
+    void updateProfileSavesNameAndPhoneAndLeavesEmailAlone() {
         UserModel user = user(1L, UserRole.CUSTOMER, null);
         user.setEmail("old@chainstore.com");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-
-        UpdateProfileDto dto = profileDto("  ", "A", "B");
-
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class, () -> service.updateProfile(1L, dto));
-
-        assertTrue(error.getMessage().contains("Email không được để trống"));
-        verify(userRepository, never()).save(any());
-    }
-
-    @Test
-    void updateProfileRejectsDuplicateEmail() {
-        UserModel user = user(1L, UserRole.CUSTOMER, null);
-        user.setEmail("old@chainstore.com");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.existsByEmail("new@chainstore.com")).thenReturn(true);
-
-        RuntimeException error = assertThrows(
-                RuntimeException.class, () -> service.updateProfile(1L, profileDto("new@chainstore.com", "A", "B")));
-
-        assertTrue(error.getMessage().contains("Email đã được sử dụng bởi tài khoản khác"));
-    }
-
-    @Test
-    void updateProfileSucceedsWhenEmailAvailable() {
-        UserModel user = user(1L, UserRole.CUSTOMER, null);
-        user.setEmail("old@chainstore.com");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.existsByEmail("new@chainstore.com")).thenReturn(false);
         when(userRepository.save(any(UserModel.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        UpdateProfileDto dto = profileDto("New@ChainStore.com", "Lan", "Nguyen");
+        UpdateProfileDto dto = profileDto("Lan", "Nguyen");
         dto.setPhone("0912 345 678");
         dto.setGender("FEMALE");
 
         UserModel saved = service.updateProfile(1L, dto);
 
-        assertEquals("new@chainstore.com", saved.getEmail());
+        // Email giữ nguyên là điều kiện của UC-07: đổi email phải đi qua Admin.
+        assertEquals("old@chainstore.com", saved.getEmail());
         assertEquals("Nguyen", saved.getLastName());
         assertEquals("0912345678", saved.getPhone());
         verify(userRepository).save(user);
+        verify(userRepository, never()).existsByEmail(any());
     }
 
     @Test
@@ -139,10 +112,9 @@ class UserProfileStatusTest {
         user.setEmail("old@chainstore.com");
         user.setPhone("0900000001");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.existsByEmail("old@chainstore.com")).thenReturn(false);
         when(userRepository.existsByPhone("0912345678")).thenReturn(true);
 
-        UpdateProfileDto dto = profileDto("old@chainstore.com", "A", "B");
+        UpdateProfileDto dto = profileDto("A", "B");
         dto.setPhone("0912 345 678");
 
         ConflictException error =
@@ -158,12 +130,11 @@ class UserProfileStatusTest {
         user.setEmail("old@chainstore.com");
         user.setPhone("0912345678");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.existsByEmail("old@chainstore.com")).thenReturn(false);
         // SĐT của chính mình luôn tồn tại trong bảng — không được tự chặn mình.
         when(userRepository.existsByPhone("0912345678")).thenReturn(true);
         when(userRepository.save(any(UserModel.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        UpdateProfileDto dto = profileDto("old@chainstore.com", "A", "B");
+        UpdateProfileDto dto = profileDto("A", "B");
         dto.setPhone("0912 345 678");
 
         UserModel saved = service.updateProfile(1L, dto);
@@ -176,7 +147,7 @@ class UserProfileStatusTest {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 
         RuntimeException error = assertThrows(
-                RuntimeException.class, () -> service.updateProfile(99L, profileDto("a@b.com", "A", "B")));
+                RuntimeException.class, () -> service.updateProfile(99L, profileDto("A", "B")));
 
         assertTrue(error.getMessage().contains("Không tìm thấy người dùng"));
     }
@@ -545,9 +516,8 @@ class UserProfileStatusTest {
     // helpers
     // -------------------------------------------------------------------------
 
-    private static UpdateProfileDto profileDto(String email, String first, String last) {
+    private static UpdateProfileDto profileDto(String first, String last) {
         UpdateProfileDto dto = new UpdateProfileDto();
-        dto.setEmail(email);
         dto.setFirstName(first);
         dto.setLastName(last);
         return dto;
