@@ -83,6 +83,13 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             PurchaseRequestStatus.RECEIVED
     );
 
+    /** Incoming Requests screen: pending review, short-stock, and ready-to-ship. */
+    static final Set<PurchaseRequestStatus> WAREHOUSE_INCOMING_STATUSES = EnumSet.of(
+            PurchaseRequestStatus.PENDING,
+            PurchaseRequestStatus.AWAITING_STOCK,
+            PurchaseRequestStatus.APPROVED
+    );
+
     @Autowired
     private PurchaseRequestRepository purchaseRequestRepository;
 
@@ -255,7 +262,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                     cb.equal(root.get("status"), PurchaseRequestStatus.DRAFT));
         } else if (role == UserRole.WAREHOUSE_MANAGER) {
             specification = specification.and((root, ignored, cb) ->
-                    cb.equal(root.get("status"), PurchaseRequestStatus.PENDING));
+                    root.get("status").in(WAREHOUSE_INCOMING_STATUSES));
         } else if (role == UserRole.INVENTORY_STAFF) {
             specification = specification.and((root, ignored, cb) ->
                     cb.notEqual(root.get("status"), PurchaseRequestStatus.DRAFT));
