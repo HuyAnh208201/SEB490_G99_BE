@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import java.time.LocalDate;
 
 import java.util.Map;
 
@@ -25,10 +27,12 @@ public class WarehouseController extends StubModuleController {
     private IWarehouseDashboardService warehouseDashboardService;
 
     @Operation(summary = "Warehouse Dashboard")
-    @PreAuthorize("@permissionChecker.has('WAREHOUSE_DASHBOARD')")
+    @PreAuthorize("@permissionChecker.hasAny('WAREHOUSE_DASHBOARD','VIEW_SUPPLIER_RECEIPTS_PRICES')")
     @GetMapping("dashboard")
-    public ResponseEntity<TFUResponse<WarehouseDashboardResponse>> dashboard() {
-        return success(warehouseDashboardService.getDashboard());
+    public ResponseEntity<TFUResponse<WarehouseDashboardResponse>> dashboard(
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to) {
+        return success(warehouseDashboardService.getDashboard(from, to));
     }
 
     @Operation(summary = "View Central Inventory")

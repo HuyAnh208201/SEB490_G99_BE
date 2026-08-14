@@ -94,8 +94,12 @@ public class BranchManagerDashboardServiceImpl implements IBranchManagerDashboar
                 rangeFrom,
                 rangeTo,
                 todaySummary.totalRevenue(),
+                todaySummary.totalProfit(),
                 todaySummary.transactionCount(),
                 period.totalRevenue(),
+                period.totalCogs(),
+                period.totalProfit(),
+                period.profitMarginPercent(),
                 period.transactionCount(),
                 period.avgTransactionValue(),
                 momPercent,
@@ -107,7 +111,8 @@ public class BranchManagerDashboardServiceImpl implements IBranchManagerDashboar
                         branchId, ShiftSessionStatus.PENDING_APPROVAL),
                 lowStock,
                 shiftRepository.countByBranchIdAndStatus(branchId, ShiftStatus.PUBLISHED),
-                userRepository.countStaffByBranchId(branchId)
+                userRepository.countStaffByBranchId(branchId),
+                java.time.LocalDateTime.now()
         );
     }
 

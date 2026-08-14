@@ -16,6 +16,9 @@ public class PurchaseProductOptionResponse {
     private String productName;
     private String categoryName;
     private String unit;
+    private String importUnit;
+    private Integer conversionQty;
+    private String topPackagingLabel;
     private Integer currentQty;
     private BigDecimal referencePrice;
 }

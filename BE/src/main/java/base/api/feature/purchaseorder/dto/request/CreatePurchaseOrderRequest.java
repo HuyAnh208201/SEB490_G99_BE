@@ -7,6 +7,8 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.time.LocalDate;
+import jakarta.validation.constraints.NotBlank;
 
 @Getter
 @Setter
@@ -16,6 +18,16 @@ public class CreatePurchaseOrderRequest {
     private Integer supplierId;
 
     private String notes;
+
+    @NotNull(message = "Supplier delivery date is required.")
+    private LocalDate supplierDeliveryDate;
+
+    @NotBlank(message = "Delivery person name is required.")
+    private String deliveredByName;
+
+    private String deliveredByPhone;
+
+    private String supplierDocumentNumber;
 
     @NotEmpty(message = "At least one product must be added.")
     private List<Item> items;

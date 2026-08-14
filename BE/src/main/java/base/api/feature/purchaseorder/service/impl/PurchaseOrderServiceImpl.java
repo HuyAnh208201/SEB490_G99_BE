@@ -2,6 +2,7 @@ package base.api.feature.purchaseorder.service.impl;
 
 import base.api.feature.dispatch.service.WarehouseStockAllocationHelper;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductCostService;
 import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaseorder.dto.request.CreatePurchaseOrderRequest;
 import base.api.feature.purchaseorder.dto.response.PurchaseOrderResponse;
@@ -90,6 +91,9 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
     @Autowired
     private ProductPackagingService productPackagingService;
 
+    @Autowired
+    private ProductCostService productCostService;
+
     @Override
     public List<RecommendedPurchaseProductResponse> getRecommendedProducts() {
         Map<Integer, Integer> demandByProduct = demandForWarehouseShortfall();
@@ -157,9 +161,11 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
     }
 
     @Override
-    public List<PurchaseProductOptionResponse> searchProducts(String keyword) {
+    public List<PurchaseProductOptionResponse> searchProducts(Integer ignoredSupplierId, String keyword) {
         List<ProductModel> products = productRepository
-                .searchActiveProducts(normalize(keyword), PageRequest.of(0, SEARCH_LIMIT, Sort.by(Sort.Direction.ASC, "name")))
+                .searchActiveProducts(
+                        normalize(keyword),
+                        PageRequest.of(0, SEARCH_LIMIT, Sort.by(Sort.Direction.ASC, "name")))
                 .getContent();
         Set<Integer> productIds = products.stream().map(ProductModel::getId).collect(Collectors.toSet());
         Map<Integer, Integer> stockByProduct = productIds.isEmpty()
@@ -177,6 +183,10 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
                     row.setProductName(product.getName());
                     row.setCategoryName(product.getCategory() == null ? null : product.getCategory().getName());
                     row.setUnit(product.getUnit());
+                    row.setImportUnit(product.getImportUnit());
+                    row.setConversionQty(product.getUnitsPerImportUnit());
+                    row.setTopPackagingLabel(product.getImportUnit() == null ? null
+                            : product.getImportUnit() + " of " + Math.max(1, safe(product.getUnitsPerImportUnit())));
                     row.setCurrentQty(stockByProduct.getOrDefault(product.getId(), 0));
                     row.setReferencePrice(product.getReferenceImportPrice());
                     return row;
@@ -217,11 +227,20 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
             }
         }
 
+        base.api.shared.entity.UserModel receiver = currentUserProvider.getCurrentUserOrThrow();
         PurchaseOrderModel order = new PurchaseOrderModel();
         order.setSupplierId(supplier.getId());
-        order.setStatus(PurchaseOrderStatus.ORDERED);
+        order.setStatus(PurchaseOrderStatus.RECEIVED);
         order.setNotes(normalize(request.getNotes()));
-        order.setCreatedBy(currentUserProvider.getCurrentUserOrThrow().getId());
+        order.setSupplierDeliveryDate(request.getSupplierDeliveryDate());
+        order.setDeliveredByName(normalize(request.getDeliveredByName()));
+        order.setDeliveredByPhone(normalize(request.getDeliveredByPhone()));
+        order.setSupplierDocumentNumber(normalize(request.getSupplierDocumentNumber()));
+        order.setCreatedBy(receiver.getId());
+        order.setReceivedBy(receiver.getId());
+        order.setReceivedByName(receiver.getFullName());
+        order.setReceivedByPhone(receiver.getPhone());
+        order.setReceivedAt(LocalDateTime.now());
         PurchaseOrderModel savedOrder = purchaseOrderRepository.save(order);
 
         List<PurchaseOrderItemModel> items = new ArrayList<>();
@@ -233,8 +252,23 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
             item.setQuantity(entry.getValue());
             item.setUnitPrice(priceByProduct.getOrDefault(entry.getKey(), product.getReferenceImportPrice()));
             items.add(item);
+            if (item.getUnitPrice() != null) {
+                product.setReferenceImportPrice(
+                        productCostService.baseUnitCostFromPackPrice(item.getUnitPrice(), product));
+            }
         }
         purchaseOrderItemRepository.saveAll(items);
+        productRepository.saveAll(productsById.values());
+
+        Map<Integer, Integer> baseQtyByProduct = new HashMap<>();
+        quantityByProduct.forEach((productId, quantity) -> {
+            int baseQty = productPackagingService.toBaseQty(quantity, productsById.get(productId));
+            if (baseQty > 0) {
+                baseQtyByProduct.put(productId, baseQty);
+            }
+        });
+        increaseWarehouseStockBatch(baseQtyByProduct);
+        reevaluateAwaitingStock();
 
         return buildDetail(savedOrder);
     }
@@ -535,6 +569,7 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
             response.setNotes(order.getNotes());
             response.setCreatedAt(order.getCreatedAt());
             response.setReceivedAt(order.getReceivedAt());
+            copyReceivingPartyFields(order, response);
             List<PurchaseOrderItemModel> items = itemsByOrder.getOrDefault(order.getId(), List.of());
             response.setItemCount(items.size());
             int totalQuantity = 0;
@@ -556,6 +591,7 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
         response.setNotes(order.getNotes());
         response.setCreatedAt(order.getCreatedAt());
         response.setReceivedAt(order.getReceivedAt());
+        copyReceivingPartyFields(order, response);
 
         if (order.getSupplierId() != null) {
             supplierRepository.findById(order.getSupplierId())
@@ -582,13 +618,28 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
             line.setProductCode(product == null ? null : product.getCode());
             line.setProductName(product == null ? null : product.getName());
             line.setUnit(product == null ? null : product.getUnit());
+            line.setImportUnit(product == null ? null : product.getImportUnit());
+            int conversion = product == null || product.getUnitsPerImportUnit() == null
+                    ? 1 : Math.max(1, product.getUnitsPerImportUnit());
+            line.setConversionQty(conversion);
             line.setQuantity(safe(item.getQuantity()));
+            line.setQuantityBase(safe(item.getQuantity()) * conversion);
             line.setUnitPrice(item.getUnitPrice());
             response.getItems().add(line);
             totalQuantity += safe(item.getQuantity());
         }
         response.setTotalQuantity(totalQuantity);
         return response;
+    }
+
+    private void copyReceivingPartyFields(PurchaseOrderModel order, PurchaseOrderResponse response) {
+        response.setSupplierDeliveryDate(order.getSupplierDeliveryDate());
+        response.setDeliveredByName(order.getDeliveredByName());
+        response.setDeliveredByPhone(order.getDeliveredByPhone());
+        response.setSupplierDocumentNumber(order.getSupplierDocumentNumber());
+        response.setReceivedBy(order.getReceivedBy());
+        response.setReceivedByName(order.getReceivedByName());
+        response.setReceivedByPhone(order.getReceivedByPhone());
     }
 
     private PurchaseOrderModel findOrderOrThrow(Long id) {

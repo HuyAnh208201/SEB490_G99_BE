@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Getter
 @Setter
@@ -17,4 +18,7 @@ public class PurchaseRequestSummaryResponse {
     private String status;
     private Long createdBy;
     private String createdByName;
+    private LocalDateTime submittedAt;
+    private LocalDate desiredReceiveDate;
+    private Long supplementalForReceiptId;
 }

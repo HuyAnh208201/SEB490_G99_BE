@@ -24,6 +24,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException
     {
         UserModel user = userRepository.findByUserName(username)
+                .or(() -> userRepository.findByPhone(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
 
         Collection<SimpleGrantedAuthority> authorities = user.getRole() != null
@@ -32,7 +33,7 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         boolean enabled = user.isActive();
         return new User(
-                user.getUserName(),
+                username,
                 user.getPassword(),
                 enabled,
                 true,

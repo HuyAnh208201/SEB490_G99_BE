@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -106,9 +107,113 @@ public interface ReportOrderRepository extends JpaRepository<OrderModel, Long> {
             @Param("to") LocalDateTime to);
 
     @Query(value = """
+            SELECT COALESCE(SUM(
+                i.quantity * COALESCE(
+                    i.unit_cost,
+                    (
+                        SELECT poi.unit_price / GREATEST(COALESCE(
+                            (SELECT pp.conversion_qty FROM product_packagings pp
+                             WHERE pp.product_id = i.product_id AND pp.is_purchase_default = 1
+                             LIMIT 1),
+                            NULLIF(p.units_per_import_unit, 0),
+                            1), 1)
+                        FROM purchase_order_items poi
+                        INNER JOIN purchase_orders po ON po.id = poi.purchase_order_id
+                        WHERE poi.product_id = i.product_id AND po.status = 'RECEIVED'
+                        ORDER BY po.received_at DESC, po.id DESC
+                        LIMIT 1
+                    ),
+                    p.reference_import_price,
+                    0)
+            ), 0)
+            FROM order_items i
+            INNER JOIN orders o ON o.id = i.order_id
+            INNER JOIN products p ON p.id = i.product_id
+            WHERE o.status = 'COMPLETED'
+              AND (:branchId IS NULL OR o.branch_id = :branchId)
+              AND (:shiftId IS NULL OR o.shift_id = :shiftId)
+              AND (:from IS NULL OR o.created_at >= :from)
+              AND (:to IS NULL OR o.created_at < :to)
+            """, nativeQuery = true)
+    BigDecimal sumCompletedCogs(
+            @Param("branchId") Long branchId,
+            @Param("shiftId") Long shiftId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    @Query(value = """
+            SELECT o.branch_id AS group_id,
+                   COALESCE(SUM(
+                       i.quantity * COALESCE(i.unit_cost, p.reference_import_price, 0)
+                   ), 0) AS cogs
+            FROM orders o
+            INNER JOIN order_items i ON i.order_id = o.id
+            INNER JOIN products p ON p.id = i.product_id
+            WHERE o.status = 'COMPLETED'
+              AND (:branchId IS NULL OR o.branch_id = :branchId)
+              AND (:from IS NULL OR o.created_at >= :from)
+              AND (:to IS NULL OR o.created_at < :to)
+            GROUP BY o.branch_id
+            """, nativeQuery = true)
+    List<Object[]> cogsByBranchNative(
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    @Query(value = """
+            SELECT o.shift_id AS group_id,
+                   COALESCE(SUM(
+                       i.quantity * COALESCE(i.unit_cost, p.reference_import_price, 0)
+                   ), 0) AS cogs
+            FROM orders o
+            INNER JOIN order_items i ON i.order_id = o.id
+            INNER JOIN products p ON p.id = i.product_id
+            WHERE o.status = 'COMPLETED'
+              AND (:branchId IS NULL OR o.branch_id = :branchId)
+              AND (:from IS NULL OR o.created_at >= :from)
+              AND (:to IS NULL OR o.created_at < :to)
+            GROUP BY o.shift_id
+            """, nativeQuery = true)
+    List<Object[]> cogsByShiftNative(
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    @Query(value = """
+            SELECT o.cashier_id AS group_id,
+                   COALESCE(SUM(
+                       i.quantity * COALESCE(i.unit_cost, p.reference_import_price, 0)
+                   ), 0) AS cogs
+            FROM orders o
+            INNER JOIN order_items i ON i.order_id = o.id
+            INNER JOIN products p ON p.id = i.product_id
+            WHERE o.status = 'COMPLETED'
+              AND (:branchId IS NULL OR o.branch_id = :branchId)
+              AND (:from IS NULL OR o.created_at >= :from)
+              AND (:to IS NULL OR o.created_at < :to)
+            GROUP BY o.cashier_id
+            """, nativeQuery = true)
+    List<Object[]> cogsByEmployeeNative(
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    @Query(value = """
             SELECT DATE(o.created_at) AS day,
                    COALESCE(SUM(o.total), 0) AS revenue,
-                   COUNT(o.id) AS order_count
+                   COUNT(o.id) AS order_count,
+                   COALESCE((
+                       SELECT SUM(i.quantity * COALESCE(i.unit_cost, p.reference_import_price, 0))
+                       FROM order_items i
+                       INNER JOIN products p ON p.id = i.product_id
+                       WHERE i.order_id IN (
+                           SELECT o2.id FROM orders o2
+                           WHERE o2.status = 'COMPLETED'
+                             AND DATE(o2.created_at) = DATE(o.created_at)
+                             AND (:branchId IS NULL OR o2.branch_id = :branchId)
+                             AND (:shiftId IS NULL OR o2.shift_id = :shiftId)
+                       )
+                   ), 0) AS cogs
             FROM orders o
             WHERE o.status = 'COMPLETED'
               AND (:branchId IS NULL OR o.branch_id = :branchId)
@@ -126,7 +231,8 @@ public interface ReportOrderRepository extends JpaRepository<OrderModel, Long> {
 
     @Query("""
             SELECT new base.api.feature.report.dto.TopProductAggRow(
-                i.productId, MAX(COALESCE(p.name, i.productName)), SUM(i.quantity), SUM(i.lineTotal))
+                i.productId, MAX(COALESCE(p.name, i.productName)), SUM(i.quantity), SUM(i.lineTotal),
+                SUM(i.quantity * COALESCE(i.unitCost, p.referenceImportPrice, 0)))
             FROM OrderItemModel i, OrderModel o, ProductModel p
             WHERE i.orderId = o.id
               AND i.productId = p.id

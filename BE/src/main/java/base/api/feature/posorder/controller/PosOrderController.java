@@ -2,7 +2,6 @@ package base.api.feature.posorder.controller;
 
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderResponse;
-import base.api.feature.posorder.dto.response.VoucherResponse;
 import base.api.feature.posorder.service.IPosOrderService;
 import base.api.feature.product.dto.response.PosCatalogItemResponse;
 import base.api.feature.product.service.IProductService;
@@ -71,7 +70,7 @@ public class PosOrderController extends BaseAPIController {
         return success(posOrderService.getOrders(from, to));
     }
 
-    @Operation(summary = "Paginated order history of the current cashier's branch")
+    @Operation(summary = "Paginated order history of the cashier's current shift")
     @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
     @GetMapping("/page")
     public ResponseEntity<TFUResponse<PageResponseDTO<OrderResponse>>> getOrderPage(
@@ -103,15 +102,5 @@ public class PosOrderController extends BaseAPIController {
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<OrderResponse>> getOrderById(@PathVariable Long id) {
         return success(posOrderService.getOrderById(id));
-    }
-
-    @Operation(
-            summary = "Tra mã giảm giá",
-            description = "Kiểm tra mã còn hiệu lực và trả về loại giảm giá để cashier xem trước."
-    )
-    @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
-    @GetMapping("/vouchers/{code}")
-    public ResponseEntity<TFUResponse<VoucherResponse>> lookupVoucher(@PathVariable String code) {
-        return success(posOrderService.lookupVoucher(code));
     }
 }

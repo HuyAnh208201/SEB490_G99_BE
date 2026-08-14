@@ -3,7 +3,10 @@ package base.api.feature.product.controller;
 import base.api.feature.product.dto.request.CreateProductRequest;
 import base.api.feature.product.dto.request.UpdateProductRequest;
 import base.api.feature.product.dto.response.ProductResponse;
+import base.api.feature.product.dto.request.ScheduleProductSalePriceRequest;
+import base.api.feature.product.dto.response.ProductSalePriceResponse;
 import base.api.feature.product.service.IProductService;
+import base.api.feature.product.service.ProductSalePriceService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
 import base.api.shared.dto.PageRequestDTO;
@@ -35,6 +38,9 @@ public class ProductController extends BaseAPIController {
 
     @Autowired
     private IProductService productService;
+
+    @Autowired
+    private ProductSalePriceService productSalePriceService;
 
     @Operation(summary = "Create product")
     @PreAuthorize("@permissionChecker.has('PRODUCT_MANAGEMENT')")
@@ -100,5 +106,21 @@ public class ProductController extends BaseAPIController {
     public ResponseEntity<Void> delete(@PathVariable Integer id) {
         productService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "View dated retail-price history")
+    @PreAuthorize("@permissionChecker.hasAny('SET_RETAIL_PRICE','VIEW_SUPPLIER_RECEIPTS_PRICES')")
+    @GetMapping("/{id}/sale-prices")
+    public ResponseEntity<TFUResponse<List<ProductSalePriceResponse>>> salePrices(@PathVariable Integer id) {
+        return success(productSalePriceService.history(id));
+    }
+
+    @Operation(summary = "Schedule a retail price for a future business day")
+    @PreAuthorize("@permissionChecker.has('SET_RETAIL_PRICE')")
+    @PostMapping("/{id}/sale-prices")
+    public ResponseEntity<TFUResponse<ProductSalePriceResponse>> scheduleSalePrice(
+            @PathVariable Integer id,
+            @Valid @RequestBody ScheduleProductSalePriceRequest request) {
+        return success(productSalePriceService.schedule(id, request), "Retail price scheduled.");
     }
 }

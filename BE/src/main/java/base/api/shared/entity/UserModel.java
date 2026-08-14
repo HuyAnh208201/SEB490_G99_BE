@@ -25,19 +25,20 @@ public class UserModel extends BaseModel {
         @Transient
         public String firstName;
 
-        @Transient
+        @Convert(converter = base.api.shared.enums.UserGenderConverter.class)
+        @Column(name = "gender", length = 32)
         public UserGender gender;
 
         @Transient
         public String lastName;
 
-        @Transient
+        @Column(name = "date_of_birth")
         public LocalDateTime birthDate;
 
         @Transient
         public String avatar;
 
-        @Transient
+        @Column(name = "is_verified", nullable = false)
         public boolean isVerified = true;
 
         @Column(unique = true)
@@ -78,7 +79,8 @@ public class UserModel extends BaseModel {
         }
 
         public String getFirstName() {
-                return fullName;
+                ensureNameParts();
+                return firstName;
         }
 
         public void setFirstName(String firstName) {
@@ -87,12 +89,35 @@ public class UserModel extends BaseModel {
         }
 
         public String getLastName() {
+                ensureNameParts();
                 return lastName;
         }
 
         public void setLastName(String lastName) {
                 this.lastName = lastName;
                 rebuildFullName();
+        }
+
+        @PostLoad
+        private void splitFullName() {
+                ensureNameParts();
+        }
+
+        private void ensureNameParts() {
+                boolean missingFirst = firstName == null || firstName.isBlank();
+                boolean missingLast = lastName == null || lastName.isBlank();
+                if ((!missingFirst || !missingLast) || fullName == null || fullName.isBlank()) {
+                        return;
+                }
+                String trimmed = fullName.trim();
+                int space = trimmed.indexOf(' ');
+                if (space < 0) {
+                        this.firstName = trimmed;
+                        this.lastName = "";
+                } else {
+                        this.firstName = trimmed.substring(0, space);
+                        this.lastName = trimmed.substring(space + 1).trim();
+                }
         }
 
         @JsonProperty("isActive")

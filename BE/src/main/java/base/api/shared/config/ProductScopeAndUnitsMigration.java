@@ -39,6 +39,7 @@ public class ProductScopeAndUnitsMigration {
         addColumnIfMissing("products", "branch_id", "BIGINT NULL");
         addColumnIfMissing("products", "import_unit", "VARCHAR(64) NULL");
         addColumnIfMissing("products", "units_per_import_unit", "INT NULL");
+        addColumnIfMissing("products", "refundable", "TINYINT(1) NOT NULL DEFAULT 1");
         jdbcTemplate.execute("UPDATE products SET scope = 'GLOBAL' WHERE scope IS NULL OR scope = ''");
     }
 

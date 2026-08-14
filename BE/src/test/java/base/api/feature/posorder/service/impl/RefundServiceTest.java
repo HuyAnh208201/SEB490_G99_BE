@@ -102,23 +102,53 @@ class RefundServiceTest {
     }
 
     @Test
-    void requestRefundSucceedsWithinWindow() {
+    void requestRefundAutomaticallyRestocksAndApprovesWithinWindow() {
         asCashier();
         OrderModel order = completedOrder();
         order.setCreatedAt(LocalDateTime.now().minusMinutes(1));
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
         when(orderRefundRepository.existsByOrderIdAndStatusIn(eq(ORDER_ID), any())).thenReturn(false);
+        OrderItemModel item = new OrderItemModel();
+        item.setProductId(50);
+        item.setQuantity(3);
+        when(orderItemRepository.findByOrderIdIn(List.of(ORDER_ID))).thenReturn(List.of(item));
         when(orderRefundRepository.save(any())).thenAnswer(call -> {
             OrderRefundModel refund = call.getArgument(0);
             refund.setId(REFUND_ID);
             return refund;
         });
+        when(orderRepository.save(any())).thenAnswer(call -> call.getArgument(0));
 
         RefundResponse response = service.requestRefund(ORDER_ID, "Wrong item scanned");
 
-        assertEquals("PENDING", response.getStatus());
+        assertEquals("APPROVED", response.getStatus());
         assertEquals(REFUND_ID, response.getRefundId());
+        assertEquals("REFUNDED", order.getStatus());
+        verify(branchInventoryRepository).addStock(BRANCH_ID, 50, 3);
         verify(orderRefundRepository).save(any());
+    }
+
+    @Test
+    void requestRefundRejectsOrderContainingNonRefundableProduct() {
+        asCashier();
+        OrderModel order = completedOrder();
+        order.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderRefundRepository.existsByOrderIdAndStatusIn(eq(ORDER_ID), any())).thenReturn(false);
+
+        OrderItemModel item = new OrderItemModel();
+        item.setProductName("Gift card");
+        item.setProductId(50);
+        item.setQuantity(1);
+        item.setRefundable(false);
+        when(orderItemRepository.findByOrderIdIn(List.of(ORDER_ID))).thenReturn(List.of(item));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.requestRefund(ORDER_ID, "Customer changed mind"));
+
+        assertTrue(error.getMessage().contains("Gift card"));
+        verify(branchInventoryRepository, never()).addStock(anyLong(), anyInt(), anyInt());
+        verify(orderRefundRepository, never()).save(any());
     }
 
     @Test

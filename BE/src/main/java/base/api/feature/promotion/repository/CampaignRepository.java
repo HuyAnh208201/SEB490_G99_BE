@@ -39,4 +39,15 @@ public interface CampaignRepository extends JpaRepository<CampaignModel, Long>, 
               AND c.endAt >= :now
             """)
     long countLiveByStatus(@Param("status") CampaignStatus status, @Param("now") LocalDateTime now);
+
+    @Query("""
+            SELECT c FROM CampaignModel c
+            WHERE c.status = :status
+              AND c.startAt <= :now
+              AND c.endAt >= :now
+            ORDER BY c.priority DESC, c.endAt ASC
+            """)
+    List<CampaignModel> findLiveByStatus(
+            @Param("status") CampaignStatus status,
+            @Param("now") LocalDateTime now);
 }

@@ -44,6 +44,9 @@ public class PurchaseRequestMapper {
         response.setStatus(request.getStatus() == null ? null : request.getStatus().name());
         response.setCreatedBy(request.getCreatedBy());
         response.setCreatedByName(createdBy == null ? null : createdBy.getFullName());
+        response.setSubmittedAt(request.getSubmittedAt());
+        response.setDesiredReceiveDate(request.getDesiredReceiveDate());
+        response.setSupplementalForReceiptId(request.getSupplementalForReceiptId());
         return response;
     }
 
@@ -95,6 +98,9 @@ public class PurchaseRequestMapper {
         response.setRejectReason(request.getRejectReason());
         response.setRequestDate(toRequestDate(request));
         response.setCreatedAt(request.getCreatedAt());
+        response.setSubmittedAt(request.getSubmittedAt());
+        response.setDesiredReceiveDate(request.getDesiredReceiveDate());
+        response.setSupplementalForReceiptId(request.getSupplementalForReceiptId());
         response.setNotes(request.getReason());
         Map<Integer, Integer> warehouseStock = warehouseStockByProduct == null ? Map.of() : warehouseStockByProduct;
         Map<Integer, ProductPackagingModel> topPackagings =
@@ -131,7 +137,9 @@ public class PurchaseRequestMapper {
         response.setId(detail.getId());
         response.setProductId(detail.getProductId());
         response.setProductCode(product == null ? null : product.getCode());
-        response.setProductName(product == null ? null : product.getName());
+        response.setProductName(product == null || product.getName() == null || product.getName().isBlank()
+                ? (product == null ? null : product.getCode())
+                : product.getName());
         response.setCategoryName(product == null || product.getCategory() == null ? null : product.getCategory().getName());
         response.setUnit(product == null ? null : product.getUnit());
         response.setRequestedQty(detail.getRequestedQty());

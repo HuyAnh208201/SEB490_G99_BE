@@ -18,10 +18,12 @@ public class ProductMapper {
         response.setUnit(product.getUnit());
         response.setImportUnit(product.getImportUnit());
         response.setUnitsPerImportUnit(product.getUnitsPerImportUnit());
+        response.setSupplierId(product.getSupplierId());
         response.setScope(product.getScope());
         response.setBranchId(product.getBranchId());
         response.setReferenceImportPrice(product.getReferenceImportPrice());
         response.setDefaultSalePrice(product.getDefaultSalePrice());
+        response.setRefundable(!Boolean.FALSE.equals(product.getRefundable()));
         response.setStatus(product.getStatus());
         response.setCreatedAt(product.getCreatedAt());
         response.setUpdatedAt(product.getUpdatedAt());
@@ -44,10 +46,12 @@ public class ProductMapper {
         response.setUnit(product.getUnit());
         response.setImportUnit(product.getImportUnit());
         response.setUnitsPerImportUnit(product.getUnitsPerImportUnit());
+        response.setSupplierId(product.getSupplierId());
         response.setScope(product.getScope());
         response.setBranchId(product.getBranchId());
         response.setReferenceImportPrice(product.getReferenceImportPrice());
         response.setDefaultSalePrice(product.getDefaultSalePrice());
+        response.setRefundable(!Boolean.FALSE.equals(product.getRefundable()));
         response.setStatus(product.getStatus());
 
         if (product.getCategory() != null) {

@@ -33,6 +33,8 @@ public class DispatchTableMigration {
                         delivery_area VARCHAR(100) NULL,
                         route VARCHAR(100) NULL,
                         created_by BIGINT NULL,
+                        recipient_id BIGINT NULL,
+                        shipped_at DATETIME NULL,
                         created_at DATETIME NULL,
                         updated_at DATETIME NULL,
                         delivered_at DATETIME NULL,
@@ -51,6 +53,8 @@ public class DispatchTableMigration {
 
             addColumnIfMissing("branches", "area", "VARCHAR(100) NULL");
             addColumnIfMissing("branches", "route", "VARCHAR(100) NULL");
+            addColumnIfMissing("dispatch_orders", "recipient_id", "BIGINT NULL AFTER created_by");
+            addColumnIfMissing("dispatch_orders", "shipped_at", "DATETIME NULL AFTER recipient_id");
             seedBranchAreaRoute();
 
             log.info("Ensured dispatch_orders / dispatch_order_requests tables and branch area/route columns");

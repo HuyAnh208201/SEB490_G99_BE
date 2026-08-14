@@ -26,6 +26,7 @@ import base.api.feature.auth.service.IUserService;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionRepository;
 import base.api.shared.config.EmailService;
+import base.api.shared.config.FrontendOrigin;
 import base.api.shared.config.VerificationCodeIssuer;
 import base.api.shared.entity.ShiftAssignmentModel;
 import base.api.shared.enums.ShiftSessionStatus;
@@ -92,6 +93,9 @@ public class UserService implements IUserService {
 
     @Value("${url.api-url:http://localhost:1328}")
     private String apiBaseUrl;
+
+    @Value("${url.client-url:http://localhost:5175}")
+    private String clientBaseUrl;
 
     @Override
     public UserModel createUser(UserModel model) {
@@ -243,10 +247,14 @@ public class UserService implements IUserService {
             actor = currentUserProvider.getCurrentUserOrThrow();
             actorRole = actor.getRole() == null ? null : actor.getRole().toWebRole();
         } catch (Exception ex) {
-            return userRepository.findAll();
+            return userRepository.findAll().stream()
+                    .filter(u -> u.getRole() != UserRole.CUSTOMER)
+                    .toList();
         }
 
-        List<UserModel> all = userRepository.findAll();
+        List<UserModel> all = userRepository.findAll().stream()
+                .filter(u -> u.getRole() != UserRole.CUSTOMER)
+                .toList();
         if (actorRole != UserRole.BRANCH_MANAGER) {
             return all;
         }
@@ -271,7 +279,8 @@ public class UserService implements IUserService {
             throw new ForbiddenException("You do not have permission to list users.");
         }
 
-        Specification<UserModel> specification = (root, ignored, cb) -> cb.conjunction();
+        Specification<UserModel> specification = (root, ignored, cb) ->
+                cb.notEqual(root.get("roleEntity").get("name"), UserRole.CUSTOMER.name());
         if (actorRole == UserRole.BRANCH_MANAGER) {
             specification = specification.and((root, ignored, cb) -> cb.or(
                     root.get("roleEntity").get("name").in(UserRole.ADMIN.name(), UserRole.DIRECTOR.name()),
@@ -319,6 +328,13 @@ public class UserService implements IUserService {
     @Override
     @Transactional
     public InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception {
+        return initiateForgotPassword(contactInfo, null);
+    }
+
+    @Override
+    @Transactional
+    public InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo, String frontendBaseUrl)
+            throws Exception {
         if (contactInfo == null || contactInfo.trim().isEmpty()) {
             throw new IllegalArgumentException("Thông tin liên hệ không được để trống");
         }
@@ -352,7 +368,9 @@ public class UserService implements IUserService {
                 fullName = user.getUserName();
             }
 
-            String resetUrl = "https://localhost:5173/reset-password?token=" + resetToken;
+            String resetUrl = FrontendOrigin.path(
+                    staffFrontendOrigin(frontendBaseUrl),
+                    "/reset-password?token=" + resetToken);
 
             String body = String.format(
                     "<html>" +
@@ -509,7 +527,7 @@ public class UserService implements IUserService {
                             "</div>" +
                             "<p>Bạn có thể bắt đầu sử dụng hệ thống ngay bây giờ!</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='https://localhost:5173/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Truy cập hệ thống</a>" +
                             "</div>" +
                             "<p style='color: #666; font-size: 14px;'>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
@@ -519,7 +537,8 @@ public class UserService implements IUserService {
                             "</html>",
                     fullName,
                     user.getUserName(),
-                    user.getEmail()
+                    user.getEmail(),
+                    staffFrontendOrigin(null)
             );
 
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
@@ -629,7 +648,7 @@ public class UserService implements IUserService {
         user.setLastName(dto.getLastName());
         user.setEmail(normalizedEmail);
         user.setAvatar(dto.getAvatar());
-        user.setBirthDate(dto.getBirthDate());
+        user.setBirthDate(dto.getBirthDate() == null ? null : dto.getBirthDate().atStartOfDay());
 
         if (dto.getGender() != null) {
             user.setGender(UserGender.valueOf(dto.getGender()));
@@ -761,7 +780,7 @@ public class UserService implements IUserService {
                     dto.getEmail(),
                     tempPassword,
                     dto.getRole().name(),
-                    "https://localhost:5173/login"
+                    FrontendOrigin.path(staffFrontendOrigin(null), "/login")
             );
 
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
@@ -1117,5 +1136,9 @@ public class UserService implements IUserService {
         }
 
         throw new ForbiddenException("Không có quyền quản lý user");
+    }
+
+    private String staffFrontendOrigin(String requested) {
+        return FrontendOrigin.resolve(requested, clientBaseUrl);
     }
 }

@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,12 +40,21 @@ public class DemoAccountsSeeder implements ApplicationRunner {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
         try {
             ensure(DemoAccounts.DEMO_CASHIER_EMAIL, "Demo Cashier", UserRole.CASHIER);
             ensure(DemoAccounts.DEMO_IS_EMAIL, "Demo Inventory Staff", UserRole.INVENTORY_STAFF);
+            UserModel q1Cashier2 = ensure(
+                    DemoAccounts.Q1_CASHIER_2_EMAIL,
+                    DemoAccounts.Q1_CASHIER_2_NAME,
+                    UserRole.CASHIER,
+                    DemoAccounts.Q1_CASHIER_2_PHONE);
+            reassignCustomerSilverShiftsTo(q1Cashier2);
             softLockNonWhitelistedDemoUsers();
             softLockLegacyByEmail(DemoAccounts.LEGACY_POS_DEMO_CASHIER);
             softLockLegacyByEmail(DemoAccounts.LEGACY_POS_DEMO_BM);
@@ -56,19 +66,69 @@ public class DemoAccountsSeeder implements ApplicationRunner {
         }
     }
 
-    private void ensure(String email, String fullName, UserRole role) {
+    private UserModel ensure(String email, String fullName, UserRole role) {
+        return ensure(email, fullName, role, null);
+    }
+
+    private UserModel ensure(String email, String fullName, UserRole role, String phone) {
         RoleModel roleEntity = roleRepository.findByName(role.name())
                 .orElseThrow(() -> new IllegalStateException("Missing role " + role.name()));
         UserModel user = userRepository.findByEmail(email).orElseGet(UserModel::new);
         boolean isNew = user.getId() == null;
         user.setEmail(email);
         user.setFullName(fullName);
-        user.setPhone(isNew ? (role == UserRole.CASHIER ? "0900000091" : "0900000092") : user.getPhone());
+        if (isNew) {
+            user.setPhone(phone != null
+                    ? phone
+                    : (role == UserRole.CASHIER ? "0900000091" : "0900000092"));
+        }
         user.setPassword(passwordEncoder.encode(DemoAccounts.DEMO_PASSWORD));
         user.setRoleEntity(roleEntity);
         user.setBranchId(DemoAccounts.DEMO_BRANCH_ID);
         user.setActive(true);
-        userRepository.save(user);
+        return userRepository.save(user);
+    }
+
+    private void reassignCustomerSilverShiftsTo(UserModel cashier) {
+        if (cashier == null || cashier.getId() == null) {
+            return;
+        }
+        Long newId = cashier.getId();
+        userRepository.findByEmail(DemoAccounts.DEMO_CUSTOMER_SILVER_EMAIL).ifPresent(customer -> {
+            Long oldId = customer.getId();
+            if (oldId == null || oldId.equals(newId)) {
+                return;
+            }
+            try {
+                jdbcTemplate.update(
+                        """
+                        DELETE FROM shift_assignments
+                        WHERE staff_id = ?
+                          AND shift_id IN (
+                              SELECT shift_id FROM (
+                                  SELECT shift_id FROM shift_assignments WHERE staff_id = ?
+                              ) already
+                          )
+                        """,
+                        oldId, newId);
+                int assignments = jdbcTemplate.update(
+                        "UPDATE shift_assignments SET staff_id = ? WHERE staff_id = ?",
+                        newId, oldId);
+                int sessions = jdbcTemplate.update(
+                        "UPDATE shift_sessions SET employee_id = ? WHERE employee_id = ?",
+                        newId, oldId);
+                int handovers = jdbcTemplate.update(
+                        "UPDATE shift_sessions SET handover_to_employee_id = ? WHERE handover_to_employee_id = ?",
+                        newId, oldId);
+                if (assignments > 0 || sessions > 0 || handovers > 0) {
+                    log.info(
+                            "Reassigned Demo Customer Silver shift rows to {} (assignments={}, sessions={}, handovers={})",
+                            cashier.getEmail(), assignments, sessions, handovers);
+                }
+            } catch (Exception ex) {
+                log.warn("Could not reassign customer shift rows: {}", ex.getMessage());
+            }
+        });
     }
 
     private void softLockNonWhitelistedDemoUsers() {

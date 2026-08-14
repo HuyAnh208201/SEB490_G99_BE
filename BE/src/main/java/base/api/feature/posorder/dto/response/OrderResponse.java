@@ -15,10 +15,15 @@ public class OrderResponse {
     private Long id;
     private String invoiceCode;
     private Long branchId;
+    private String branchName;
+    private String branchAddress;
+    private String branchPhone;
     private Long shiftId;
     private Long cashierId;
+    private String cashierName;
     private Long customerId;
     private String customerName;
+    private String customerPhone;
     private BigDecimal subtotal;
     private BigDecimal discountAmount;
     private BigDecimal total;
@@ -31,6 +36,8 @@ public class OrderResponse {
     private BigDecimal cashReceived;
     private BigDecimal changeAmount;
     private String paymentStatus;
+
+    private Boolean refundable;
 
     private int itemCount;
     private List<OrderItemResponse> lines = new ArrayList<>();

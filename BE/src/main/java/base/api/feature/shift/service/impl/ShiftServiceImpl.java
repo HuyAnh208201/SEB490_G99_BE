@@ -871,6 +871,7 @@ public class ShiftServiceImpl implements IShiftService {
 
         // BM may assign freely; return all branch staff of the required role.
         return userRepository.findByBranchIdAndRoleName(branchId, targetRole.name()).stream()
+                .filter(employee -> employee.getRole() == targetRole)
                 .map(shiftMapper::toAvailableEmployeeResponse)
                 .toList();
     }
@@ -1200,7 +1201,8 @@ public class ShiftServiceImpl implements IShiftService {
 
     private void validateEmployeeRole(UserModel employee, UserRole requiredRole) {
         UserRole targetRole = requireRole(requiredRole);
-        if (employee.getRole() == null || employee.getRole().toWebRole() != targetRole.toWebRole()) {
+        UserRole actual = employee.getRole();
+        if (actual == null || actual == UserRole.CUSTOMER || actual != targetRole) {
             throw new BusinessException("Employee does not match the required role for this shift.");
         }
     }

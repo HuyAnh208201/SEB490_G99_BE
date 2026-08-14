@@ -43,7 +43,7 @@ public class CheckoutRequest {
     @Size(max = 100, message = "Customer name is too long.")
     private String customerName;
 
-    /** Mã giảm giá cashier gõ, bỏ trống nếu không có. */
+    /** Unused by POS checkout; kept so older clients sending a code are ignored. */
     @Size(max = 64, message = "Discount code is too long.")
     private String voucherCode;
 

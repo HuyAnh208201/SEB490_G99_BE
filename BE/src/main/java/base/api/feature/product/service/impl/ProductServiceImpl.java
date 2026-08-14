@@ -10,6 +10,7 @@ import base.api.feature.product.mapper.ProductMapper;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.IProductService;
 import base.api.feature.product.service.ProductPackagingService;
+import base.api.feature.product.service.ProductSalePriceService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
 import base.api.shared.entity.BranchInventoryModel;
@@ -77,6 +78,9 @@ public class ProductServiceImpl implements IProductService {
     @Autowired
     private ProductPackagingService productPackagingService;
 
+    @Autowired
+    private ProductSalePriceService productSalePriceService;
+
     @Override
     @Transactional
     public ProductResponse create(CreateProductRequest request) {
@@ -105,8 +109,10 @@ public class ProductServiceImpl implements IProductService {
         product.setUnit(normalizedUnit);
         product.setImportUnit(normalizeNullableText(request.getImportUnit()));
         product.setUnitsPerImportUnit(request.getUnitsPerImportUnit());
+        product.setSupplierId(request.getSupplierId());
         product.setReferenceImportPrice(request.getReferenceImportPrice());
         product.setDefaultSalePrice(request.getDefaultSalePrice());
+        product.setRefundable(!Boolean.FALSE.equals(request.getRefundable()));
         product.setDescription(normalizeNullableText(request.getDescription()));
         product.setImageUrl(normalizeNullableText(request.getImageUrl()));
         product.setStatus("active");
@@ -117,7 +123,7 @@ public class ProductServiceImpl implements IProductService {
         ProductModel saved = productRepository.save(product);
         ensureInventoryRow(saved, scope, branchId);
         productPackagingService.ensureDefaultPackagings(saved);
-        return productMapper.toResponse(saved);
+        return applySalePrice(productMapper.toResponse(saved), saved);
     }
 
     @Override
@@ -133,7 +139,11 @@ public class ProductServiceImpl implements IProductService {
         String normalizedStatus = normalizeRequiredText(request.getStatus(), "Status is required.");
 
         validateDuplicateBarcode(normalizedBarcode, id);
-        validatePrices(request.getReferenceImportPrice(), request.getDefaultSalePrice());
+        BigDecimal effectiveExistingPrice = productSalePriceService == null
+                ? product.getDefaultSalePrice() : productSalePriceService.effectivePrice(product);
+        BigDecimal currentSalePrice = effectiveExistingPrice == null
+                ? request.getDefaultSalePrice() : effectiveExistingPrice;
+        validatePrices(request.getReferenceImportPrice(), currentSalePrice);
 
         product.setBarcode(normalizedBarcode);
         product.setName(normalizedName);
@@ -141,8 +151,16 @@ public class ProductServiceImpl implements IProductService {
         product.setUnit(normalizedUnit);
         product.setImportUnit(normalizeNullableText(request.getImportUnit()));
         product.setUnitsPerImportUnit(request.getUnitsPerImportUnit());
+        product.setSupplierId(request.getSupplierId());
         product.setReferenceImportPrice(request.getReferenceImportPrice());
-        product.setDefaultSalePrice(request.getDefaultSalePrice());
+        // Existing retail prices are immutable during the day. Warehouse managers
+        // schedule future prices through ProductSalePriceService instead.
+        if (product.getDefaultSalePrice() == null) {
+            product.setDefaultSalePrice(currentSalePrice);
+        }
+        if (request.getRefundable() != null) {
+            product.setRefundable(request.getRefundable());
+        }
         product.setDescription(normalizeNullableText(request.getDescription()));
         product.setImageUrl(normalizeNullableText(request.getImageUrl()));
         product.setStatus(normalizedStatus);
@@ -154,7 +172,7 @@ public class ProductServiceImpl implements IProductService {
             warehouseInventoryRepository.findByProductId(saved.getId())
                     .ifPresent(warehouseInventoryRepository::delete);
         }
-        return productMapper.toResponse(saved);
+        return applySalePrice(productMapper.toResponse(saved), saved);
     }
 
     @Override
@@ -172,7 +190,7 @@ public class ProductServiceImpl implements IProductService {
         assertCanViewProduct(product);
         ProductResponse response = enrichSingle(productMapper.toResponse(product));
         applyTopPackaging(response, productPackagingService.getTopPackaging(product));
-        return response;
+        return applySalePrice(response, product);
     }
 
     @Override
@@ -221,7 +239,9 @@ public class ProductServiceImpl implements IProductService {
             item.setBarcode(product.getBarcode());
             item.setName(product.getName());
             item.setUnit(product.getUnit());
-            item.setDefaultSalePrice(product.getDefaultSalePrice());
+            item.setDefaultSalePrice(productSalePriceService == null
+                    ? product.getDefaultSalePrice() : productSalePriceService.effectivePrice(product));
+            item.setRefundable(!Boolean.FALSE.equals(product.getRefundable()));
             item.setImageUrl(product.getImageUrl());
             item.setBranchStock(branchStock.getOrDefault(product.getId(), 0));
             if (product.getCategory() != null) {
@@ -340,8 +360,19 @@ public class ProductServiceImpl implements IProductService {
             ProductPackagingModel top = topPackagings.getOrDefault(
                     product.getId(), productPackagingService.getTopPackaging(product));
             applyTopPackaging(response, top);
-            return response;
+            return applySalePrice(response, product);
         });
+    }
+
+    private ProductResponse applySalePrice(ProductResponse response, ProductModel product) {
+        if (productSalePriceService == null || product == null) return response;
+        response.setDefaultSalePrice(productSalePriceService.effectivePrice(product));
+        base.api.shared.entity.ProductSalePriceModel next = productSalePriceService.nextPrice(product.getId());
+        if (next != null) {
+            response.setScheduledSalePrice(next.getPrice());
+            response.setScheduledSalePriceEffectiveDate(next.getEffectiveDate());
+        }
+        return response;
     }
 
     private int stockQtyForSort(

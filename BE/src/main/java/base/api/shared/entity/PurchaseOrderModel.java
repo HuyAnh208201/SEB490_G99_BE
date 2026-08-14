@@ -15,6 +15,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 /**
  * Đơn đặt hàng nhà cung cấp (purchase order) để bổ sung tồn kho KHO TỔNG.
@@ -41,6 +42,27 @@ public class PurchaseOrderModel {
 
     @Column(name = "created_by")
     private Long createdBy;
+
+    @Column(name = "supplier_delivery_date")
+    private LocalDate supplierDeliveryDate;
+
+    @Column(name = "delivered_by_name", length = 255)
+    private String deliveredByName;
+
+    @Column(name = "delivered_by_phone", length = 32)
+    private String deliveredByPhone;
+
+    @Column(name = "supplier_document_number", length = 100)
+    private String supplierDocumentNumber;
+
+    @Column(name = "received_by")
+    private Long receivedBy;
+
+    @Column(name = "received_by_name", length = 255)
+    private String receivedByName;
+
+    @Column(name = "received_by_phone", length = 32)
+    private String receivedByPhone;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

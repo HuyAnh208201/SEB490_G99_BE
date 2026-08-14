@@ -7,6 +7,7 @@ import lombok.Setter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.LocalDate;
 
 @Getter
 @Setter
@@ -19,4 +20,6 @@ public class SaveDraftRequest {
     private List<PurchaseRequestItemRequest> items = new ArrayList<>();
 
     private Boolean addAllRecommended = false;
+
+    private LocalDate desiredReceiveDate;
 }

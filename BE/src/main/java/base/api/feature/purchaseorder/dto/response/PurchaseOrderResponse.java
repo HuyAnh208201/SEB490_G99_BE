@@ -5,6 +5,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,6 +23,13 @@ public class PurchaseOrderResponse {
     private String notes;
     private LocalDateTime createdAt;
     private LocalDateTime receivedAt;
+    private LocalDate supplierDeliveryDate;
+    private String deliveredByName;
+    private String deliveredByPhone;
+    private String supplierDocumentNumber;
+    private Long receivedBy;
+    private String receivedByName;
+    private String receivedByPhone;
     private Integer itemCount;
     private Integer totalQuantity;
     private List<ItemLine> items = new ArrayList<>();
@@ -33,7 +41,10 @@ public class PurchaseOrderResponse {
         private String productCode;
         private String productName;
         private String unit;
+        private String importUnit;
+        private Integer conversionQty;
         private Integer quantity;
+        private Integer quantityBase;
         private BigDecimal unitPrice;
     }
 }

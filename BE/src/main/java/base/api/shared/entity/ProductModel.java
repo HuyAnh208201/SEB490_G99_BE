@@ -63,11 +63,18 @@ public class ProductModel {
     @Column(name = "branch_id")
     private Long branchId;
 
+    /** Primary supplier used by the warehouse receiving workflow. */
+    @Column(name = "supplier_id")
+    private Integer supplierId;
+
     @Column(name = "reference_import_price", precision = 15, scale = 2)
     private BigDecimal referenceImportPrice;
 
     @Column(name = "default_sale_price", precision = 15, scale = 2)
     private BigDecimal defaultSalePrice;
+
+    @Column(nullable = false)
+    private Boolean refundable = true;
 
     @Column(nullable = false, length = 255)
     private String status = "active";

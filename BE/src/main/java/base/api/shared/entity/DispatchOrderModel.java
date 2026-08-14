@@ -42,6 +42,12 @@ public class DispatchOrderModel {
     @Column(name = "created_by")
     private Long createdBy;
 
+    @Column(name = "recipient_id")
+    private Long recipientId;
+
+    @Column(name = "shipped_at")
+    private LocalDateTime shippedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -52,4 +58,10 @@ public class DispatchOrderModel {
 
     @Column(name = "delivered_at")
     private LocalDateTime deliveredAt;
+
+    @Column(name = "shipper_name", length = 150)
+    private String shipperName;
+
+    @Column(name = "shipper_phone", length = 20)
+    private String shipperPhone;
 }

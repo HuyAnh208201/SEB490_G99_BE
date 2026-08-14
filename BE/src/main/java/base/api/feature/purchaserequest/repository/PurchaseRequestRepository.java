@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequestModel, Long>, JpaSpecificationExecutor<PurchaseRequestModel> {
@@ -23,6 +24,8 @@ public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest
     List<PurchaseRequestModel> findByStatus(PurchaseRequestStatus status);
 
     List<PurchaseRequestModel> findByBranchIdAndStatusIn(Long branchId, Collection<PurchaseRequestStatus> statuses);
+
+    Optional<PurchaseRequestModel> findFirstBySupplementalForReceiptIdOrderByIdDesc(Long receiptId);
 
     long countByStatus(PurchaseRequestStatus status);
 

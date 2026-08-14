@@ -33,6 +33,8 @@ public interface IUserService {
     List<UserModel> getAllUsers();
     Page<UserModel> getUserPage(PageRequestDTO pageRequest, UserRole role, Long branchId, String status);
     InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception;
+
+    InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo, String frontendBaseUrl) throws Exception;
     void completeForgotPassword(CompleteForgotPasswordDto dto) throws Exception;
     void verifyEmailByToken(String token) throws Exception;
     void resendVerificationEmail(String contactInfo) throws Exception;

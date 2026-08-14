@@ -37,6 +37,7 @@ public class SecurityConfig {
             "/api/auth/forgot-password/complete",
             "/api/auth/verify-email",
             "/api/auth/resend-verification",
+            "/api/customer/auth/**",
             "/api/payment/payos-hook",
             "/swagger-ui/**",
             "/swagger-ui.html",
@@ -52,6 +53,8 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/customer/**").hasRole("CUSTOMER")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
@@ -85,18 +88,21 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Dùng allowedOriginPatterns để cho phép mọi cổng localhost khi dev (Vite có thể nhảy port 5173/5174/5175...).
-        // Vẫn tương thích allowCredentials(true).
-        configuration.setAllowedOriginPatterns(
+        // Exact production origins only; wildcard ports are limited to local development.
+        configuration.setAllowedOrigins(
                 List.of(
-                        "http://localhost:*",
-                        "http://127.0.0.1:*",
                         "https://api-pickle.autopass.blog",
                         "https://pickle.autopass.blog",
                         "http://pickle.autopass.blog",
                         "https://api.chainstore.site",
                         "https://admin.chainstore.site",
-                        "https://chainstore.site"
+                        "https://chainstore.site",
+                        "https://www.chainstore.site"
+                ));
+        configuration.setAllowedOriginPatterns(
+                List.of(
+                        "http://localhost:*",
+                        "http://127.0.0.1:*"
                 ));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));

@@ -45,7 +45,7 @@ public class AuthController extends BaseAPIController {
     @Autowired
     private ModelMapper mapper;
 
-    @Value("${url.client-url:http://localhost:3000}")
+    @Value("${url.client-url:http://localhost:5175}")
     private String clientBaseUrl;
 
     @Operation(summary = "Đăng nhập", description = "**Public.** Xác thực tên đăng nhập và mật khẩu, trả về JWT token. Cần xác thực email trước khi đăng nhập.")
@@ -142,7 +142,8 @@ public class AuthController extends BaseAPIController {
     public ResponseEntity<TFUResponse<InitiateForgotPasswordResponse>> initiateForgotPassword(
             @Valid @RequestBody InitiateForgotPasswordDto dto) {
         try {
-            InitiateForgotPasswordResponse response = userService.initiateForgotPassword(dto.getContactInfo());
+            InitiateForgotPasswordResponse response =
+                    userService.initiateForgotPassword(dto.getContactInfo(), dto.getFrontendBaseUrl());
             return success(response);
         } catch (Exception e) {
             return badRequest(e.getMessage());

@@ -14,8 +14,12 @@ public record BranchManagerDashboardResponse(
         LocalDate from,
         LocalDate to,
         BigDecimal todayRevenue,
+        BigDecimal todayProfit,
         long todayTransactions,
         BigDecimal periodRevenue,
+        BigDecimal periodCogs,
+        BigDecimal periodProfit,
+        BigDecimal profitMarginPercent,
         long periodTransactions,
         BigDecimal avgTransactionValue,
         BigDecimal momPercent,
@@ -26,6 +30,7 @@ public record BranchManagerDashboardResponse(
         long pendingReconciliations,
         long lowStockSkus,
         long publishedShifts,
-        long staffCount
+        long staffCount,
+        java.time.LocalDateTime generatedAt
 ) {
 }

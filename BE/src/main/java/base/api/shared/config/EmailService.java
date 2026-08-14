@@ -31,6 +31,10 @@ public class EmailService {
 
     @Async("emailExecutor")
     public void sendHtmlEmail(String to, String subject, String htmlContent) throws MessagingException {
+        sendHtmlEmailSync(to, subject, htmlContent);
+    }
+
+    public void sendHtmlEmailSync(String to, String subject, String htmlContent) throws MessagingException {
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
 

@@ -5,6 +5,7 @@ import base.api.feature.branchreceiving.dto.response.ReceiveShipmentDetailRespon
 import base.api.feature.branchreceiving.dto.response.ReceivingHistoryResponse;
 import base.api.feature.branchreceiving.dto.response.ReceivingOrderResponse;
 import base.api.feature.branchreceiving.dto.response.ReceivingReceiptDetailResponse;
+import base.api.feature.branchreceiving.dto.response.SupplementalRequestResponse;
 import base.api.feature.branchreceiving.service.IBranchReceivingService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
@@ -17,7 +18,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -72,7 +72,7 @@ public class BranchReceivingController extends BaseAPIController {
     ) {
         return success(
                 branchReceivingService.receiveShipment(dispatchOrderId, requestId, request),
-                "Receipt submitted for branch manager approval.");
+                "Shipment received and branch stock updated.");
     }
 
     @Operation(summary = "Receiving history for the branch")
@@ -101,21 +101,15 @@ public class BranchReceivingController extends BaseAPIController {
         return success(branchReceivingService.getReceiptDetail(receiptId));
     }
 
-    @Operation(summary = "Approve a pending goods receipt (branch manager)")
-    @PreAuthorize("@permissionChecker.has('SUPPLY_IMPORT_RECEIPT_APPROVE')")
-    @PatchMapping("/receipts/{receiptId}/approve")
-    public ResponseEntity<TFUResponse<ReceivingHistoryResponse>> approveReceipt(
+    @Operation(summary = "Create a draft request for quantities missing from a receipt")
+    @PreAuthorize("@permissionChecker.has('CREATE_IMPORT_REQUEST')")
+    @PostMapping("/receipts/{receiptId}/supplement")
+    public ResponseEntity<TFUResponse<SupplementalRequestResponse>> createSupplementalRequest(
             @PathVariable Long receiptId
     ) {
-        return success(branchReceivingService.approveReceipt(receiptId), "Receipt approved and stock updated.");
+        return success(
+                branchReceivingService.createSupplementalRequest(receiptId),
+                "Supplemental purchase request draft is ready.");
     }
 
-    @Operation(summary = "Reject a pending goods receipt (branch manager)")
-    @PreAuthorize("@permissionChecker.has('SUPPLY_IMPORT_RECEIPT_APPROVE')")
-    @PatchMapping("/receipts/{receiptId}/reject")
-    public ResponseEntity<TFUResponse<ReceivingHistoryResponse>> rejectReceipt(
-            @PathVariable Long receiptId
-    ) {
-        return success(branchReceivingService.rejectReceipt(receiptId), "Receipt rejected.");
-    }
 }

@@ -9,7 +9,6 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum WebPermission {
-    ADMIN_DASHBOARD("Admin Dashboard"),
     SYSTEM_SETTINGS_MASTER_DATA("System Settings Master Data"),
     USER_MANAGEMENT_LIST("User Management List"),
     USER_DETAILS_EDIT("User Details / Edit"),
@@ -34,6 +33,8 @@ public enum WebPermission {
     VIEW_CENTRAL_INVENTORY("View Central Inventory"),
     MANAGE_BRANCH_IMPORT_REQUESTS("Manage Branch Import Requests"),
     CHOOSE_EXTERNAL_SUPPLIER("Choose External Supplier"),
+    VIEW_SUPPLIER_RECEIPTS_PRICES("View Supplier Receipts and Retail Prices"),
+    SET_RETAIL_PRICE("Schedule Retail Price"),
     MANAGE_DISPATCH_ORDERS("Manage Dispatch Orders"),
     CATEGORY_MANAGEMENT("Category Management"),
     PRODUCT_MANAGEMENT("Product Management"),

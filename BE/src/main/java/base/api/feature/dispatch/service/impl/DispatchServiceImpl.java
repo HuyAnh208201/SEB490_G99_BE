@@ -1,6 +1,7 @@
 package base.api.feature.dispatch.service.impl;
 
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.dispatch.dto.request.CreateDispatchOrderRequest;
 import base.api.feature.dispatch.dto.request.UpdateDispatchStatusRequest;
 import base.api.feature.dispatch.dto.response.DispatchApprovedRequestResponse;
@@ -15,6 +16,8 @@ import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
+import base.api.feature.purchaserequest.repository.GoodsReceiptRepository;
+import base.api.feature.purchaserequest.repository.GoodsReceiptItemRepository;
 import base.api.feature.supplier.repository.ISupplierRepository;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.DispatchOrderModel;
@@ -26,6 +29,9 @@ import base.api.shared.entity.PurchaseRequestDetailModel;
 import base.api.shared.entity.PurchaseRequestModel;
 import base.api.shared.entity.SupplierModel;
 import base.api.shared.entity.WarehouseInventoryModel;
+import base.api.shared.entity.GoodsReceiptModel;
+import base.api.shared.entity.GoodsReceiptItemModel;
+import base.api.shared.entity.UserModel;
 import base.api.shared.enums.DispatchStatus;
 import base.api.shared.enums.PurchaseRequestStatus;
 import base.api.shared.exception.BadRequestException;
@@ -42,6 +48,7 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -90,6 +97,15 @@ public class DispatchServiceImpl implements IDispatchService {
 
     @Autowired
     private ProductPackagingService productPackagingService;
+
+    @Autowired
+    private IUserRepository userRepository;
+
+    @Autowired
+    private GoodsReceiptRepository goodsReceiptRepository;
+
+    @Autowired
+    private GoodsReceiptItemRepository goodsReceiptItemRepository;
 
     @Override
     public List<DispatchApprovedRequestResponse> getApprovedRequests() {
@@ -281,6 +297,14 @@ public class DispatchServiceImpl implements IDispatchService {
         order.setDeliveryArea(branch == null ? null : branch.getArea());
         order.setRoute(branch == null ? null : branch.getRoute());
         order.setCreatedBy(currentUserProvider.getCurrentUserOrThrow().getId());
+        order.setRecipientId(selectAssignedRecipient(purchaseRequest.getBranchId()));
+        String shipperName = request.getShipperName() == null ? "" : request.getShipperName().trim();
+        String shipperPhone = request.getShipperPhone() == null ? "" : request.getShipperPhone().trim();
+        if (shipperName.isEmpty() || shipperPhone.isEmpty()) {
+            throw new BadRequestException("Shipper name and phone are required.");
+        }
+        order.setShipperName(shipperName);
+        order.setShipperPhone(shipperPhone);
         DispatchOrderModel savedOrder = dispatchOrderRepository.save(order);
 
         DispatchOrderRequestModel link = new DispatchOrderRequestModel();
@@ -399,6 +423,9 @@ public class DispatchServiceImpl implements IDispatchService {
         syncPurchaseRequestStatus(purchaseRequests, target);
 
         order.setStatus(target);
+        if (target == DispatchStatus.DELIVERING && order.getShippedAt() == null) {
+            order.setShippedAt(LocalDateTime.now());
+        }
         return buildDetail(dispatchOrderRepository.save(order));
     }
 
@@ -465,9 +492,6 @@ public class DispatchServiceImpl implements IDispatchService {
         Map<Long, PurchaseRequestModel> requestsById = purchaseRequestRepository.findAllById(requestIds).stream()
                 .collect(Collectors.toMap(PurchaseRequestModel::getId, Function.identity(), (left, right) -> left));
         List<PurchaseRequestModel> requests = new ArrayList<>(requestsById.values());
-        Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
-        Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
-        Map<Integer, ProductPackagingModel> topPackagings = loadTopPackagings(productsById);
         Map<Long, BranchModel> branchesById = loadBranches(requests);
         Map<Long, List<DispatchOrderSupplierModel>> suppliersByOrder = dispatchOrderSupplierRepository
                 .findByDispatchOrderIdIn(orderIds).stream()
@@ -477,9 +501,18 @@ public class DispatchServiceImpl implements IDispatchService {
                         .flatMap(List::stream)
                         .map(DispatchOrderSupplierModel::getSupplierId)
                         .collect(Collectors.toSet()));
+        Set<Long> peopleIds = new LinkedHashSet<>();
+        for (DispatchOrderModel order : orders) {
+            if (order.getCreatedBy() != null) peopleIds.add(order.getCreatedBy());
+            if (order.getRecipientId() != null) peopleIds.add(order.getRecipientId());
+        }
+        Map<Long, UserModel> peopleById = peopleIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(peopleIds).stream()
+                        .collect(Collectors.toMap(UserModel::getId, Function.identity(), (a, b) -> a));
 
         return orders.stream().map(order -> {
-            DispatchOrderResponse response = toBaseResponse(order);
+            DispatchOrderResponse response = toBaseResponse(order, peopleById);
             applySupplierInfo(response, suppliersByOrder.getOrDefault(order.getId(), List.of()), suppliersById);
             List<PurchaseRequestModel> orderRequests = requestIdsByOrder
                     .getOrDefault(order.getId(), List.of())
@@ -487,7 +520,7 @@ public class DispatchServiceImpl implements IDispatchService {
                     .map(requestsById::get)
                     .filter(Objects::nonNull)
                     .toList();
-            appendRequests(response, orderRequests, detailsByRequest, productsById, branchesById, topPackagings);
+            appendRequestSummaries(response, orderRequests, branchesById);
             return response;
         }).toList();
     }
@@ -527,6 +560,10 @@ public class DispatchServiceImpl implements IDispatchService {
     }
 
     private DispatchOrderResponse toBaseResponse(DispatchOrderModel order) {
+        return toBaseResponse(order, null);
+    }
+
+    private DispatchOrderResponse toBaseResponse(DispatchOrderModel order, Map<Long, UserModel> peopleById) {
         DispatchOrderResponse response = new DispatchOrderResponse();
         response.setId(order.getId());
         response.setDispatchNumber(dispatchMapper.toDispatchNumber(order));
@@ -534,8 +571,48 @@ public class DispatchServiceImpl implements IDispatchService {
         response.setDeliveryArea(order.getDeliveryArea());
         response.setRoute(order.getRoute());
         response.setCreatedAt(order.getCreatedAt());
+        response.setShippedAt(order.getShippedAt());
         response.setDeliveredAt(order.getDeliveredAt());
+        UserModel sender = resolveUser(order.getCreatedBy(), peopleById);
+        UserModel recipient = resolveUser(order.getRecipientId(), peopleById);
+        response.setSenderId(order.getCreatedBy());
+        if (order.getShipperName() != null && !order.getShipperName().isBlank()) {
+            response.setSenderName(order.getShipperName());
+            response.setSenderPhone(order.getShipperPhone());
+        } else {
+            response.setSenderName(sender == null ? null : sender.getFullName());
+            response.setSenderPhone(sender == null ? null : sender.getPhone());
+        }
+        response.setRecipientId(order.getRecipientId());
+        response.setRecipientName(recipient == null ? null : recipient.getFullName());
+        response.setRecipientPhone(recipient == null ? null : recipient.getPhone());
         return response;
+    }
+
+    private UserModel resolveUser(Long id, Map<Long, UserModel> peopleById) {
+        if (id == null) return null;
+        if (peopleById != null && peopleById.containsKey(id)) {
+            return peopleById.get(id);
+        }
+        return userRepository.findById(id).orElse(null);
+    }
+
+    private void appendRequestSummaries(
+            DispatchOrderResponse response,
+            List<PurchaseRequestModel> requests,
+            Map<Long, BranchModel> branchesById
+    ) {
+        for (PurchaseRequestModel pr : requests) {
+            BranchModel branch = branchesById.get(pr.getBranchId());
+            DispatchOrderResponse.RequestLine line = new DispatchOrderResponse.RequestLine();
+            line.setRequestId(pr.getId());
+            line.setRequestNumber(dispatchMapper.toRequestNumber(pr));
+            line.setBranchId(pr.getBranchId());
+            line.setBranchName(branch == null ? null : branch.getName());
+            line.setRequestSubmittedAt(pr.getSubmittedAt());
+            line.setDesiredReceiveDate(pr.getDesiredReceiveDate());
+            response.getRequests().add(line);
+        }
     }
 
     private void appendRequests(
@@ -547,6 +624,19 @@ public class DispatchServiceImpl implements IDispatchService {
             Map<Integer, ProductPackagingModel> topPackagings
     ) {
         Map<Integer, ProductPackagingModel> packagings = topPackagings == null ? Map.of() : topPackagings;
+        List<Long> requestIds = requests.stream().map(PurchaseRequestModel::getId).toList();
+        Map<Long, GoodsReceiptModel> receiptByRequest = goodsReceiptRepository.findByPurchaseRequestIdIn(requestIds).stream()
+                .filter(receipt -> "APPROVED".equalsIgnoreCase(receipt.getStatus()))
+                .collect(Collectors.toMap(GoodsReceiptModel::getPurchaseRequestId, Function.identity(),
+                        (left, right) -> left.getId() >= right.getId() ? left : right));
+        Map<Long, List<GoodsReceiptItemModel>> receiptItemsByReceipt = goodsReceiptItemRepository
+                .findByGoodsReceiptIdIn(receiptByRequest.values().stream().map(GoodsReceiptModel::getId).toList())
+                .stream().collect(Collectors.groupingBy(GoodsReceiptItemModel::getGoodsReceiptId));
+        Set<Long> peopleIds = new LinkedHashSet<>();
+        requests.stream().map(PurchaseRequestModel::getCreatedBy).filter(Objects::nonNull).forEach(peopleIds::add);
+        receiptByRequest.values().stream().map(GoodsReceiptModel::getStockStaffId).filter(Objects::nonNull).forEach(peopleIds::add);
+        Map<Long, UserModel> peopleById = userRepository.findAllById(peopleIds).stream()
+                .collect(Collectors.toMap(UserModel::getId, Function.identity(), (a, b) -> a));
         for (PurchaseRequestModel pr : requests) {
             List<PurchaseRequestDetailModel> details = detailsByRequest.getOrDefault(pr.getId(), List.of());
             BranchModel branch = branchesById.get(pr.getBranchId());
@@ -557,6 +647,17 @@ public class DispatchServiceImpl implements IDispatchService {
             line.setBranchId(pr.getBranchId());
             line.setBranchName(branch == null ? null : branch.getName());
             line.setItemCount(details.size());
+            line.setRequestSubmittedAt(pr.getSubmittedAt());
+            line.setDesiredReceiveDate(pr.getDesiredReceiveDate());
+            UserModel requestedBy = peopleById.get(pr.getCreatedBy());
+            line.setRequestedByName(requestedBy == null ? null : requestedBy.getFullName());
+            GoodsReceiptModel receipt = receiptByRequest.get(pr.getId());
+            line.setReceivedAt(receipt == null ? null : receipt.getReceivedAt());
+            UserModel receivedBy = receipt == null ? null : peopleById.get(receipt.getStockStaffId());
+            line.setReceivedByName(receivedBy == null ? null : receivedBy.getFullName());
+            Map<Integer, GoodsReceiptItemModel> receiptItemByProduct = receipt == null ? Map.of()
+                    : receiptItemsByReceipt.getOrDefault(receipt.getId(), List.of()).stream()
+                            .collect(Collectors.toMap(GoodsReceiptItemModel::getProductId, Function.identity(), (a, b) -> a));
 
             List<DispatchOrderResponse.ItemLine> items = new ArrayList<>();
             for (PurchaseRequestDetailModel detail : details) {
@@ -567,13 +668,36 @@ public class DispatchServiceImpl implements IDispatchService {
                 item.setProductCode(product == null ? null : product.getCode());
                 item.setProductName(product == null ? null : product.getName());
                 item.setUnit(product == null ? null : product.getUnit());
+                item.setCategoryName(product == null || product.getCategory() == null ? null : product.getCategory().getName());
+                item.setUnitCost(product == null ? null : product.getReferenceImportPrice());
                 item.setQuantity(dispatchQuantity(detail));
+                GoodsReceiptItemModel actual = receiptItemByProduct.get(detail.getProductId());
+                if (actual != null) {
+                    int conversion = productPackagingService.conversionQtyOf(top);
+                    int actualTop = (safe(actual.getReceivedQuantity()) + conversion - 1) / conversion;
+                    item.setActualReceivedQuantity(actualTop);
+                    item.setDifference(actualTop - dispatchQuantity(detail));
+                }
                 item.setTopPackagingLabel(top == null ? null : top.displayLabel());
                 items.add(item);
             }
             line.setItems(items);
             response.getRequests().add(line);
         }
+    }
+
+    private Long selectAssignedRecipient(Long branchId) {
+        if (branchId == null) return null;
+        List<UserModel> candidates = new ArrayList<>(
+                userRepository.findByBranchIdAndRoleName(branchId, "INVENTORY_STAFF"));
+        if (candidates.isEmpty()) {
+            candidates.addAll(userRepository.findActiveBranchManagers(branchId));
+        }
+        return candidates.stream()
+                .filter(user -> user.getId() != null)
+                .min(Comparator.comparing(UserModel::getId))
+                .map(UserModel::getId)
+                .orElse(null);
     }
 
     private Map<Long, List<PurchaseRequestDetailModel>> loadDetailsByRequest(List<Long> requestIds) {

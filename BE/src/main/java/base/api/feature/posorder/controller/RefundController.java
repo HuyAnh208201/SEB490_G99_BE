@@ -23,16 +23,16 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/pos")
-@Tag(name = "POS Refunds", description = "Hủy đơn / trả hàng: cashier yêu cầu trong 5 phút, BM duyệt")
+@Tag(name = "POS Refunds", description = "Immediate POS refunds and legacy pending-refund review")
 public class RefundController extends BaseAPIController {
 
     @Autowired
     private RefundService refundService;
 
     @Operation(
-            summary = "Cashier yêu cầu hoàn/trả một đơn",
-            description = "Chỉ trong 5 phút sau khi tạo đơn, kèm lý do bắt buộc. Tạo yêu cầu "
-                    + "chờ BM duyệt — cửa sổ thời gian được kiểm ở server."
+            summary = "Refund a completed order at POS",
+            description = "The cashier supplies a reason within five minutes. The server validates the current "
+                    + "branch and refundable product snapshot, then immediately restores stock and loyalty points."
     )
     @PreAuthorize("@permissionChecker.has('REFUND_REQUEST')")
     @PostMapping("/orders/{id}/refund-request")
@@ -41,20 +41,17 @@ public class RefundController extends BaseAPIController {
             @Valid @RequestBody RefundRequestBody body) {
         return success(
                 refundService.requestRefund(id, body.getReason()),
-                "Refund request submitted for approval.");
+                "Refund completed successfully.");
     }
 
-    @Operation(summary = "Danh sách yêu cầu hoàn/trả chờ duyệt (branch manager)")
+    @Operation(summary = "List legacy refund requests still awaiting review")
     @PreAuthorize("@permissionChecker.has('REFUND_APPROVAL')")
     @GetMapping("/refunds/pending")
     public ResponseEntity<TFUResponse<List<RefundResponse>>> pending() {
         return success(refundService.getPendingRefunds());
     }
 
-    @Operation(
-            summary = "Duyệt yêu cầu hoàn/trả (branch manager)",
-            description = "Hoàn tồn kho, thu hồi điểm và chuyển đơn sang REFUNDED."
-    )
+    @Operation(summary = "Approve a legacy pending refund")
     @PreAuthorize("@permissionChecker.has('REFUND_APPROVAL')")
     @PostMapping("/refunds/{id}/approve")
     public ResponseEntity<TFUResponse<RefundResponse>> approve(
@@ -64,10 +61,7 @@ public class RefundController extends BaseAPIController {
         return success(refundService.approveRefund(id, note), "Refund approved.");
     }
 
-    @Operation(
-            summary = "Từ chối yêu cầu hoàn/trả (branch manager)",
-            description = "Ghi chú bắt buộc. Đơn giữ nguyên COMPLETED."
-    )
+    @Operation(summary = "Reject a legacy pending refund")
     @PreAuthorize("@permissionChecker.has('REFUND_APPROVAL')")
     @PostMapping("/refunds/{id}/reject")
     public ResponseEntity<TFUResponse<RefundResponse>> reject(

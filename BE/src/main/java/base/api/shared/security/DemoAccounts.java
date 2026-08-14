@@ -11,6 +11,9 @@ public final class DemoAccounts {
 
     public static final String DEMO_CASHIER_EMAIL = "demo_cashier@chainstore.vn";
     public static final String DEMO_IS_EMAIL = "demo_is@chainstore.vn";
+    public static final String Q1_CASHIER_2_EMAIL = "cashier.q1.2@chainstore.vn";
+    public static final String Q1_CASHIER_2_NAME = "Lê Hoàng Ngân Q1";
+    public static final String Q1_CASHIER_2_PHONE = "0900000018";
     public static final String DEMO_CUSTOMER_SILVER_EMAIL = "demo.customer.silver@chainstore.vn";
     public static final String DEMO_CUSTOMER_GOLD_EMAIL = "demo.customer.gold@chainstore.vn";
     public static final String DEMO_CUSTOMER_PLATINUM_EMAIL = "demo.customer.platinum@chainstore.vn";

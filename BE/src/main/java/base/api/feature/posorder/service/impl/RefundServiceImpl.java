@@ -93,16 +93,23 @@ public class RefundServiceImpl implements RefundService {
             throw new BusinessException("A refund request for this order is already in progress.");
         }
 
+        List<OrderItemModel> items = orderItemRepository.findByOrderIdIn(List.of(order.getId()));
+        assertAllItemsRefundable(items);
+
+        LocalDateTime now = LocalDateTime.now();
         OrderRefundModel refund = new OrderRefundModel();
         refund.setOrderId(orderId);
         refund.setBranchId(order.getBranchId());
         refund.setRequestedBy(cashier.getId());
         refund.setReason(reason.trim());
-        refund.setStatus(STATUS_PENDING);
-        refund.setCreatedAt(LocalDateTime.now());
-        refund = orderRefundRepository.save(refund);
+        refund.setCreatedAt(now);
 
-        return toResponse(refund, order);
+        return completeRefund(
+                refund,
+                order,
+                items,
+                cashier.getId(),
+                "Processed at POS without manager approval.");
     }
 
     // =========================================================================
@@ -132,6 +139,7 @@ public class RefundServiceImpl implements RefundService {
 
         // 1. Hoàn tồn kho từng dòng hàng của đơn.
         List<OrderItemModel> items = orderItemRepository.findByOrderIdIn(List.of(order.getId()));
+        assertAllItemsRefundable(items);
         for (OrderItemModel item : items) {
             branchInventoryRepository.addStock(
                     order.getBranchId(), item.getProductId(), item.getQuantity());
@@ -195,6 +203,50 @@ public class RefundServiceImpl implements RefundService {
      * Ghi lịch sử đảo điểm khi duyệt hoàn đơn. Best-effort: nuốt mọi lỗi để không làm
      * fail refund (điểm thực đã được thu hồi/hoàn ở trên; đây chỉ là log cho báo cáo).
      */
+    private void assertAllItemsRefundable(List<OrderItemModel> items) {
+        items.stream()
+                .filter(item -> Boolean.FALSE.equals(item.getRefundable()))
+                .findFirst()
+                .ifPresent(item -> {
+                    String name = item.getProductName() == null ? "This product" : item.getProductName();
+                    throw new BusinessException(name + " is non-refundable.");
+                });
+    }
+
+    private RefundResponse completeRefund(
+            OrderRefundModel refund,
+            OrderModel order,
+            List<OrderItemModel> items,
+            Long reviewerId,
+            String note) {
+        for (OrderItemModel item : items) {
+            branchInventoryRepository.addStock(
+                    order.getBranchId(), item.getProductId(), item.getQuantity());
+        }
+
+        if (order.getCustomerId() != null) {
+            long earned = order.getPointsEarned() == null ? 0L : order.getPointsEarned();
+            if (earned > 0) {
+                userRepository.deductPointsAtomic(order.getCustomerId(), earned);
+            }
+            long redeemed = order.getPointsRedeemed() == null ? 0L : order.getPointsRedeemed();
+            if (redeemed > 0) {
+                userRepository.refundPointsAtomic(order.getCustomerId(), redeemed);
+            }
+            recordReversalHistory(order.getCustomerId(), order.getId(), earned, redeemed);
+        }
+
+        order.setStatus("REFUNDED");
+        orderRepository.save(order);
+
+        refund.setStatus(STATUS_APPROVED);
+        refund.setReviewedBy(reviewerId);
+        refund.setReviewedAt(LocalDateTime.now());
+        refund.setReviewNote(note != null && !note.isBlank() ? note.trim() : null);
+        OrderRefundModel saved = orderRefundRepository.save(refund);
+        return toResponse(saved, order);
+    }
+
     private void recordReversalHistory(Long customerId, Long orderId, long earned, long redeemed) {
         try {
             if (earned > 0) {

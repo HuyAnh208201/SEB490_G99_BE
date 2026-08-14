@@ -330,7 +330,7 @@ class PurchaseRequestApproveTest {
         when(warehouseInventoryRepository.findByProductIdIn(any())).thenReturn(List.of());
         PurchaseRequestResponse response = new PurchaseRequestResponse();
         response.setId(REQUEST_ID);
-        when(purchaseRequestMapper.toResponse(any(), any(), any(), any(), any(), any(), any()))
+        when(purchaseRequestMapper.toResponse(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(response);
     }
 

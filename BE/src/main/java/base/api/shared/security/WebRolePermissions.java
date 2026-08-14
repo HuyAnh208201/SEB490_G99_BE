@@ -22,7 +22,6 @@ public final class WebRolePermissions {
         Map<UserRole, Set<WebPermission>> map = new EnumMap<>(UserRole.class);
 
         map.put(UserRole.ADMIN, EnumSet.of(
-                WebPermission.ADMIN_DASHBOARD,
                 WebPermission.SYSTEM_SETTINGS_MASTER_DATA,
                 WebPermission.USER_MANAGEMENT_LIST,
                 WebPermission.USER_DETAILS_EDIT,
@@ -34,6 +33,7 @@ public final class WebRolePermissions {
                 WebPermission.PROMOTION_MANAGEMENT,
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.VIEW_SUPPLIER_RECEIPTS_PRICES,
                 WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
@@ -58,6 +58,7 @@ public final class WebRolePermissions {
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.VIEW_SUPPLIER_RECEIPTS_PRICES,
                 WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
                 WebPermission.VIEW_BRANCH_INVENTORY,
@@ -80,6 +81,7 @@ public final class WebRolePermissions {
                 WebPermission.VIEW_BRANCH_INVENTORY,
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.INVENTORY_COUNT,
+                WebPermission.RECEIVE_SHIPMENT,
                 WebPermission.SUPPLY_IMPORT_RECEIPT_APPROVE,
                 WebPermission.REPORTS_VIEW
         ));
@@ -90,6 +92,8 @@ public final class WebRolePermissions {
                 WebPermission.MANAGE_BRANCH_IMPORT_REQUESTS,
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.CHOOSE_EXTERNAL_SUPPLIER,
+                WebPermission.VIEW_SUPPLIER_RECEIPTS_PRICES,
+                WebPermission.SET_RETAIL_PRICE,
                 WebPermission.MANAGE_DISPATCH_ORDERS,
                 WebPermission.PRODUCT_VIEW
         ));

@@ -108,23 +108,6 @@ class BranchReceivingServiceImplTest {
     }
 
     @Test
-    void receiveShipmentRejectsWhenPendingReceiptExists() {
-        asStaff();
-        PurchaseRequestModel pr = purchaseRequest(PurchaseRequestStatus.IN_TRANSIT);
-        when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(pr));
-        when(dispatchOrderRequestRepository.findByDispatchOrderId(DISPATCH_ID))
-                .thenReturn(List.of(link(DISPATCH_ID, REQUEST_ID)));
-        when(goodsReceiptRepository.existsByDispatchOrderIdAndPurchaseRequestIdAndStatus(
-                DISPATCH_ID, REQUEST_ID, "PENDING_APPROVAL")).thenReturn(true);
-
-        BadRequestException error = assertThrows(
-                BadRequestException.class,
-                () -> service.receiveShipment(DISPATCH_ID, REQUEST_ID, receiveRequest(10, 2)));
-
-        assertTrue(error.getMessage().contains("already pending"));
-    }
-
-    @Test
     void receiveShipmentRejectsProductNotInShipment() {
         asStaff();
         PurchaseRequestModel pr = purchaseRequest(PurchaseRequestStatus.IN_TRANSIT);
@@ -144,7 +127,7 @@ class BranchReceivingServiceImplTest {
     }
 
     @Test
-    void receiveShipmentCreatesPendingReceipt() {
+    void receiveShipmentCreatesFinalReceipt() {
         asStaff();
         PurchaseRequestModel pr = purchaseRequest(PurchaseRequestStatus.IN_TRANSIT);
         when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(pr));
@@ -170,11 +153,50 @@ class BranchReceivingServiceImplTest {
                 service.receiveShipment(DISPATCH_ID, REQUEST_ID, receiveRequest(10, 2));
 
         assertEquals(RECEIPT_ID, response.getReceiptId());
-        assertEquals("PENDING_APPROVAL", response.getStatus());
+        assertEquals("APPROVED", response.getStatus());
         ArgumentCaptor<GoodsReceiptModel> receiptCaptor = ArgumentCaptor.forClass(GoodsReceiptModel.class);
         verify(goodsReceiptRepository).save(receiptCaptor.capture());
-        assertEquals("PENDING_APPROVAL", receiptCaptor.getValue().getStatus());
+        assertEquals("APPROVED", receiptCaptor.getValue().getStatus());
         verify(goodsReceiptItemRepository).saveAll(any());
+    }
+
+    @Test
+    void receiveShipmentFinalizesReceiptAndStockWithoutManagerApproval() {
+        asStaff();
+        PurchaseRequestModel pr = purchaseRequest(PurchaseRequestStatus.IN_TRANSIT);
+        when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(pr));
+        when(dispatchOrderRequestRepository.findByDispatchOrderId(DISPATCH_ID))
+                .thenReturn(List.of(link(DISPATCH_ID, REQUEST_ID)));
+        when(detailRepository.findByPurchaseRequestIdOrderByIdAsc(REQUEST_ID))
+                .thenReturn(List.of(detail(10, 2)));
+        when(productRepository.findByIdInWithCategory(anyCollection())).thenReturn(List.of(product(10)));
+        when(productPackagingService.toBaseQty(eq(2), any(ProductModel.class))).thenReturn(48);
+        when(goodsReceiptRepository.save(any(GoodsReceiptModel.class))).thenAnswer(inv -> {
+            GoodsReceiptModel saved = inv.getArgument(0);
+            saved.setId(RECEIPT_ID);
+            return saved;
+        });
+        when(purchaseRequestRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        BranchInventoryModel inventory = new BranchInventoryModel();
+        inventory.setBranchId(BRANCH_ID);
+        inventory.setProductId(10);
+        inventory.setCurrentStock(5);
+        when(branchInventoryRepository.findByBranchIdAndProductId(BRANCH_ID, 10))
+                .thenReturn(Optional.of(inventory));
+        when(dispatchOrderRepository.findById(DISPATCH_ID))
+                .thenReturn(Optional.of(dispatchOrder(DispatchStatus.DELIVERING)));
+        when(purchaseRequestRepository.findAllById(List.of(REQUEST_ID))).thenReturn(List.of(pr));
+        when(dispatchMapper.toDispatchNumber(any())).thenReturn("DO-70");
+        when(dispatchMapper.toRequestNumber(any())).thenReturn("PR-20");
+
+        ReceivingHistoryResponse response =
+                service.receiveShipment(DISPATCH_ID, REQUEST_ID, receiveRequest(10, 2));
+
+        assertEquals("APPROVED", response.getStatus());
+        assertEquals(PurchaseRequestStatus.RECEIVED, pr.getStatus());
+        assertEquals(53, inventory.getCurrentStock());
+        verify(branchInventoryRepository).save(inventory);
+        verify(purchaseRequestRepository).save(pr);
     }
 
     @Test
@@ -402,7 +424,7 @@ class BranchReceivingServiceImplTest {
 
         ReceivingHistoryResponse response = service.receiveShipment(DISPATCH_ID, REQUEST_ID, request);
 
-        assertEquals("PENDING_APPROVAL", response.getStatus());
+        assertEquals("APPROVED", response.getStatus());
         verify(goodsReceiptItemRepository).saveAll(any());
     }
 

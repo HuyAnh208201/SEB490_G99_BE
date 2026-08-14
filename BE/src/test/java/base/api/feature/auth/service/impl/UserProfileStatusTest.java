@@ -127,6 +127,7 @@ class UserProfileStatusTest {
         UserModel saved = service.updateProfile(1L, dto);
 
         assertEquals("new@chainstore.com", saved.getEmail());
+        assertEquals("Lan", saved.getFirstName());
         assertEquals("Nguyen", saved.getLastName());
         assertEquals("0912345678", saved.getPhone());
         verify(userRepository).save(user);

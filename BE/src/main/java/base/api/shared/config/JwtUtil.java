@@ -7,6 +7,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -16,6 +17,9 @@ import java.util.Date;
 public class JwtUtil {
 
     private final SecretKey key;
+
+    @Value("${customer.jwt.expiration-ms:360000000}")
+    private long customerExpirationMs;
 
     public JwtUtil() {
         String secret = "MyVerySecretKeyThatIsLongEnough123456789";
@@ -31,6 +35,20 @@ public class JwtUtil {
                 .claim("id", userModel.getId())
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 100))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    /** Keeps the token claims used by the existing customer mobile client. */
+    public String generateCustomerToken(UserModel userModel) {
+        return Jwts.builder()
+                .setSubject(userModel.getPhone())
+                .claim("id", userModel.getId())
+                .claim("phone", userModel.getPhone())
+                .claim("fullName", userModel.getFullName())
+                .claim("role", "CUSTOMER")
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + customerExpirationMs))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }

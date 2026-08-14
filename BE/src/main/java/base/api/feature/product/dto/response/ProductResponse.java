@@ -21,6 +21,7 @@ public class ProductResponse {
     private String unit;
     private String importUnit;
     private Integer unitsPerImportUnit;
+    private Integer supplierId;
     /** English label of the TOP packaging level, e.g. "Case of 24" (source: product_packagings). */
     private String topPackagingLabel;
     /** How many base units one TOP packaging unit contains. */
@@ -35,6 +36,9 @@ public class ProductResponse {
     private Boolean lowStock;
     private BigDecimal referenceImportPrice;
     private BigDecimal defaultSalePrice;
+    private BigDecimal scheduledSalePrice;
+    private java.time.LocalDate scheduledSalePriceEffectiveDate;
+    private Boolean refundable;
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

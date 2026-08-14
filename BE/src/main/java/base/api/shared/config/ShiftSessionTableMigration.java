@@ -39,6 +39,7 @@ public class ShiftSessionTableMigration {
                         opening_fund_amount DECIMAL(15,2) NULL,
                         opening_fund_received_from BIGINT NULL,
                         opening_fund_received_at DATETIME NULL,
+                        opening_fund_method VARCHAR(20) NULL,
                         transaction_count INT NULL DEFAULT 0,
                         cash_sales DECIMAL(15,2) NULL DEFAULT 0,
                         refund_amount DECIMAL(15,2) NULL DEFAULT 0,
@@ -75,6 +76,7 @@ public class ShiftSessionTableMigration {
             addColumnIfMissing("shift_sessions", "review_note", "TEXT NULL");
             addColumnIfMissing("shift_sessions", "reviewed_by", "BIGINT NULL");
             addColumnIfMissing("shift_sessions", "reviewed_at", "DATETIME NULL");
+            addColumnIfMissing("shift_sessions", "opening_fund_method", "VARCHAR(20) NULL");
             dedupeShiftSessions();
             ensureUniqueShiftEmployee();
             ensureShiftAssignmentColumn();

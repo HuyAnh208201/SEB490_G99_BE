@@ -65,6 +65,7 @@ class ProductServiceImplTest {
     void createSavesGlobalProductAsAdmin() {
         asAdmin();
         CreateProductRequest request = createRequest("P001", "Cola", "bottle", "8901234567890");
+        request.setRefundable(false);
         when(productRepository.existsByCode("P001")).thenReturn(false);
         when(productRepository.existsByBarcode("8901234567890")).thenReturn(false);
         when(categoryRepository.findById(1)).thenReturn(Optional.of(category(1)));
@@ -89,6 +90,7 @@ class ProductServiceImplTest {
         assertEquals(ProductScope.GLOBAL.getValue(), captor.getValue().getScope());
         assertNull(captor.getValue().getBranchId());
         assertEquals("active", captor.getValue().getStatus());
+        assertEquals(Boolean.FALSE, captor.getValue().getRefundable());
         verify(productPackagingService).ensureDefaultPackagings(any(ProductModel.class));
     }
 
