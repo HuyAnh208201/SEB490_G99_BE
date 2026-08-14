@@ -77,6 +77,9 @@ public class ShiftSessionResponse {
     /** Read-only handover summary from the last closed cashier session (opening flow only). */
     private PreviousShiftHandoverReportResponse previousShiftReport;
 
+    /** Product qty deltas vs the previous closed cashier shift (closing + BM review). */
+    private List<PreviousShiftProductVarianceResponse> previousShiftProductVariance = new ArrayList<>();
+
     private ShiftSessionTransactionSummaryResponse transactionSummary;
 
     /** Derived from branch hours: 0 = first slot of the day. */

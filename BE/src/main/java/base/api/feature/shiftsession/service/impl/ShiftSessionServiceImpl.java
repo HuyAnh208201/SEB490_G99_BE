@@ -23,6 +23,7 @@ import base.api.feature.shiftsession.dto.response.ShiftSessionApprovalHistoryRes
 import base.api.feature.shiftsession.dto.response.ShiftBriefResponse;
 import base.api.feature.shiftsession.dto.response.ShiftHandoverCandidateResponse;
 import base.api.feature.shiftsession.dto.response.PreviousShiftHandoverReportResponse;
+import base.api.feature.shiftsession.dto.response.PreviousShiftProductVarianceResponse;
 import base.api.feature.shiftsession.dto.response.ShiftSessionResponse;
 import base.api.feature.shiftsession.repository.ShiftSessionApprovalRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionHighValueItemRepository;
@@ -1421,7 +1422,77 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         return sessionRepository
                 .findFirstByBranchIdAndStatusInAndRoleOrderByClosedAtDesc(
                         session.getBranchId(), HANDOVER_FUND_STATUSES, UserRole.CASHIER)
-                .filter(previous -> !Objects.equals(previous.getEmployeeId(), session.getEmployeeId()));
+                .filter(previous -> !Objects.equals(previous.getEmployeeId(), session.getEmployeeId()))
+                .filter(previous -> !Objects.equals(previous.getId(), session.getId()));
+    }
+
+    /**
+     * Prior closed cashier session for product variance (may be same employee on a previous shift).
+     */
+    private Optional<ShiftSessionModel> findPriorClosedCashierSessionForVariance(ShiftSessionModel session) {
+        LocalDateTime before = session.getOpenedAt() != null ? session.getOpenedAt() : LocalDateTime.now();
+        return sessionRepository
+                .findByBranchIdAndStatusInOrderByOpenedAtDesc(session.getBranchId(), HANDOVER_FUND_STATUSES)
+                .stream()
+                .filter(previous -> previous.getRole() == UserRole.CASHIER)
+                .filter(previous -> !Objects.equals(previous.getId(), session.getId()))
+                .filter(previous -> previous.getClosedAt() != null && previous.getClosedAt().isBefore(before))
+                .max(Comparator.comparing(ShiftSessionModel::getClosedAt));
+    }
+
+    private List<PreviousShiftProductVarianceResponse> buildPreviousShiftProductVariance(
+            ShiftSessionModel session,
+            List<ShiftSessionHighValueItemModel> currentItems) {
+        Optional<ShiftSessionModel> previousOpt = findPriorClosedCashierSessionForVariance(session);
+        if (previousOpt.isEmpty()) {
+            return List.of();
+        }
+        ShiftSessionModel previous = previousOpt.get();
+        dedupeHighValueItemsForSession(previous.getId());
+        Map<Integer, HighValueItemResponse> previousByProduct =
+                mapHighValueItems(highValueItemRepository.findBySessionIdOrderByIdAsc(previous.getId()))
+                        .stream()
+                        .filter(item -> item.getProductId() != null)
+                        .collect(Collectors.toMap(
+                                HighValueItemResponse::getProductId,
+                                Function.identity(),
+                                (a, b) -> a));
+        Map<Integer, HighValueItemResponse> currentByProduct =
+                mapHighValueItems(currentItems).stream()
+                        .filter(item -> item.getProductId() != null)
+                        .collect(Collectors.toMap(
+                                HighValueItemResponse::getProductId,
+                                Function.identity(),
+                                (a, b) -> a));
+
+        Set<Integer> productIds = new HashSet<>();
+        productIds.addAll(previousByProduct.keySet());
+        productIds.addAll(currentByProduct.keySet());
+
+        List<PreviousShiftProductVarianceResponse> rows = new ArrayList<>();
+        for (Integer productId : productIds) {
+            HighValueItemResponse current = currentByProduct.get(productId);
+            HighValueItemResponse prevItem = previousByProduct.get(productId);
+            PreviousShiftProductVarianceResponse row = new PreviousShiftProductVarianceResponse();
+            row.setProductId(productId);
+            row.setProductName(current != null ? current.getProductName() : prevItem.getProductName());
+            row.setCategoryName(current != null ? current.getCategoryName() : prevItem.getCategoryName());
+            Integer previousActual = prevItem != null ? prevItem.getActualQty() : null;
+            Integer currentExpected = current != null ? current.getExpectedQty() : null;
+            Integer currentActual = current != null ? current.getActualQty() : null;
+            row.setPreviousActualQty(previousActual);
+            row.setCurrentExpectedQty(currentExpected);
+            row.setCurrentActualQty(currentActual);
+            Integer compare = currentActual != null ? currentActual : currentExpected;
+            if (previousActual != null && compare != null) {
+                row.setVariance(compare - previousActual);
+            }
+            rows.add(row);
+        }
+        rows.sort(Comparator.comparing(
+                PreviousShiftProductVarianceResponse::getProductName,
+                Comparator.nullsLast(String::compareToIgnoreCase)));
+        return rows;
     }
 
     private PreviousShiftHandoverReportResponse buildPreviousShiftReport(ShiftSessionModel previous) {
@@ -1579,6 +1650,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             List<ShiftSessionHighValueItemModel> items =
                     highValueItemRepository.findBySessionIdOrderByIdAsc(session.getId());
             response.setHighValueItems(mapHighValueItems(items));
+            if (session.getStatus() != ShiftSessionStatus.SCHEDULED) {
+                response.setPreviousShiftProductVariance(
+                        buildPreviousShiftProductVariance(session, items));
+            }
         }
         if (session.getId() != null) {
             response.setApprovalHistory(mapApprovalHistory(session.getId()));

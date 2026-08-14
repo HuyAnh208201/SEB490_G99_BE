@@ -14,8 +14,7 @@ public interface IDispatchService {
 
     /** Danh sách yêu cầu đã duyệt, sẵn sàng gom lô (màn Dispatch Planning). */
     List<DispatchApprovedRequestResponse> getApprovedRequests();
-    Page<DispatchApprovedRequestResponse> getApprovedRequestPage(
-            PageRequestDTO pageRequest, String area, String route);
+    Page<DispatchApprovedRequestResponse> getApprovedRequestPage(PageRequestDTO pageRequest);
 
     /** Tạo một lô vận chuyển từ các yêu cầu đã duyệt được chọn. */
     DispatchOrderResponse createDispatchOrder(CreateDispatchOrderRequest request);

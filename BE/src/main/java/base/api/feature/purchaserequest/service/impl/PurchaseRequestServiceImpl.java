@@ -754,9 +754,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private void assertCanApproveOrReject() {
         UserRole role = currentUserProvider.getCurrentUserRole();
-        if (role == UserRole.ADMIN
-                || role == UserRole.DIRECTOR
-                || role == UserRole.WAREHOUSE_MANAGER) {
+        if (role == UserRole.WAREHOUSE_MANAGER) {
             return;
         }
         throw new ForbiddenException("Access denied.");

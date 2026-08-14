@@ -127,8 +127,34 @@ class PurchaseRequestApproveTest {
     }
 
     @Test
-    void approveRequestRejectsNonPendingStatus() {
+    void approveRequestDeniesAccessForAdmin() {
         signedInAs(UserRole.ADMIN, null);
+
+        ForbiddenException error = assertThrows(
+                ForbiddenException.class,
+                () -> service.approveRequest(REQUEST_ID, approveRequest(PRODUCT_ID, 5)));
+
+        assertTrue(error.getMessage().contains("Access denied."));
+        verify(purchaseRequestRepository, never()).findById(anyLong());
+        verify(purchaseRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void approveRequestDeniesAccessForDirector() {
+        signedInAs(UserRole.DIRECTOR, null);
+
+        ForbiddenException error = assertThrows(
+                ForbiddenException.class,
+                () -> service.approveRequest(REQUEST_ID, approveRequest(PRODUCT_ID, 5)));
+
+        assertTrue(error.getMessage().contains("Access denied."));
+        verify(purchaseRequestRepository, never()).findById(anyLong());
+        verify(purchaseRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void approveRequestRejectsNonPendingStatus() {
+        signedInAs(UserRole.WAREHOUSE_MANAGER, null);
         PurchaseRequestModel request = pendingRequest();
         request.setStatus(PurchaseRequestStatus.APPROVED);
         when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));
@@ -144,7 +170,7 @@ class PurchaseRequestApproveTest {
 
     @Test
     void approveRequestRejectsEmptyDetails() {
-        signedInAs(UserRole.DIRECTOR, null);
+        signedInAs(UserRole.WAREHOUSE_MANAGER, null);
         when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(pendingRequest()));
         when(detailRepository.findByPurchaseRequestIdOrderByIdAsc(REQUEST_ID)).thenReturn(List.of());
 
@@ -216,7 +242,7 @@ class PurchaseRequestApproveTest {
 
     @Test
     void approveRequestSetsAwaitingStockWhenWarehouseLacksStock() {
-        signedInAs(UserRole.ADMIN, null);
+        signedInAs(UserRole.WAREHOUSE_MANAGER, null);
         PurchaseRequestModel request = pendingRequest();
         PurchaseRequestDetailModel line = detail(PRODUCT_ID, 10);
         when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));
@@ -234,7 +260,7 @@ class PurchaseRequestApproveTest {
 
     @Test
     void approveRequestDefaultsToRequestedQtyWhenItemsNull() {
-        signedInAs(UserRole.DIRECTOR, null);
+        signedInAs(UserRole.WAREHOUSE_MANAGER, null);
         PurchaseRequestModel request = pendingRequest();
         PurchaseRequestDetailModel line = detail(PRODUCT_ID, 12);
         when(purchaseRequestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));

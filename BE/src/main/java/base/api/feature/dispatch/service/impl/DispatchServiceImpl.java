@@ -114,14 +114,10 @@ public class DispatchServiceImpl implements IDispatchService {
     }
 
     @Override
-    public Page<DispatchApprovedRequestResponse> getApprovedRequestPage(
-            PageRequestDTO pageRequest,
-            String area,
-            String route
-    ) {
+    public Page<DispatchApprovedRequestResponse> getApprovedRequestPage(PageRequestDTO pageRequest) {
         PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
         String search = query.normalizedSearch();
-        Specification<PurchaseRequestModel> specification = approvedRequestSpecification(search, area, route);
+        Specification<PurchaseRequestModel> specification = approvedRequestSpecification(search);
         Page<PurchaseRequestModel> requestPage = purchaseRequestRepository.findAll(
                 specification,
                 query.toPageable("createdAt", Sort.Direction.ASC, Set.of("id", "createdAt", "branchId")));
@@ -129,35 +125,9 @@ public class DispatchServiceImpl implements IDispatchService {
         return new PageImpl<>(responses, requestPage.getPageable(), requestPage.getTotalElements());
     }
 
-    private Specification<PurchaseRequestModel> approvedRequestSpecification(String search, String area, String route) {
+    private Specification<PurchaseRequestModel> approvedRequestSpecification(String search) {
         Specification<PurchaseRequestModel> specification = (root, ignored, cb) ->
                 cb.equal(root.get("status"), PurchaseRequestStatus.APPROVED);
-
-        if (area != null && !area.isBlank()) {
-            String normalizedArea = area.trim().toLowerCase(Locale.ROOT);
-            specification = specification.and((root, query, cb) -> {
-                var branchSubquery = query.subquery(Long.class);
-                var branch = branchSubquery.from(BranchModel.class);
-                branchSubquery.select(branch.get("id"))
-                        .where(
-                                cb.equal(branch.get("id"), root.get("branchId")),
-                                cb.equal(cb.lower(branch.get("area")), normalizedArea));
-                return root.get("branchId").in(branchSubquery);
-            });
-        }
-
-        if (route != null && !route.isBlank()) {
-            String normalizedRoute = route.trim().toLowerCase(Locale.ROOT);
-            specification = specification.and((root, query, cb) -> {
-                var branchSubquery = query.subquery(Long.class);
-                var branch = branchSubquery.from(BranchModel.class);
-                branchSubquery.select(branch.get("id"))
-                        .where(
-                                cb.equal(branch.get("id"), root.get("branchId")),
-                                cb.equal(cb.lower(branch.get("route")), normalizedRoute));
-                return root.get("branchId").in(branchSubquery);
-            });
-        }
 
         if (search != null) {
             String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
@@ -166,10 +136,7 @@ public class DispatchServiceImpl implements IDispatchService {
                 var branchSubquery = query.subquery(Long.class);
                 var branch = branchSubquery.from(BranchModel.class);
                 branchSubquery.select(branch.get("id"))
-                        .where(cb.or(
-                                cb.like(cb.lower(branch.get("name")), pattern),
-                                cb.like(cb.lower(branch.get("area")), pattern),
-                                cb.like(cb.lower(branch.get("route")), pattern)));
+                        .where(cb.like(cb.lower(branch.get("name")), pattern));
 
                 var branchMatch = root.get("branchId").in(branchSubquery);
                 return searchedId == null
@@ -201,8 +168,6 @@ public class DispatchServiceImpl implements IDispatchService {
             response.setRequestNumber(dispatchMapper.toRequestNumber(request));
             response.setBranchId(request.getBranchId());
             response.setBranchName(branch == null ? null : branch.getName());
-            response.setArea(branch == null ? null : branch.getArea());
-            response.setRoute(branch == null ? null : branch.getRoute());
             response.setItemCount(details.size());
             List<String> categories = distinctCategories(details, productsById);
             List<String> shortDateCategories = distinctShortDateCategories(details, productsById);
@@ -288,14 +253,8 @@ public class DispatchServiceImpl implements IDispatchService {
             warehouseInventoryRepository.saveAll(stockUpdates);
         }
 
-        BranchModel branch = purchaseRequest.getBranchId() == null
-                ? null
-                : branchRepository.findById(purchaseRequest.getBranchId()).orElse(null);
-
         DispatchOrderModel order = new DispatchOrderModel();
         order.setStatus(DispatchStatus.PREPARING);
-        order.setDeliveryArea(branch == null ? null : branch.getArea());
-        order.setRoute(branch == null ? null : branch.getRoute());
         order.setCreatedBy(currentUserProvider.getCurrentUserOrThrow().getId());
         order.setRecipientId(selectAssignedRecipient(purchaseRequest.getBranchId()));
         String shipperName = request.getShipperName() == null ? "" : request.getShipperName().trim();
@@ -347,20 +306,17 @@ public class DispatchServiceImpl implements IDispatchService {
         }
         String search = query.normalizedSearch();
         if (search != null) {
-            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
             Long id = parseIdentifier(search);
-            specification = specification.and((root, ignored, cb) -> cb.or(
-                    cb.like(cb.lower(root.get("deliveryArea")), pattern),
-                    cb.like(cb.lower(root.get("route")), pattern),
-                    id == null ? cb.disjunction() : cb.equal(root.get("id"), id)
-            ));
+            if (id != null) {
+                specification = specification.and((root, ignored, cb) -> cb.equal(root.get("id"), id));
+            }
         }
         Page<DispatchOrderModel> orderPage = dispatchOrderRepository.findAll(
                 specification,
                 query.toPageable(
                         "createdAt",
                         Sort.Direction.DESC,
-                        Set.of("id", "status", "deliveryArea", "route", "createdAt", "deliveredAt")));
+                        Set.of("id", "status", "createdAt", "deliveredAt")));
         return new PageImpl<>(
                 buildDetails(orderPage.getContent()),
                 orderPage.getPageable(),
@@ -568,8 +524,6 @@ public class DispatchServiceImpl implements IDispatchService {
         response.setId(order.getId());
         response.setDispatchNumber(dispatchMapper.toDispatchNumber(order));
         response.setStatus(order.getStatus() == null ? null : order.getStatus().name());
-        response.setDeliveryArea(order.getDeliveryArea());
-        response.setRoute(order.getRoute());
         response.setCreatedAt(order.getCreatedAt());
         response.setShippedAt(order.getShippedAt());
         response.setDeliveredAt(order.getDeliveredAt());

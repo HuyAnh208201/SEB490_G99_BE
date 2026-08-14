@@ -35,7 +35,7 @@ public final class WebRolePermissions {
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.VIEW_SUPPLIER_RECEIPTS_PRICES,
                 WebPermission.SUPPLIER_MANAGEMENT,
-                WebPermission.APPROVE_IMPORT_REQUEST,
+                WebPermission.MANAGE_BRANCH_IMPORT_REQUESTS,
                 WebPermission.VIEW_CENTRAL_INVENTORY,
                 WebPermission.VIEW_BRANCH_INVENTORY,
                 WebPermission.REPORTS_VIEW
@@ -55,7 +55,7 @@ public final class WebRolePermissions {
                 WebPermission.BUSINESS_PERFORMANCE_REPORTS,
                 WebPermission.STRATEGIC_PLANNING_OVERVIEW,
                 WebPermission.BRANCH_REVENUE_PROMOS,
-                WebPermission.APPROVE_IMPORT_REQUEST,
+                WebPermission.MANAGE_BRANCH_IMPORT_REQUESTS,
                 WebPermission.CATEGORY_MANAGEMENT,
                 WebPermission.PRODUCT_MANAGEMENT,
                 WebPermission.VIEW_SUPPLIER_RECEIPTS_PRICES,
