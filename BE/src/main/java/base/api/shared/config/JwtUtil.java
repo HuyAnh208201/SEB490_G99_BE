@@ -80,4 +80,12 @@ public class JwtUtil {
                 && !parseAllClaims(token).getExpiration().before(new Date()));
     }
 
+    public boolean isTokenValidForUserId(String token, Long userId) {
+        Claims claims = parseAllClaims(token);
+        Long tokenUserId = claims.get("id", Long.class);
+        return userId != null
+                && userId.equals(tokenUserId)
+                && !claims.getExpiration().before(new Date());
+    }
+
 }

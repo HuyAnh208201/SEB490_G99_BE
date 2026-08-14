@@ -9,6 +9,7 @@ import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
 import base.api.feature.auth.repository.CriticalUserActionTokenRepository;
 import base.api.feature.auth.repository.IRoleRepository;
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.CriticalUserActionTokenModel;
@@ -90,6 +91,9 @@ public class UserService implements IUserService {
 
     @Autowired
     private ShiftAssignmentRepository shiftAssignmentRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
     @Value("${url.api-url:http://localhost:1328}")
     private String apiBaseUrl;
@@ -970,6 +974,11 @@ public class UserService implements IUserService {
         if (!future.isEmpty()) {
             throw new BadRequestException(
                     "Cannot delete this account while they are assigned to published shifts. Deactivate the account first (assignments will be cleared).");
+        }
+
+        if (orderRepository.existsByCashierId(targetUserId)) {
+            throw new BadRequestException(
+                    "Không thể xóa tài khoản này vì đã có lịch sử bán hàng. Vui lòng vô hiệu hóa tài khoản để giữ nguyên dữ liệu hóa đơn.");
         }
 
         if (targetRole == UserRole.BRANCH_MANAGER && target.getBranchId() != null) {

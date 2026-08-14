@@ -7,6 +7,7 @@ import base.api.feature.auth.repository.IPasswordResetTokenRepository;
 import base.api.feature.auth.repository.IRoleRepository;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionRepository;
 import base.api.shared.config.EmailService;
@@ -71,6 +72,7 @@ class UserProfileStatusTest {
     @Mock private CurrentUserProvider currentUserProvider;
     @Mock private ShiftSessionRepository shiftSessionRepository;
     @Mock private ShiftAssignmentRepository shiftAssignmentRepository;
+    @Mock private OrderRepository orderRepository;
 
     @InjectMocks
     private UserService service;
@@ -270,6 +272,24 @@ class UserProfileStatusTest {
 
         assertTrue(error.getMessage().contains(
                 "Cannot delete this account while they are assigned to published shifts. Deactivate the account first (assignments will be cleared)."));
+        verify(userRepository, never()).delete(any(UserModel.class));
+    }
+
+    @Test
+    void deleteUserBlocksWhenSalesHistoryExists() {
+        UserModel actor = user(1L, UserRole.ADMIN, null);
+        UserModel target = user(2L, UserRole.CASHIER, 10L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(shiftSessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(2L), anyList()))
+                .thenReturn(Optional.empty());
+        when(shiftAssignmentRepository.findPublishedAssignmentsFrom(eq(2L), any(LocalDateTime.class), eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of());
+        when(orderRepository.existsByCashierId(2L)).thenReturn(true);
+
+        BadRequestException error = assertThrows(
+                BadRequestException.class, () -> service.deleteUser(2L, actor));
+
+        assertTrue(error.getMessage().contains("đã có lịch sử bán hàng"));
         verify(userRepository, never()).delete(any(UserModel.class));
     }
 

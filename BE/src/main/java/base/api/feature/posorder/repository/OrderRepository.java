@@ -30,5 +30,7 @@ public interface OrderRepository extends JpaRepository<OrderModel, Long>, JpaSpe
 
     long countByBranchId(Long branchId);
 
+    boolean existsByCashierId(Long cashierId);
+
     Page<OrderModel> findByCustomerIdOrderByCreatedAtDesc(Long customerId, Pageable pageable);
 }
