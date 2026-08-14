@@ -487,11 +487,18 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
         if (topUnits <= 0 || detail.getProductId() == null) {
             return 0;
         }
+        ProductModel product = productsById.get(detail.getProductId());
+        // Short-date products bypass the central warehouse, matching dispatch allocation.
+        if (product != null
+                && product.getCategory() != null
+                && Boolean.TRUE.equals(product.getCategory().getShortDate())) {
+            return 0;
+        }
         ProductPackagingModel top = topPackagings.get(detail.getProductId());
         if (top != null) {
             return productPackagingService.toBaseQty(topUnits, top);
         }
-        return productPackagingService.toBaseQty(topUnits, productsById.get(detail.getProductId()));
+        return productPackagingService.toBaseQty(topUnits, product);
     }
 
     private void increaseWarehouseStockBatch(Map<Integer, Integer> baseQtyByProduct) {

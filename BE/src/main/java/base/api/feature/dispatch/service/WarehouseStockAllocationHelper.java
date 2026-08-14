@@ -104,7 +104,10 @@ public class WarehouseStockAllocationHelper {
                 detailRepository.findByPurchaseRequestIdIn(ids).stream()
                         .collect(Collectors.groupingBy(PurchaseRequestDetailModel::getPurchaseRequestId));
         Set<Integer> productIds = collectProductIds(detailsByRequest.values());
-        Map<Integer, Integer> working = loadPhysicalStock(productIds);
+        // Awaiting requests may contain products that are not present in any approved
+        // request. Keep every physical-stock row in the working map so reevaluation
+        // does not incorrectly treat those products as having zero stock.
+        Map<Integer, Integer> working = loadPhysicalStock();
         Map<Integer, ProductModel> productsById = loadProductsByIds(productIds);
         Map<Integer, ProductPackagingModel> topPackagings = loadPackagings(productsById);
         for (PurchaseRequestModel pr : approved) {
