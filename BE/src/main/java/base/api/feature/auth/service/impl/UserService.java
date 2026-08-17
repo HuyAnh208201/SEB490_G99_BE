@@ -40,6 +40,8 @@ import base.api.shared.exception.NotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -94,6 +96,9 @@ public class UserService implements IUserService {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Value("${url.api-url:http://localhost:1328}")
     private String apiBaseUrl;
@@ -990,7 +995,44 @@ public class UserService implements IUserService {
             });
         }
 
-        userRepository.delete(target);
+        deleteUserTokens(targetUserId);
+
+        try {
+            userRepository.delete(target);
+            userRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new BadRequestException(
+                    "Không thể xóa tài khoản này vì đã có dữ liệu nghiệp vụ liên quan. Vui lòng vô hiệu hóa tài khoản để giữ nguyên lịch sử.");
+        }
+    }
+
+    /**
+     * Native SQL keeps the transaction usable: a JPA repository call against a table that is
+     * missing on the deployed schema marks the transaction rollback-only even when caught.
+     */
+    private void deleteUserTokens(Long targetUserId) {
+        deleteTokenRows("password_reset_tokens", "user_id", targetUserId);
+        deleteTokenRows("email_verification_tokens", "user_id", targetUserId);
+        deleteTokenRows("critical_user_action_tokens", "target_user_id", targetUserId);
+        deleteTokenRows("critical_user_action_tokens", "actor_user_id", targetUserId);
+    }
+
+    private void deleteTokenRows(String table, String column, Long targetUserId) {
+        Integer tableExists = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*) FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = ?
+                          AND COLUMN_NAME = ?
+                        """,
+                Integer.class,
+                table,
+                column);
+        if (tableExists == null || tableExists == 0) {
+            log.debug("Skipped token cleanup, {}.{} not present on this schema", table, column);
+            return;
+        }
+        jdbcTemplate.update("DELETE FROM " + table + " WHERE " + column + " = ?", targetUserId);
     }
 
     @Override

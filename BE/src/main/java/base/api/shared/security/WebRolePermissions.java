@@ -93,6 +93,7 @@ public final class WebRolePermissions {
                 WebPermission.APPROVE_IMPORT_REQUEST,
                 WebPermission.CHOOSE_EXTERNAL_SUPPLIER,
                 WebPermission.VIEW_SUPPLIER_RECEIPTS_PRICES,
+                WebPermission.SUPPLIER_MANAGEMENT,
                 WebPermission.SET_RETAIL_PRICE,
                 WebPermission.MANAGE_DISPATCH_ORDERS,
                 WebPermission.PRODUCT_VIEW

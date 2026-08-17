@@ -27,12 +27,15 @@ import base.api.shared.security.CurrentUserProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -50,6 +53,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,6 +78,7 @@ class UserProfileStatusTest {
     @Mock private ShiftSessionRepository shiftSessionRepository;
     @Mock private ShiftAssignmentRepository shiftAssignmentRepository;
     @Mock private OrderRepository orderRepository;
+    @Mock private JdbcTemplate jdbcTemplate;
 
     @InjectMocks
     private UserService service;
@@ -303,8 +309,57 @@ class UserProfileStatusTest {
         when(shiftAssignmentRepository.findPublishedAssignmentsFrom(eq(2L), any(LocalDateTime.class), eq(ShiftStatus.PUBLISHED)))
                 .thenReturn(List.of());
 
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), anyString(), anyString()))
+                .thenReturn(1);
+
         service.deleteUser(2L, actor);
 
+        InOrder inOrder = inOrder(jdbcTemplate, userRepository);
+        inOrder.verify(jdbcTemplate)
+                .update("DELETE FROM password_reset_tokens WHERE user_id = ?", 2L);
+        inOrder.verify(jdbcTemplate)
+                .update("DELETE FROM email_verification_tokens WHERE user_id = ?", 2L);
+        inOrder.verify(userRepository).delete(target);
+        inOrder.verify(userRepository).flush();
+    }
+
+    @Test
+    void deleteUserSkipsTokenTablesMissingFromSchema() {
+        UserModel actor = user(1L, UserRole.ADMIN, null);
+        UserModel target = user(2L, UserRole.CASHIER, 10L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(shiftSessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(2L), anyList()))
+                .thenReturn(Optional.empty());
+        when(shiftAssignmentRepository.findPublishedAssignmentsFrom(eq(2L), any(LocalDateTime.class), eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of());
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), anyString(), anyString()))
+                .thenAnswer(inv -> "password_reset_tokens".equals(inv.getArgument(2)) ? 1 : 0);
+
+        service.deleteUser(2L, actor);
+
+        verify(jdbcTemplate).update("DELETE FROM password_reset_tokens WHERE user_id = ?", 2L);
+        verify(jdbcTemplate, never())
+                .update("DELETE FROM email_verification_tokens WHERE user_id = ?", 2L);
+        verify(userRepository).delete(target);
+        verify(userRepository).flush();
+    }
+
+    @Test
+    void deleteUserTurnsRemainingForeignKeyFailureIntoDeactivateMessage() {
+        UserModel actor = user(1L, UserRole.ADMIN, null);
+        UserModel target = user(2L, UserRole.CASHIER, 10L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(shiftSessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(2L), anyList()))
+                .thenReturn(Optional.empty());
+        when(shiftAssignmentRepository.findPublishedAssignmentsFrom(eq(2L), any(LocalDateTime.class), eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of());
+        doThrow(new DataIntegrityViolationException("fk shifts"))
+                .when(userRepository).flush();
+
+        BadRequestException error = assertThrows(
+                BadRequestException.class, () -> service.deleteUser(2L, actor));
+
+        assertTrue(error.getMessage().contains("Vui lòng vô hiệu hóa tài khoản"));
         verify(userRepository).delete(target);
     }
 
