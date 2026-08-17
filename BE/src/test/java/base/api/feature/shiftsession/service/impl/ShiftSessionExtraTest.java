@@ -23,12 +23,14 @@ import base.api.shared.entity.ShiftModel;
 import base.api.shared.entity.ShiftSessionHighValueItemModel;
 import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.enums.FundTransferMethod;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.ShiftStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
 import base.api.shared.security.CurrentUserProvider;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -36,6 +38,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -85,6 +88,11 @@ class ShiftSessionExtraTest {
     @InjectMocks
     private ShiftSessionServiceImpl service;
 
+    @BeforeEach
+    void allowShiftTestsOutsideStoreHours() {
+        ReflectionTestUtils.setField(service, "allowOutsideHoursTestMode", true);
+    }
+
     // -------------------------------------------------------------------------
     // getCurrent / start / opening fund
     // -------------------------------------------------------------------------
@@ -114,6 +122,67 @@ class ShiftSessionExtraTest {
         assertEquals(EMPLOYEE_ID, response.getEmployeeId());
         assertEquals(BRANCH_ID, response.getBranchId());
         assertNull(response.getId());
+    }
+
+    @Test
+    void getCurrentKeepsDemoCashierClosingSessionActive() {
+        UserModel cashier = cashier();
+        cashier.setEmail("demo_cashier@chainstore.vn");
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        ShiftSessionModel closing = openSession(ShiftSessionStatus.CLOSING);
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.of(closing));
+        stubToResponseDeps(cashier);
+
+        ShiftSessionResponse response = service.getCurrent();
+
+        assertEquals(ShiftSessionStatus.CLOSING, response.getStatus());
+        assertEquals(ShiftSessionStatus.CLOSING, closing.getStatus());
+        assertNull(closing.getClosedAt());
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void getCurrentCreatesFreshDemoShiftWhenOverlappingAssignmentIsCompleted() {
+        UserModel cashier = cashier();
+        cashier.setEmail("demo_cashier@chainstore.vn");
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.empty());
+        ShiftAssignmentModel oldAssignment = publishedAssignment(cashier);
+        when(assignmentRepository.findPublishedAssignmentsOverlapping(
+                eq(EMPLOYEE_ID), any(), any(), eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of(oldAssignment));
+        ShiftSessionModel completed = openSession(ShiftSessionStatus.COMPLETED);
+        when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
+                .thenReturn(Optional.of(completed));
+        when(shiftRepository.save(any(ShiftModel.class))).thenAnswer(invocation -> {
+            ShiftModel shift = invocation.getArgument(0);
+            shift.setId(99L);
+            return shift;
+        });
+        when(assignmentRepository.save(any(ShiftAssignmentModel.class))).thenAnswer(invocation -> {
+            ShiftAssignmentModel assignment = invocation.getArgument(0);
+            assignment.setId(100L);
+            return assignment;
+        });
+        when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(99L, EMPLOYEE_ID))
+                .thenReturn(Optional.empty());
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(invocation -> {
+            ShiftSessionModel session = invocation.getArgument(0);
+            session.setId(101L);
+            return session;
+        });
+        when(branchRepository.findById(BRANCH_ID)).thenReturn(Optional.empty());
+        when(userRepository.findById(EMPLOYEE_ID)).thenReturn(Optional.of(cashier));
+        when(shiftRepository.findById(99L)).thenAnswer(invocation -> Optional.empty());
+        when(highValueItemRepository.findBySessionIdOrderByIdAsc(anyLong())).thenReturn(List.of());
+        when(approvalRepository.findBySessionIdOrderByDecidedAtDesc(anyLong())).thenReturn(List.of());
+
+        ShiftSessionResponse response = service.getCurrent();
+
+        assertEquals(ShiftSessionStatus.SCHEDULED, response.getStatus());
+        assertEquals(99L, response.getShiftId());
     }
 
     @Test
@@ -150,7 +219,7 @@ class ShiftSessionExtraTest {
 
         BusinessException error = assertThrows(BusinessException.class, () -> service.startShift(request));
 
-        assertTrue(error.getMessage().contains("Shift cannot be started in its current state."));
+        assertTrue(error.getMessage().contains("This shift is in closing."));
     }
 
     @Test
@@ -208,6 +277,37 @@ class ShiftSessionExtraTest {
     }
 
     @Test
+    void startShiftStoresSelectedOpeningFundSourceAndMethod() {
+        UserModel cashier = cashier();
+        UserModel manager = branchManager(99L, "Minh Manager");
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        ShiftAssignmentModel assignment = publishedAssignment(cashier);
+        stubCurrentAssignment(assignment);
+        ShiftSessionModel scheduled = scheduledSession();
+        when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
+                .thenReturn(Optional.of(scheduled));
+        when(sessionRepository.findFirstByBranchIdAndStatusOrderByOpenedAtDesc(BRANCH_ID, ShiftSessionStatus.OPEN))
+                .thenReturn(Optional.empty());
+        when(shiftRepository.findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
+                anyLong(), any(), any()))
+                .thenReturn(List.of(assignment.getShift()));
+        when(userRepository.findActiveBranchManagers(BRANCH_ID)).thenReturn(List.of(manager));
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubToResponseDeps(cashier);
+        when(userRepository.findById(99L)).thenReturn(Optional.of(manager));
+
+        StartShiftRequest request = new StartShiftRequest();
+        request.setConfirmedReceived(true);
+        request.setReceivedFromEmployeeId(99L);
+        request.setFundMethod(FundTransferMethod.TRANSFER);
+
+        service.startShift(request);
+
+        assertEquals(99L, scheduled.getOpeningFundReceivedFrom());
+        assertEquals(FundTransferMethod.TRANSFER, scheduled.getOpeningFundMethod());
+    }
+
+    @Test
     void confirmOpeningFundRejectsNonScheduledSession() {
         UserModel cashier = cashier();
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
@@ -220,7 +320,7 @@ class ShiftSessionExtraTest {
         BusinessException error = assertThrows(
                 BusinessException.class, () -> service.confirmOpeningFund(new ConfirmOpeningFundRequest()));
 
-        assertTrue(error.getMessage().contains("Shift session is not in the expected state."));
+        assertTrue(error.getMessage().contains("This shift is already open."));
     }
 
     // -------------------------------------------------------------------------
@@ -282,6 +382,69 @@ class ShiftSessionExtraTest {
         BusinessException error = assertThrows(BusinessException.class, () -> service.confirmHandover(request));
 
         assertTrue(error.getMessage().contains("Remark is required when there is a cash difference."));
+    }
+
+    @Test
+    void confirmHandoverStoresCashierSelectedScheduledReplacement() {
+        UserModel cashier = cashier();
+        UserModel replacement = cashier(22L, "Mai Replacement");
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        ShiftSessionModel closing = openSession(ShiftSessionStatus.CLOSING);
+        closing.setVerificationConfirmed(true);
+        closing.setOpeningFundAmount(new BigDecimal("2000000"));
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.of(closing));
+        when(paymentRepository.sumCashTakenInShift(SHIFT_ID)).thenReturn(BigDecimal.ZERO);
+        when(paymentRepository.countTransactionsInShift(SHIFT_ID)).thenReturn(0L);
+        ShiftModel current = shiftModel();
+        when(shiftRepository.findById(SHIFT_ID)).thenReturn(Optional.of(current));
+        when(shiftRepository.findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
+                anyLong(), any(), any())).thenReturn(List.of(current));
+        ShiftAssignmentModel replacementAssignment = publishedAssignment(replacement);
+        replacementAssignment.setShift(current);
+        when(assignmentRepository.findByShiftId(SHIFT_ID)).thenReturn(List.of(replacementAssignment));
+        when(userRepository.findActiveBranchManagers(BRANCH_ID)).thenReturn(List.of());
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubToResponseDeps(cashier);
+        when(userRepository.findById(22L)).thenReturn(Optional.of(replacement));
+
+        ConfirmHandoverRequest request = new ConfirmHandoverRequest();
+        request.setActualCash(new BigDecimal("2000000"));
+        request.setHandoverToEmployeeId(22L);
+
+        service.confirmHandover(request);
+
+        assertEquals(22L, closing.getHandoverToEmployeeId());
+        assertTrue(closing.getHandoverConfirmed());
+    }
+
+    @Test
+    void confirmHandoverRejectsEarlyCloseWithoutScheduledReplacement() {
+        UserModel cashier = cashier();
+        UserModel manager = branchManager(99L, "Minh Manager");
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        ShiftSessionModel closing = openSession(ShiftSessionStatus.CLOSING);
+        closing.setVerificationConfirmed(true);
+        closing.setOpeningFundAmount(new BigDecimal("2000000"));
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.of(closing));
+        when(paymentRepository.sumCashTakenInShift(SHIFT_ID)).thenReturn(BigDecimal.ZERO);
+        when(paymentRepository.countTransactionsInShift(SHIFT_ID)).thenReturn(0L);
+        ShiftModel current = shiftModel();
+        when(shiftRepository.findById(SHIFT_ID)).thenReturn(Optional.of(current));
+        when(shiftRepository.findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
+                anyLong(), any(), any())).thenReturn(List.of(current));
+        when(assignmentRepository.findByShiftId(SHIFT_ID)).thenReturn(List.of());
+        when(userRepository.findActiveBranchManagers(BRANCH_ID)).thenReturn(List.of(manager));
+
+        ConfirmHandoverRequest request = new ConfirmHandoverRequest();
+        request.setActualCash(new BigDecimal("2000000"));
+        request.setHandoverToEmployeeId(99L);
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.confirmHandover(request));
+
+        assertTrue(error.getMessage().contains("Early closing requires a scheduled replacement"));
     }
 
     @Test
@@ -506,14 +669,28 @@ class ShiftSessionExtraTest {
     }
 
     private UserModel cashier() {
+        return cashier(EMPLOYEE_ID, "Lan Nguyen");
+    }
+
+    private UserModel cashier(Long id, String name) {
         UserModel user = new UserModel();
-        user.setId(EMPLOYEE_ID);
+        user.setId(id);
         user.setBranchId(BRANCH_ID);
         user.setRole(UserRole.CASHIER);
-        user.setUserName("cashier01");
-        user.setFirstName("Lan");
-        user.setLastName("Nguyen");
-        user.setEmail("cashier01@chainstore.com");
+        user.setUserName("cashier" + id);
+        user.setFullName(name);
+        user.setEmail("cashier" + id + "@chainstore.com");
+        return user;
+    }
+
+    private UserModel branchManager(Long id, String name) {
+        UserModel user = new UserModel();
+        user.setId(id);
+        user.setBranchId(BRANCH_ID);
+        user.setRole(UserRole.BRANCH_MANAGER);
+        user.setUserName("manager" + id);
+        user.setFullName(name);
+        user.setEmail("manager" + id + "@chainstore.com");
         return user;
     }
 

@@ -23,14 +23,14 @@ public interface PaymentRepository extends JpaRepository<PaymentModel, Long> {
 
     /**
      * Tổng tiền mặt thực thu trong một ca — vế "doanh thu tiền mặt" của công thức
-     * Expected = tiền đầu ca + doanh thu tiền mặt.
+     * Expected = opening fund + cash received − change given.
      *
-     * Chỉ tính method CASH: chuyển khoản không nằm trong két nên không được cộng
-     * vào số tiền thu ngân phải đếm. Loại đơn REFUNDED: tiền đã trả lại khách nên
-     * không còn trong két, nếu tính vào expected thì cashier sẽ bị báo thiếu.
+     * Uses tendered cash minus change when those columns are present, falling
+     * back to payment amount for older rows. Only CASH + SUCCESS + COMPLETED
+     * orders count; refunds are subtracted later in refreshCashierTotals.
      */
     @Query("""
-            SELECT COALESCE(SUM(p.amount), 0) FROM PaymentModel p
+            SELECT COALESCE(SUM(COALESCE(p.cashReceived, p.amount) - COALESCE(p.changeAmount, 0)), 0) FROM PaymentModel p
             WHERE p.method = 'CASH'
               AND p.status = 'SUCCESS'
               AND p.orderId IN (SELECT o.id FROM OrderModel o

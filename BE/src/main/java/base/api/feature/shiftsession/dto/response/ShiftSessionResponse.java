@@ -1,6 +1,7 @@
 package base.api.feature.shiftsession.dto.response;
 
 import base.api.shared.enums.CashDifferenceStatus;
+import base.api.shared.enums.FundTransferMethod;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.UserRole;
 import lombok.Getter;
@@ -29,13 +30,17 @@ public class ShiftSessionResponse {
     private Boolean openingConfirmed;
     /** Same value as openingConfirmed — reserved for shift history screens. */
     private Boolean openingFundConfirmed;
+    private String openingFundStatus;
     private Boolean verificationConfirmed;
     private Boolean handoverConfirmed;
     private String openingNote;
     private String closingNote;
     private BigDecimal openingFundAmount;
     private String openingFundReceivedFromName;
+    private Long openingFundReceivedFromEmployeeId;
     private LocalDateTime openingFundReceivedAt;
+    private FundTransferMethod openingFundMethod;
+    private List<ShiftHandoverCandidateResponse> openingFundSources = new ArrayList<>();
     private Integer transactionCount;
     private BigDecimal cashSales;
     private BigDecimal refundAmount;
@@ -46,6 +51,8 @@ public class ShiftSessionResponse {
     private String cashierExplanation;
     private Long handoverToEmployeeId;
     private String handoverToEmployeeName;
+    private List<ShiftHandoverCandidateResponse> handoverCandidates = new ArrayList<>();
+    private Boolean earlyClose;
     private String handoverRemark;
     private Integer adjustedProductsCount;
     private Integer damagedProductsCount;
@@ -66,6 +73,12 @@ public class ShiftSessionResponse {
     private List<HighValueItemResponse> highValueItems = new ArrayList<>();
     private InventoryClosingSummaryResponse inventorySummary;
     private List<ShiftSessionApprovalHistoryResponse> approvalHistory = new ArrayList<>();
+
+    /** Read-only handover summary from the last closed cashier session (opening flow only). */
+    private PreviousShiftHandoverReportResponse previousShiftReport;
+
+    /** Product qty deltas vs the previous closed cashier shift (closing + BM review). */
+    private List<PreviousShiftProductVarianceResponse> previousShiftProductVariance = new ArrayList<>();
 
     private ShiftSessionTransactionSummaryResponse transactionSummary;
 

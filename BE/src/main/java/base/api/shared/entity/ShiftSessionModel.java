@@ -1,6 +1,7 @@
 package base.api.shared.entity;
 
 import base.api.shared.enums.ShiftSessionStatus;
+import base.api.shared.enums.FundTransferMethod;
 import base.api.shared.enums.UserRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -77,6 +78,10 @@ public class ShiftSessionModel {
 
     @Column(name = "opening_fund_received_at")
     private LocalDateTime openingFundReceivedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "opening_fund_method", length = 20)
+    private FundTransferMethod openingFundMethod;
 
     @Column(name = "transaction_count")
     private Integer transactionCount = 0;

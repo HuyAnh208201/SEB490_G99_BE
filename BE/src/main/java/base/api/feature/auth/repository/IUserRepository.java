@@ -27,6 +27,11 @@ public interface IUserRepository extends JpaRepository<UserModel, Long>, JpaSpec
 
     Optional<UserModel> findByPhone(String phone);
 
+    default Optional<UserModel> findByEmailOrPhone(String identifier) {
+        Optional<UserModel> byEmail = findByEmail(identifier);
+        return byEmail.isPresent() ? byEmail : findByPhone(identifier);
+    }
+
     @Query("SELECT u FROM UserModel u WHERE LOWER(u.email) = LOWER(:login)")
     Optional<UserModel> findByUserName(@Param("login") String login);
 

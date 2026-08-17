@@ -37,6 +37,14 @@ public class OrderItemModel {
     @Column(name = "unit_price", nullable = false, precision = 15, scale = 2)
     private BigDecimal unitPrice;
 
+    /** Per-base-unit import cost snapshotted at checkout. */
+    @Column(name = "unit_cost", precision = 15, scale = 2)
+    private BigDecimal unitCost;
+
     @Column(name = "line_total", nullable = false, precision = 15, scale = 2)
     private BigDecimal lineTotal;
+
+    /** Snapshot of the product refund policy at checkout time. */
+    @Column(nullable = false)
+    private Boolean refundable = true;
 }

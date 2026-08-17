@@ -4,6 +4,7 @@ import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.inventorycount.repository.InventoryCountSessionRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductSalePriceService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.posorder.repository.PaymentRepository;
@@ -20,6 +21,9 @@ import base.api.feature.shiftsession.dto.response.InventoryClosingSummaryRespons
 import base.api.feature.shiftsession.dto.response.ShiftSessionTransactionSummaryResponse;
 import base.api.feature.shiftsession.dto.response.ShiftSessionApprovalHistoryResponse;
 import base.api.feature.shiftsession.dto.response.ShiftBriefResponse;
+import base.api.feature.shiftsession.dto.response.ShiftHandoverCandidateResponse;
+import base.api.feature.shiftsession.dto.response.PreviousShiftHandoverReportResponse;
+import base.api.feature.shiftsession.dto.response.PreviousShiftProductVarianceResponse;
 import base.api.feature.shiftsession.dto.response.ShiftSessionResponse;
 import base.api.feature.shiftsession.repository.ShiftSessionApprovalRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionHighValueItemRepository;
@@ -36,6 +40,7 @@ import base.api.shared.entity.ShiftSessionHighValueItemModel;
 import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.CashDifferenceStatus;
+import base.api.shared.enums.FundTransferMethod;
 import base.api.shared.enums.ShiftSessionApprovalDecision;
 import base.api.shared.enums.ShiftSessionStatus;
 import base.api.shared.enums.ShiftStatus;
@@ -58,6 +63,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -117,6 +123,9 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     private IProductRepository productRepository;
 
     @Autowired
+    private ProductSalePriceService productSalePriceService;
+
+    @Autowired
     private InventoryCountSessionRepository inventoryCountSessionRepository;
 
     @Autowired
@@ -146,16 +155,6 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             ShiftSessionModel session = active.get();
             if (autoCloseIfOverdue(session)) {
                 // Session was stale; continue so the cashier can pick up the current assignment.
-            } else
-            // Demo: abandon stuck close flow so cashier can open a fresh POS shift anytime.
-            if (DemoAccounts.isDemoCashierBypassEmail(user.getEmail())
-                    && (session.getStatus() == ShiftSessionStatus.CLOSING
-                            || session.getStatus() == ShiftSessionStatus.PENDING_HANDOVER)) {
-                session.setStatus(ShiftSessionStatus.COMPLETED);
-                if (session.getClosedAt() == null) {
-                    session.setClosedAt(LocalDateTime.now());
-                }
-                sessionRepository.save(session);
             } else {
                 ShiftSessionResponse response = toResponse(session, user);
                 applySlotContext(response, user);
@@ -173,6 +172,12 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             return empty;
         }
         ShiftSessionModel session = getOrCreateScheduledSession(user, assignment);
+        if (session.getStatus() == ShiftSessionStatus.SCHEDULED && session.getRole() == UserRole.CASHIER) {
+            shiftRepository.findById(session.getShiftId()).ifPresent(shift -> {
+                populateOpeningFund(session, shift);
+                sessionRepository.save(session);
+            });
+        }
         ShiftSessionResponse response = toResponse(session, user);
         applySlotContext(response, user);
         return response;
@@ -192,6 +197,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         ShiftSessionModel session = getOrCreateScheduledSession(user, assignment);
         assertCanBeginOpening(session);
         populateOpeningFund(session, assignment.getShift());
+        applyOpeningFundReceipt(
+                session,
+                request != null ? request.getReceivedFromEmployeeId() : null,
+                request != null ? request.getFundMethod() : null);
         session.setOpeningConfirmed(true);
         if (request != null && request.getNote() != null) {
             session.setOpeningNote(request.getNote().trim());
@@ -219,6 +228,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         }
         assertNoOtherOpenSessionInBranch(session.getBranchId(), user.getId(), user);
         populateOpeningFund(session, assignment.getShift());
+        applyOpeningFundReceipt(
+                session,
+                request != null ? request.getReceivedFromEmployeeId() : null,
+                request != null ? request.getFundMethod() : null);
         session.setOpeningConfirmed(true);
         if (request != null && request.getNote() != null && !request.getNote().isBlank()) {
             session.setOpeningNote(request.getNote().trim());
@@ -303,7 +316,14 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 && (request.getRemark() == null || request.getRemark().isBlank())) {
             throw new BusinessException("Remark is required when there is a cash difference.");
         }
+        ShiftHandoverCandidateResponse target = resolveSelectedHandoverTarget(
+                session, request.getHandoverToEmployeeId());
+        if (isEarlyClose(session) && !Boolean.TRUE.equals(target.getScheduledReplacement())) {
+            throw new BusinessException(
+                    "Early closing requires a scheduled replacement cashier for the current time.");
+        }
         session.setHandoverRemark(request.getRemark());
+        session.setHandoverToEmployeeId(target.getEmployeeId());
         session.setHandoverConfirmed(true);
         if (session.getStatus() != ShiftSessionStatus.CLOSING) {
             session.setStatus(ShiftSessionStatus.CLOSING);
@@ -425,7 +445,8 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     public List<ShiftSessionResponse> getHistory() {
         UserModel user = requireStaff();
         return sessionRepository.findByEmployeeIdOrderByCreatedAtDesc(user.getId()).stream()
-                .map(session -> toResponse(session, user))
+                .limit(100)
+                .map(session -> toHistoryResponse(session, user))
                 .toList();
     }
 
@@ -725,8 +746,18 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 now.minusMinutes(30),
                 now.plusMinutes(30),
                 ShiftStatus.PUBLISHED);
-        if (!overlapping.isEmpty()) {
-            return overlapping.get(0);
+        Optional<ShiftAssignmentModel> reusable = overlapping.stream()
+                .filter(assignment -> sessionRepository
+                        .findFirstByShiftIdAndEmployeeIdOrderByIdDesc(
+                                assignment.getShift().getId(), user.getId())
+                        .map(session -> session.getStatus() == ShiftSessionStatus.SCHEDULED
+                                || session.getStatus().isActiveForCashier()
+                                || session.getStatus() == ShiftSessionStatus.PENDING_APPROVAL
+                                || session.getStatus() == ShiftSessionStatus.REJECTED)
+                        .orElse(true))
+                .findFirst();
+        if (reusable.isPresent()) {
+            return reusable.get();
         }
 
         LocalDateTime start = now.minusMinutes(15);
@@ -857,11 +888,35 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         }
         if (isFirstPublishedShiftOfDay(shift)) {
             session.setOpeningFundAmount(STANDARD_OPENING_FUND);
-        } else if (session.getOpeningFundAmount() == null) {
-            session.setOpeningFundAmount(
-                    shift.getOpeningCash() != null ? shift.getOpeningCash() : BigDecimal.ZERO);
+        } else {
+            findPreviousCashierSession(session).ifPresentOrElse(
+                    previous -> {
+                        if (previous.getActualCash() != null) {
+                            session.setOpeningFundAmount(previous.getActualCash());
+                        } else if (session.getOpeningFundAmount() == null) {
+                            session.setOpeningFundAmount(
+                                    shift.getOpeningCash() != null ? shift.getOpeningCash() : BigDecimal.ZERO);
+                        }
+                    },
+                    () -> {
+                        if (session.getOpeningFundAmount() == null) {
+                            session.setOpeningFundAmount(
+                                    shift.getOpeningCash() != null ? shift.getOpeningCash() : BigDecimal.ZERO);
+                        }
+                    });
         }
-        session.setOpeningFundReceivedFrom(shift.getCreatedBy());
+        if (session.getOpeningFundReceivedFrom() == null) {
+            sessionRepository
+                    .findFirstByBranchIdAndStatusInAndRoleOrderByClosedAtDesc(
+                            session.getBranchId(), HANDOVER_FUND_STATUSES, UserRole.CASHIER)
+                    .filter(previous -> !Objects.equals(previous.getEmployeeId(), session.getEmployeeId()))
+                    .ifPresentOrElse(
+                            previous -> session.setOpeningFundReceivedFrom(previous.getEmployeeId()),
+                            () -> session.setOpeningFundReceivedFrom(shift.getCreatedBy()));
+        }
+        if (session.getOpeningFundMethod() == null) {
+            session.setOpeningFundMethod(FundTransferMethod.CASH);
+        }
         if (session.getOpeningFundReceivedAt() == null) {
             session.setOpeningFundReceivedAt(
                     shift.getStartTime() != null ? shift.getStartTime() : LocalDateTime.now());
@@ -1093,15 +1148,20 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 .collect(Collectors.toSet());
         Map<Integer, ProductModel> products = productRepository.findAllById(productIds).stream()
                 .collect(Collectors.toMap(ProductModel::getId, Function.identity()));
+        Map<Integer, BigDecimal> effectivePrices = productSalePriceService == null
+                ? products.values().stream().collect(Collectors.toMap(
+                        ProductModel::getId, ProductModel::getDefaultSalePrice))
+                : productSalePriceService.effectivePrices(new ArrayList<>(products.values()));
 
         List<ShiftSessionHighValueItemModel> seeds = new ArrayList<>();
         Set<String> seenProductNames = new HashSet<>();
         for (BranchInventoryModel row : inventory) {
             ProductModel product = products.get(row.getProductId());
-            if (product == null || product.getDefaultSalePrice() == null) {
+            BigDecimal price = product == null ? null : effectivePrices.get(product.getId());
+            if (price == null) {
                 continue;
             }
-            if (!qualifiesForHighValueVerification(product)) {
+            if (!qualifiesForHighValueVerification(product, price)) {
                 continue;
             }
             String dedupeKey = product.getName() != null
@@ -1117,7 +1177,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             seeds.add(item);
         }
         seeds.sort(Comparator.comparing(
-                i -> products.get(i.getProductId()).getDefaultSalePrice(), Comparator.reverseOrder()));
+                i -> effectivePrices.get(i.getProductId()), Comparator.reverseOrder()));
         if (seeds.size() > HIGH_VALUE_MAX_ITEMS) {
             seeds = seeds.subList(0, HIGH_VALUE_MAX_ITEMS);
         }
@@ -1187,11 +1247,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         return 0;
     }
 
-    private boolean qualifiesForHighValueVerification(ProductModel product) {
-        if (product.getDefaultSalePrice() == null) {
-            return false;
-        }
-        BigDecimal price = product.getDefaultSalePrice();
+    private boolean qualifiesForHighValueVerification(ProductModel product, BigDecimal price) {
         if (isHighRiskCategory(product.getCategory())) {
             return price.compareTo(HIGH_RISK_CATEGORY_PRICE_THRESHOLD) >= 0;
         }
@@ -1216,27 +1272,143 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 || name.contains("premium alcohol");
     }
 
-    private void resolveHandoverTarget(ShiftSessionModel session) {
-        ShiftModel shift = shiftRepository.findById(session.getShiftId()).orElseThrow();
+    private void applyOpeningFundReceipt(
+            ShiftSessionModel session, Long receivedFromEmployeeId, FundTransferMethod method) {
+        List<ShiftHandoverCandidateResponse> sources = buildOpeningFundSources(session);
+        if (receivedFromEmployeeId != null) {
+            boolean allowed = sources.stream()
+                    .anyMatch(source -> Objects.equals(source.getEmployeeId(), receivedFromEmployeeId));
+            if (!allowed) {
+                throw new BusinessException("Select a valid opening fund source for this branch.");
+            }
+            session.setOpeningFundReceivedFrom(receivedFromEmployeeId);
+        }
+        if (session.getOpeningFundReceivedFrom() == null) {
+            throw new BusinessException("Opening fund source is required.");
+        }
+        session.setOpeningFundMethod(method != null ? method : FundTransferMethod.CASH);
+    }
+
+    private List<ShiftHandoverCandidateResponse> buildOpeningFundSources(ShiftSessionModel session) {
+        Map<Long, ShiftHandoverCandidateResponse> candidates = new LinkedHashMap<>();
+        sessionRepository
+                .findFirstByBranchIdAndStatusInAndRoleOrderByClosedAtDesc(
+                        session.getBranchId(), HANDOVER_FUND_STATUSES, UserRole.CASHIER)
+                .filter(previous -> !Objects.equals(previous.getEmployeeId(), session.getEmployeeId()))
+                .flatMap(previous -> userRepository.findById(previous.getEmployeeId()))
+                .ifPresent(user -> candidates.put(
+                        user.getId(), toHandoverCandidate(user, null, false)));
+        userRepository.findActiveBranchManagers(session.getBranchId()).forEach(manager -> candidates.putIfAbsent(
+                manager.getId(), toHandoverCandidate(manager, null, false)));
+        if (session.getOpeningFundReceivedFrom() != null) {
+            userRepository.findById(session.getOpeningFundReceivedFrom()).ifPresent(user -> candidates.putIfAbsent(
+                    user.getId(), toHandoverCandidate(user, null, false)));
+        }
+        return new ArrayList<>(candidates.values());
+    }
+
+    private List<ShiftHandoverCandidateResponse> buildHandoverCandidates(ShiftSessionModel session) {
+        ShiftModel current = shiftRepository.findById(session.getShiftId()).orElse(null);
+        if (current == null || current.getStartTime() == null) {
+            return List.of();
+        }
+        LocalDateTime now = LocalDateTime.now();
         List<ShiftModel> sameDay = shiftRepository
                 .findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
-                        shift.getBranchId(),
-                        shift.getStartTime().toLocalDate().atStartOfDay(),
-                        shift.getStartTime().toLocalDate().plusDays(1).atStartOfDay());
-        ShiftModel nextShift = sameDay.stream()
-                .filter(s -> s.getStatus() == ShiftStatus.PUBLISHED)
-                .filter(s -> s.getStartTime().isAfter(shift.getEndTime())
-                        || s.getStartTime().equals(shift.getEndTime()))
-                .findFirst()
-                .orElse(null);
-        if (nextShift != null) {
-            assignmentRepository.findByShiftId(nextShift.getId()).stream()
-                    .filter(a -> effectiveRole(a) == UserRole.CASHIER)
-                    .findFirst()
-                    .ifPresent(a -> session.setHandoverToEmployeeId(a.getStaff().getId()));
-        } else {
-            session.setHandoverToEmployeeId(shift.getCreatedBy());
+                        session.getBranchId(),
+                        current.getStartTime().toLocalDate().atStartOfDay(),
+                        current.getStartTime().toLocalDate().plusDays(1).atStartOfDay());
+        Map<Long, ShiftHandoverCandidateResponse> candidates = new LinkedHashMap<>();
+        for (ShiftModel candidateShift : sameDay) {
+            if (candidateShift.getStatus() != ShiftStatus.PUBLISHED
+                    || candidateShift.getStartTime() == null
+                    || candidateShift.getEndTime() == null) {
+                continue;
+            }
+            boolean coversNow = !candidateShift.getStartTime().isAfter(now)
+                    && candidateShift.getEndTime().isAfter(now);
+            boolean currentShift = Objects.equals(candidateShift.getId(), current.getId());
+            boolean followsCurrent = current.getEndTime() != null
+                    && !candidateShift.getStartTime().isBefore(current.getEndTime());
+            if (!currentShift && !coversNow && !followsCurrent) {
+                continue;
+            }
+            for (ShiftAssignmentModel assignment : assignmentRepository.findByShiftId(candidateShift.getId())) {
+                UserModel staff = assignment.getStaff();
+                if (staff == null
+                        || effectiveRole(assignment) != UserRole.CASHIER
+                        || Objects.equals(staff.getId(), session.getEmployeeId())) {
+                    continue;
+                }
+                ShiftHandoverCandidateResponse candidate =
+                        toHandoverCandidate(staff, candidateShift, coversNow);
+                ShiftHandoverCandidateResponse existing = candidates.get(staff.getId());
+                if (existing == null
+                        || (!Boolean.TRUE.equals(existing.getScheduledReplacement()) && coversNow)) {
+                    candidates.put(staff.getId(), candidate);
+                }
+            }
         }
+        userRepository.findActiveBranchManagers(session.getBranchId()).forEach(manager -> candidates.putIfAbsent(
+                manager.getId(), toHandoverCandidate(manager, null, false)));
+        return new ArrayList<>(candidates.values());
+    }
+
+    private ShiftHandoverCandidateResponse toHandoverCandidate(
+            UserModel user, ShiftModel shift, boolean scheduledReplacement) {
+        ShiftHandoverCandidateResponse response = new ShiftHandoverCandidateResponse();
+        response.setEmployeeId(user.getId());
+        response.setEmployeeName(formatName(user));
+        response.setRole(user.getRole());
+        response.setScheduledReplacement(scheduledReplacement);
+        if (shift != null) {
+            response.setShiftId(shift.getId());
+            response.setShiftStart(shift.getStartTime());
+            response.setShiftEnd(shift.getEndTime());
+        }
+        return response;
+    }
+
+    private ShiftHandoverCandidateResponse resolveSelectedHandoverTarget(
+            ShiftSessionModel session, Long requestedEmployeeId) {
+        List<ShiftHandoverCandidateResponse> candidates = buildHandoverCandidates(session);
+        Long targetId = requestedEmployeeId != null
+                ? requestedEmployeeId
+                : session.getHandoverToEmployeeId();
+        if (targetId == null) {
+            targetId = candidates.stream()
+                    .filter(candidate -> !isEarlyClose(session)
+                            || Boolean.TRUE.equals(candidate.getScheduledReplacement()))
+                    .map(ShiftHandoverCandidateResponse::getEmployeeId)
+                    .findFirst()
+                    .orElse(null);
+        }
+        Long selectedId = targetId;
+        return candidates.stream()
+                .filter(candidate -> Objects.equals(candidate.getEmployeeId(), selectedId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(
+                        "Select a valid cashier or branch manager for cash handover."));
+    }
+
+    private boolean isEarlyClose(ShiftSessionModel session) {
+        return shiftRepository.findById(session.getShiftId())
+                .map(ShiftModel::getEndTime)
+                .filter(Objects::nonNull)
+                .map(endTime -> LocalDateTime.now().isBefore(endTime))
+                .orElse(false);
+    }
+
+    private void resolveHandoverTarget(ShiftSessionModel session) {
+        if (session.getHandoverToEmployeeId() != null) {
+            return;
+        }
+        List<ShiftHandoverCandidateResponse> candidates = buildHandoverCandidates(session);
+        candidates.stream()
+                .filter(candidate -> !isEarlyClose(session)
+                        || Boolean.TRUE.equals(candidate.getScheduledReplacement()))
+                .findFirst()
+                .ifPresent(candidate -> session.setHandoverToEmployeeId(candidate.getEmployeeId()));
     }
 
     private UserRole effectiveRole(ShiftAssignmentModel assignment) {
@@ -1244,6 +1416,105 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             return assignment.getAssignedRole();
         }
         return assignment.getStaff().getRole();
+    }
+
+    private Optional<ShiftSessionModel> findPreviousCashierSession(ShiftSessionModel session) {
+        return sessionRepository
+                .findFirstByBranchIdAndStatusInAndRoleOrderByClosedAtDesc(
+                        session.getBranchId(), HANDOVER_FUND_STATUSES, UserRole.CASHIER)
+                .filter(previous -> !Objects.equals(previous.getEmployeeId(), session.getEmployeeId()))
+                .filter(previous -> !Objects.equals(previous.getId(), session.getId()));
+    }
+
+    /**
+     * Prior closed cashier session for product variance (may be same employee on a previous shift).
+     */
+    private Optional<ShiftSessionModel> findPriorClosedCashierSessionForVariance(ShiftSessionModel session) {
+        LocalDateTime before = session.getOpenedAt() != null ? session.getOpenedAt() : LocalDateTime.now();
+        return sessionRepository
+                .findByBranchIdAndStatusInOrderByOpenedAtDesc(session.getBranchId(), HANDOVER_FUND_STATUSES)
+                .stream()
+                .filter(previous -> previous.getRole() == UserRole.CASHIER)
+                .filter(previous -> !Objects.equals(previous.getId(), session.getId()))
+                .filter(previous -> previous.getClosedAt() != null && previous.getClosedAt().isBefore(before))
+                .max(Comparator.comparing(ShiftSessionModel::getClosedAt));
+    }
+
+    private List<PreviousShiftProductVarianceResponse> buildPreviousShiftProductVariance(
+            ShiftSessionModel session,
+            List<ShiftSessionHighValueItemModel> currentItems) {
+        Optional<ShiftSessionModel> previousOpt = findPriorClosedCashierSessionForVariance(session);
+        if (previousOpt.isEmpty()) {
+            return List.of();
+        }
+        ShiftSessionModel previous = previousOpt.get();
+        dedupeHighValueItemsForSession(previous.getId());
+        Map<Integer, HighValueItemResponse> previousByProduct =
+                mapHighValueItems(highValueItemRepository.findBySessionIdOrderByIdAsc(previous.getId()))
+                        .stream()
+                        .filter(item -> item.getProductId() != null)
+                        .collect(Collectors.toMap(
+                                HighValueItemResponse::getProductId,
+                                Function.identity(),
+                                (a, b) -> a));
+        Map<Integer, HighValueItemResponse> currentByProduct =
+                mapHighValueItems(currentItems).stream()
+                        .filter(item -> item.getProductId() != null)
+                        .collect(Collectors.toMap(
+                                HighValueItemResponse::getProductId,
+                                Function.identity(),
+                                (a, b) -> a));
+
+        Set<Integer> productIds = new HashSet<>();
+        productIds.addAll(previousByProduct.keySet());
+        productIds.addAll(currentByProduct.keySet());
+
+        List<PreviousShiftProductVarianceResponse> rows = new ArrayList<>();
+        for (Integer productId : productIds) {
+            HighValueItemResponse current = currentByProduct.get(productId);
+            HighValueItemResponse prevItem = previousByProduct.get(productId);
+            PreviousShiftProductVarianceResponse row = new PreviousShiftProductVarianceResponse();
+            row.setProductId(productId);
+            row.setProductName(current != null ? current.getProductName() : prevItem.getProductName());
+            row.setCategoryName(current != null ? current.getCategoryName() : prevItem.getCategoryName());
+            Integer previousActual = prevItem != null ? prevItem.getActualQty() : null;
+            Integer currentExpected = current != null ? current.getExpectedQty() : null;
+            Integer currentActual = current != null ? current.getActualQty() : null;
+            row.setPreviousActualQty(previousActual);
+            row.setCurrentExpectedQty(currentExpected);
+            row.setCurrentActualQty(currentActual);
+            Integer compare = currentActual != null ? currentActual : currentExpected;
+            if (previousActual != null && compare != null) {
+                row.setVariance(compare - previousActual);
+            }
+            rows.add(row);
+        }
+        rows.sort(Comparator.comparing(
+                PreviousShiftProductVarianceResponse::getProductName,
+                Comparator.nullsLast(String::compareToIgnoreCase)));
+        return rows;
+    }
+
+    private PreviousShiftHandoverReportResponse buildPreviousShiftReport(ShiftSessionModel previous) {
+        PreviousShiftHandoverReportResponse report = new PreviousShiftHandoverReportResponse();
+        report.setSessionId(previous.getId());
+        report.setClosedAt(previous.getClosedAt());
+        report.setExpectedCash(previous.getExpectedCash());
+        report.setActualCash(previous.getActualCash());
+        report.setDifference(previous.getDifference());
+        report.setDifferenceStatus(resolveDifferenceStatus(previous.getDifference()));
+        report.setHandoverRemark(previous.getHandoverRemark());
+        userRepository.findById(previous.getEmployeeId()).ifPresent(u -> report.setEmployeeName(formatName(u)));
+        shiftRepository.findById(previous.getShiftId())
+                .ifPresent(shift -> report.setShiftNumber(shiftNumberForDay(shift)));
+        if (previous.getId() != null) {
+            dedupeHighValueItemsForSession(previous.getId());
+            List<ShiftSessionHighValueItemModel> items =
+                    highValueItemRepository.findBySessionIdOrderByIdAsc(previous.getId());
+            report.setHighValueItems(mapHighValueItems(items));
+        }
+        report.setInventorySummary(buildInventorySummary(previous));
+        return report;
     }
 
     private InventoryClosingSummaryResponse buildInventorySummary(ShiftSessionModel session) {
@@ -1254,12 +1525,13 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 .filter(r -> r.getCurrentStock() != null && r.getCurrentStock() <= 5)
                 .count());
         LocalDateTime from = session.getOpenedAt() != null ? session.getOpenedAt() : LocalDateTime.now().minusHours(4);
+        LocalDateTime to = session.getClosedAt() != null ? session.getClosedAt() : LocalDateTime.now();
         int counts = (int) inventoryCountSessionRepository
                 .findByBranchIdOrderByCreatedAtDesc(session.getBranchId())
                 .stream()
                 .filter(s -> s.getCreatedAt() != null
                         && !s.getCreatedAt().isBefore(from)
-                        && !s.getCreatedAt().isAfter(LocalDateTime.now()))
+                        && !s.getCreatedAt().isAfter(to))
                 .count();
         summary.setCountSessionsDuringShift(counts);
         return summary;
@@ -1296,12 +1568,17 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         response.setClosedAt(session.getClosedAt());
         response.setOpeningConfirmed(session.getOpeningConfirmed());
         response.setOpeningFundConfirmed(session.getOpeningConfirmed());
+        response.setOpeningFundStatus(Boolean.TRUE.equals(session.getOpeningConfirmed())
+                ? "OPENING_FUND_CONFIRMED"
+                : "WAITING_FOR_OPENING_FUND");
         response.setVerificationConfirmed(session.getVerificationConfirmed());
         response.setHandoverConfirmed(session.getHandoverConfirmed());
         response.setOpeningNote(session.getOpeningNote());
         response.setClosingNote(session.getClosingNote());
         response.setOpeningFundAmount(session.getOpeningFundAmount());
+        response.setOpeningFundReceivedFromEmployeeId(session.getOpeningFundReceivedFrom());
         response.setOpeningFundReceivedAt(session.getOpeningFundReceivedAt());
+        response.setOpeningFundMethod(session.getOpeningFundMethod());
         response.setTransactionCount(session.getTransactionCount());
         response.setCashSales(session.getCashSales());
         response.setRefundAmount(session.getRefundAmount());
@@ -1339,6 +1616,20 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                     .ifPresent(u -> response.setHandoverToEmployeeName(formatName(u)));
         }
 
+        if (session.getStatus() == ShiftSessionStatus.SCHEDULED) {
+            response.setOpeningFundSources(buildOpeningFundSources(session));
+            if (session.getRole() == UserRole.CASHIER) {
+                findPreviousCashierSession(session)
+                        .ifPresent(previous -> response.setPreviousShiftReport(buildPreviousShiftReport(previous)));
+            }
+        }
+        if (session.getStatus() == ShiftSessionStatus.OPEN
+                || session.getStatus() == ShiftSessionStatus.CLOSING
+                || session.getStatus() == ShiftSessionStatus.PENDING_HANDOVER) {
+            response.setEarlyClose(isEarlyClose(session));
+            response.setHandoverCandidates(buildHandoverCandidates(session));
+        }
+
         branchRepository.findById(session.getBranchId())
                 .ifPresent(b -> response.setBranchName(b.getName()));
 
@@ -1359,10 +1650,55 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             List<ShiftSessionHighValueItemModel> items =
                     highValueItemRepository.findBySessionIdOrderByIdAsc(session.getId());
             response.setHighValueItems(mapHighValueItems(items));
+            if (session.getStatus() != ShiftSessionStatus.SCHEDULED) {
+                response.setPreviousShiftProductVariance(
+                        buildPreviousShiftProductVariance(session, items));
+            }
         }
         if (session.getId() != null) {
             response.setApprovalHistory(mapApprovalHistory(session.getId()));
         }
+        return response;
+    }
+
+    /** List view: stored totals only — no high-value items, handover candidates, or extra user lookups. */
+    private ShiftSessionResponse toHistoryResponse(ShiftSessionModel session, UserModel viewer) {
+        ShiftSessionResponse response = new ShiftSessionResponse();
+        response.setId(session.getId());
+        response.setShiftId(session.getShiftId());
+        response.setEmployeeId(session.getEmployeeId());
+        response.setRole(session.getRole());
+        response.setBranchId(session.getBranchId());
+        response.setStatus(session.getStatus());
+        response.setOpenedAt(session.getOpenedAt());
+        response.setClosedAt(session.getClosedAt());
+        response.setOpeningFundAmount(session.getOpeningFundAmount());
+        response.setOpeningFundMethod(session.getOpeningFundMethod());
+        response.setTransactionCount(session.getTransactionCount());
+        response.setCashSales(session.getCashSales());
+        response.setRefundAmount(session.getRefundAmount());
+        response.setExpectedCash(session.getExpectedCash());
+        response.setActualCash(session.getActualCash());
+        response.setDifference(session.getDifference());
+        response.setDifferenceStatus(resolveDifferenceStatus(session.getDifference()));
+        response.setEmployeeName(formatName(viewer));
+        if (session.getOpeningFundReceivedFrom() != null) {
+            userRepository.findById(session.getOpeningFundReceivedFrom())
+                    .ifPresent(u -> response.setOpeningFundReceivedFromName(formatName(u)));
+        }
+        if (session.getHandoverToEmployeeId() != null) {
+            userRepository.findById(session.getHandoverToEmployeeId())
+                    .ifPresent(u -> response.setHandoverToEmployeeName(formatName(u)));
+        }
+        shiftRepository.findById(session.getShiftId()).ifPresent(shift -> {
+            ShiftBriefResponse brief = new ShiftBriefResponse();
+            brief.setId(shift.getId());
+            brief.setStartTime(shift.getStartTime());
+            brief.setEndTime(shift.getEndTime());
+            brief.setShiftNumber(shiftNumberForDay(shift));
+            brief.setOpeningCash(shift.getOpeningCash());
+            response.setShift(brief);
+        });
         return response;
     }
 

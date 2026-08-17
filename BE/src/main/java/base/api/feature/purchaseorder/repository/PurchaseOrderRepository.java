@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Repository
 public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrderModel, Long>, JpaSpecificationExecutor<PurchaseOrderModel> {
@@ -14,4 +15,7 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrderMode
     List<PurchaseOrderModel> findAllByOrderByCreatedAtDesc();
 
     long countByStatus(PurchaseOrderStatus status);
+
+    List<PurchaseOrderModel> findByStatusAndReceivedAtBetweenOrderByReceivedAtDesc(
+            PurchaseOrderStatus status, LocalDateTime from, LocalDateTime toExclusive);
 }

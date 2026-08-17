@@ -48,12 +48,13 @@ public class PurchaseOrderController extends BaseAPIController {
     @PreAuthorize("@permissionChecker.has('CHOOSE_EXTERNAL_SUPPLIER')")
     @GetMapping("/search-products")
     public ResponseEntity<TFUResponse<List<PurchaseProductOptionResponse>>> searchProducts(
+            @RequestParam(value = "supplierId", required = false) Integer supplierId,
             @RequestParam(value = "keyword", required = false) String keyword
     ) {
-        return success(purchaseOrderService.searchProducts(keyword));
+        return success(purchaseOrderService.searchProducts(supplierId, keyword));
     }
 
-    @Operation(summary = "Create a purchase order to a supplier")
+    @Operation(summary = "Record a received supplier delivery and update central stock")
     @PreAuthorize("@permissionChecker.has('CHOOSE_EXTERNAL_SUPPLIER')")
     @PostMapping
     public ResponseEntity<TFUResponse<PurchaseOrderResponse>> createOrder(
@@ -61,20 +62,20 @@ public class PurchaseOrderController extends BaseAPIController {
     ) {
         PurchaseOrderResponse data = purchaseOrderService.createOrder(request);
         TFUResponse<PurchaseOrderResponse> body = new TFUResponse<>(
-                true, data, "Purchase order created successfully.", HttpStatus.CREATED.value(), null
+                true, data, "Supplier receipt recorded successfully.", HttpStatus.CREATED.value(), null
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
     @Operation(summary = "List purchase orders")
-    @PreAuthorize("@permissionChecker.has('CHOOSE_EXTERNAL_SUPPLIER')")
+    @PreAuthorize("@permissionChecker.hasAny('CHOOSE_EXTERNAL_SUPPLIER','VIEW_SUPPLIER_RECEIPTS_PRICES')")
     @GetMapping
     public ResponseEntity<TFUResponse<List<PurchaseOrderResponse>>> getOrders() {
         return success(purchaseOrderService.getOrders());
     }
 
     @Operation(summary = "Search, filter and paginate purchase orders")
-    @PreAuthorize("@permissionChecker.has('CHOOSE_EXTERNAL_SUPPLIER')")
+    @PreAuthorize("@permissionChecker.hasAny('CHOOSE_EXTERNAL_SUPPLIER','VIEW_SUPPLIER_RECEIPTS_PRICES')")
     @GetMapping("/page")
     public ResponseEntity<TFUResponse<PageResponseDTO<PurchaseOrderResponse>>> getOrderPage(
             @ModelAttribute PageRequestDTO pageRequest,
@@ -83,7 +84,7 @@ public class PurchaseOrderController extends BaseAPIController {
     }
 
     @Operation(summary = "Get purchase order detail")
-    @PreAuthorize("@permissionChecker.has('CHOOSE_EXTERNAL_SUPPLIER')")
+    @PreAuthorize("@permissionChecker.hasAny('CHOOSE_EXTERNAL_SUPPLIER','VIEW_SUPPLIER_RECEIPTS_PRICES')")
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<PurchaseOrderResponse>> getOrder(@PathVariable Long id) {
         return success(purchaseOrderService.getOrder(id));

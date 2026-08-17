@@ -23,6 +23,13 @@ import java.util.List;
 @Repository
 public interface PointTransactionRepository extends JpaRepository<PointTransactionModel, Long> {
 
+    Page<PointTransactionModel> findByCustomerIdAndTypeIgnoreCaseOrderByCreatedAtDesc(
+            Long customerId, String type, Pageable pageable);
+
+    @Query("SELECT COALESCE(SUM(p.points), 0) FROM PointTransactionModel p "
+            + "WHERE p.customerId = :customerId AND p.type = 'EARN' AND p.points > 0")
+    Long sumEarnedPoints(@Param("customerId") Long customerId);
+
     @Query("""
             SELECT new base.api.feature.report.dto.PointTransactionRow(
                 pt.id, pt.customerId, pt.orderId, pt.points, pt.type, pt.createdAt)

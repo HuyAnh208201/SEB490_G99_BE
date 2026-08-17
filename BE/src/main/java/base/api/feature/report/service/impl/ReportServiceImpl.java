@@ -41,6 +41,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -93,17 +94,28 @@ public class ReportServiceImpl implements ReportService {
             default -> reportOrderRepository.revenueByShift(scopedBranchId, fromAt, toAt);
         };
 
-        // Chỉ gom theo nhân viên mới cần tên; ca/chi nhánh chỉ trả id.
+        Map<Long, BigDecimal> cogsByGroup = switch (mode) {
+            case GROUP_BY_EMPLOYEE -> toCogsMap(reportOrderRepository.cogsByEmployeeNative(scopedBranchId, fromAt, toAt));
+            case GROUP_BY_BRANCH -> toCogsMap(reportOrderRepository.cogsByBranchNative(scopedBranchId, fromAt, toAt));
+            default -> toCogsMap(reportOrderRepository.cogsByShiftNative(scopedBranchId, fromAt, toAt));
+        };
+
         Map<Long, String> nameById = GROUP_BY_EMPLOYEE.equals(mode)
                 ? resolveUserNames(rows.stream().map(RevenueAggRow::groupId).toList())
                 : Map.of();
 
         List<RevenueRow> result = rows.stream()
-                .map(row -> new RevenueRow(
-                        row.groupId(),
-                        GROUP_BY_EMPLOYEE.equals(mode) ? nameById.get(row.groupId()) : null,
-                        row.orderCount() == null ? 0L : row.orderCount(),
-                        row.revenue()))
+                .map(row -> {
+                    BigDecimal revenue = nz(row.revenue());
+                    BigDecimal cogs = nz(cogsByGroup.get(row.groupId()));
+                    return new RevenueRow(
+                            row.groupId(),
+                            GROUP_BY_EMPLOYEE.equals(mode) ? nameById.get(row.groupId()) : null,
+                            row.orderCount() == null ? 0L : row.orderCount(),
+                            revenue,
+                            cogs,
+                            revenue.subtract(cogs));
+                })
                 .toList();
 
         return new RevenueReportResponse(mode, result);
@@ -145,12 +157,17 @@ public class ReportServiceImpl implements ReportService {
         OrderSummaryAgg agg = reportOrderRepository.summarizeOrders(scopedBranchId, shiftId, fromAt, toAt);
         long count = agg == null || agg.transactionCount() == null ? 0L : agg.transactionCount();
         BigDecimal total = agg == null || agg.totalRevenue() == null ? BigDecimal.ZERO : agg.totalRevenue();
+        BigDecimal cogs = nz(reportOrderRepository.sumCompletedCogs(scopedBranchId, shiftId, fromAt, toAt));
+        BigDecimal profit = total.subtract(cogs);
         BigDecimal avg = count == 0
                 ? BigDecimal.ZERO
                 : total.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
+        BigDecimal margin = marginPercent(total, profit);
 
         ReportSummaryResponse.TopBranchSummary topBranch = null;
         List<RevenueAggRow> byBranch = reportOrderRepository.revenueByBranch(scopedBranchId, fromAt, toAt);
+        Map<Long, BigDecimal> cogsByBranch = toCogsMap(
+                reportOrderRepository.cogsByBranchNative(scopedBranchId, fromAt, toAt));
         RevenueAggRow best = byBranch.stream()
                 .filter(row -> row.groupId() != null && row.revenue() != null)
                 .max(Comparator.comparing(RevenueAggRow::revenue))
@@ -159,10 +176,12 @@ public class ReportServiceImpl implements ReportService {
             String name = branchRepository.findById(best.groupId())
                     .map(BranchModel::getName)
                     .orElse("Branch #" + best.groupId());
-            topBranch = new ReportSummaryResponse.TopBranchSummary(best.groupId(), name, best.revenue());
+            BigDecimal branchCogs = nz(cogsByBranch.get(best.groupId()));
+            topBranch = new ReportSummaryResponse.TopBranchSummary(
+                    best.groupId(), name, best.revenue(), nz(best.revenue()).subtract(branchCogs));
         }
 
-        return new ReportSummaryResponse(total, count, avg, topBranch);
+        return new ReportSummaryResponse(total, count, avg, topBranch, cogs, profit, margin);
     }
 
     @Override
@@ -184,7 +203,8 @@ public class ReportServiceImpl implements ReportService {
             }
             BigDecimal revenue = row[1] == null ? BigDecimal.ZERO : new BigDecimal(row[1].toString());
             long orderCount = row[2] == null ? 0L : ((Number) row[2]).longValue();
-            points.add(new TrendPoint(day, revenue, orderCount));
+            BigDecimal cogs = row.length > 3 && row[3] != null ? new BigDecimal(row[3].toString()) : BigDecimal.ZERO;
+            points.add(new TrendPoint(day, revenue, orderCount, cogs, revenue.subtract(cogs)));
         }
         return points;
     }
@@ -197,13 +217,19 @@ public class ReportServiceImpl implements ReportService {
         List<TopProductAggRow> rows = reportOrderRepository.topProductsByRevenue(
                 scopedBranchId, shiftId, startOf(from), endExclusive(to), PageRequest.of(0, size));
         return rows.stream()
-                .map(row -> new TopProductRow(
-                        row.productId(),
-                        row.productName() == null || row.productName().isBlank()
-                                ? "Product #" + row.productId()
-                                : row.productName(),
-                        row.qtySold() == null ? 0L : row.qtySold(),
-                        row.revenue() == null ? BigDecimal.ZERO : row.revenue()))
+                .map(row -> {
+                    BigDecimal revenue = row.revenue() == null ? BigDecimal.ZERO : row.revenue();
+                    BigDecimal cogs = row.cogs() == null ? BigDecimal.ZERO : row.cogs();
+                    return new TopProductRow(
+                            row.productId(),
+                            row.productName() == null || row.productName().isBlank()
+                                    ? "Product #" + row.productId()
+                                    : row.productName(),
+                            row.qtySold() == null ? 0L : row.qtySold(),
+                            revenue,
+                            cogs,
+                            revenue.subtract(cogs));
+                })
                 .toList();
     }
 
@@ -429,5 +455,32 @@ public class ReportServiceImpl implements ReportService {
     private String searchPattern(PageRequestDTO pageRequest) {
         String search = pageRequest.normalizedSearch();
         return search == null ? null : "%" + search.toLowerCase(Locale.ROOT) + "%";
+    }
+
+    private static BigDecimal nz(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private static BigDecimal marginPercent(BigDecimal revenue, BigDecimal profit) {
+        if (revenue == null || revenue.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        return profit.multiply(BigDecimal.valueOf(100)).divide(revenue, 2, RoundingMode.HALF_UP);
+    }
+
+    private static Map<Long, BigDecimal> toCogsMap(List<Object[]> rows) {
+        Map<Long, BigDecimal> map = new HashMap<>();
+        if (rows == null) {
+            return map;
+        }
+        for (Object[] row : rows) {
+            if (row == null || row[0] == null) {
+                continue;
+            }
+            Long id = ((Number) row[0]).longValue();
+            BigDecimal cogs = row[1] == null ? BigDecimal.ZERO : new BigDecimal(row[1].toString());
+            map.put(id, cogs);
+        }
+        return map;
     }
 }

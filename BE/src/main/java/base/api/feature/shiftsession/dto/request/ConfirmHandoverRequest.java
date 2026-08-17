@@ -13,5 +13,7 @@ public class ConfirmHandoverRequest {
     @NotNull
     private BigDecimal actualCash;
 
+    private Long handoverToEmployeeId;
+
     private String remark;
 }

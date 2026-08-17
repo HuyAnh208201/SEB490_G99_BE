@@ -23,9 +23,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -48,10 +48,8 @@ public class DispatchController extends BaseAPIController {
     @PreAuthorize("@permissionChecker.has('MANAGE_DISPATCH_ORDERS')")
     @GetMapping("/approved-requests/page")
     public ResponseEntity<TFUResponse<PageResponseDTO<DispatchApprovedRequestResponse>>> getApprovedRequestPage(
-            @ModelAttribute PageRequestDTO pageRequest,
-            @RequestParam(required = false) String area,
-            @RequestParam(required = false) String route) {
-        return successPage(dispatchService.getApprovedRequestPage(pageRequest, area, route));
+            @ModelAttribute PageRequestDTO pageRequest) {
+        return successPage(dispatchService.getApprovedRequestPage(pageRequest));
     }
 
     @Operation(summary = "Create a dispatch order for one approved request")

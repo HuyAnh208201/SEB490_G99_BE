@@ -99,14 +99,14 @@ public class PurchaseRequestController extends BaseAPIController {
         return success(purchaseRequestService.approveRequest(id, safeRequest), "Purchase request approved successfully.");
     }
 
-    @Operation(summary = "Reject purchase request")
+    @Operation(summary = "Reject purchase request (removed)")
     @PreAuthorize("@permissionChecker.has('APPROVE_IMPORT_REQUEST')")
     @PatchMapping("/{id}/reject")
     public ResponseEntity<TFUResponse<PurchaseRequestResponse>> rejectRequest(
             @PathVariable Long id,
-            @Valid @RequestBody RejectPurchaseRequestRequest request
+            @Valid @RequestBody(required = false) RejectPurchaseRequestRequest request
     ) {
-        return success(purchaseRequestService.rejectRequest(id, request), "Purchase request rejected successfully.");
+        return success(purchaseRequestService.rejectRequest(id, request), "Rejecting purchase requests is not supported.");
     }
 
     @Operation(summary = "Receive purchase request goods")
@@ -121,7 +121,7 @@ public class PurchaseRequestController extends BaseAPIController {
     }
 
     @Operation(summary = "Get purchase request history")
-    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
+    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping
     public ResponseEntity<TFUResponse<base.api.shared.dto.PageResponseDTO<PurchaseRequestSummaryResponse>>> getRequestHistory(
             @ModelAttribute PageRequestDTO pageRequest,
@@ -141,7 +141,7 @@ public class PurchaseRequestController extends BaseAPIController {
     }
 
     @Operation(summary = "Get purchase request detail")
-    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'ADMIN_DASHBOARD', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
+    @PreAuthorize("@permissionChecker.hasAny('CREATE_IMPORT_REQUEST', 'MANAGE_BRANCH_IMPORT_REQUESTS', 'APPROVE_IMPORT_REQUEST', 'SUPPLY_IMPORT_RECEIPT_APPROVE')")
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<PurchaseRequestResponse>> getRequest(@PathVariable Long id) {
         return success(purchaseRequestService.getRequest(id));

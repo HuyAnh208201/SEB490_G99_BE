@@ -2,12 +2,12 @@ package base.api.feature.posorder.service.impl;
 
 import base.api.feature.auth.service.IUserService;
 import base.api.feature.auth.repository.IUserRepository;
+import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderItemResponse;
 import base.api.feature.posorder.dto.response.OrderResponse;
-import base.api.feature.posorder.dto.response.VoucherResponse;
 import base.api.feature.posorder.repository.OrderDiscountRepository;
 import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRepository;
@@ -17,9 +17,11 @@ import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.posorder.service.IPosOrderService;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductCostService;
+import base.api.feature.product.service.ProductSalePriceService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftRepository;
-import base.api.shared.entity.OrderDiscountModel;
+import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.OrderItemModel;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.PaymentModel;
@@ -27,8 +29,6 @@ import base.api.shared.entity.PointTransactionModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.ShiftModel;
 import base.api.shared.entity.UserModel;
-import base.api.shared.entity.VoucherCatalogModel;
-import base.api.shared.entity.VoucherModel;
 import base.api.shared.dto.PageRequestDTO;
 import base.api.shared.enums.ShiftStatus;
 import base.api.shared.enums.UserRole;
@@ -50,10 +50,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -82,6 +84,12 @@ public class PosOrderServiceImpl implements IPosOrderService {
     private IProductRepository productRepository;
 
     @Autowired
+    private ProductSalePriceService productSalePriceService;
+
+    @Autowired
+    private ProductCostService productCostService;
+
+    @Autowired
     private BranchInventoryRepository branchInventoryRepository;
 
     @Autowired
@@ -92,6 +100,9 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
     @Autowired
     private IUserRepository userRepository;
+
+    @Autowired
+    private IBranchRepository branchRepository;
 
     @Autowired
     private ICashierService cashierService;
@@ -123,7 +134,8 @@ public class PosOrderServiceImpl implements IPosOrderService {
         BigDecimal subtotal = BigDecimal.ZERO;
         for (Map.Entry<Integer, Integer> entry : quantityByProduct.entrySet()) {
             ProductModel product = products.get(entry.getKey());
-            BigDecimal unitPrice = product.getDefaultSalePrice();
+            BigDecimal unitPrice = productSalePriceService == null
+                    ? product.getDefaultSalePrice() : productSalePriceService.effectivePrice(product);
             if (unitPrice == null) {
                 throw new BusinessException("Product " + product.getName() + " has no sale price.");
             }
@@ -135,15 +147,15 @@ public class PosOrderServiceImpl implements IPosOrderService {
             item.setProductName(product.getName());
             item.setQuantity(quantity);
             item.setUnitPrice(unitPrice);
+            item.setUnitCost(productCostService.unitCostForProduct(product));
             item.setLineTotal(lineTotal);
+            item.setRefundable(!Boolean.FALSE.equals(product.getRefundable()));
             items.add(item);
             subtotal = subtotal.add(lineTotal);
         }
 
-        // 3. Voucher: server tự tính số tiền giảm từ loại voucher.
-        VoucherModel voucher = resolveVoucher(request.getVoucherCode());
-        BigDecimal voucherDiscount = voucherDiscountFor(voucher, subtotal);
-        BigDecimal afterVoucher = subtotal.subtract(voucherDiscount);
+        // 3. Loyalty points apply against the promo-adjusted subtotal. Discount codes are unused.
+        BigDecimal afterVoucher = subtotal;
 
         // 4. Khách hàng: tạo nhanh nếu SĐT chưa có.
         UserModel customer = resolveCustomer(request);
@@ -175,11 +187,6 @@ public class PosOrderServiceImpl implements IPosOrderService {
             pointsEarned = settlement.pointsEarned();
         }
 
-        // 8. Khoá voucher sau cùng, khi mọi thứ khác đã chắc chắn thành công.
-        if (voucher != null && voucherRepository.markUsed(voucher.getId()) == 0) {
-            throw new BusinessException("Discount code was just used on another order.");
-        }
-
         boolean isPayOS = "PAYOS".equalsIgnoreCase(request.getPaymentMethod());
 
         OrderModel order = new OrderModel();
@@ -188,7 +195,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
         order.setCashierId(cashier.getId());
         order.setCustomerId(customer == null ? null : customer.getId());
         order.setSubtotal(subtotal);
-        order.setDiscountAmount(voucherDiscount.add(pointsDiscount));
+        order.setDiscountAmount(pointsDiscount);
         order.setTotal(total);
         order.setPointsRedeemed(pointsToRedeem);
         order.setPointsEarned(pointsEarned);
@@ -204,15 +211,6 @@ public class PosOrderServiceImpl implements IPosOrderService {
         }
         orderItemRepository.saveAll(items);
 
-        if (voucher != null) {
-            OrderDiscountModel discount = new OrderDiscountModel();
-            discount.setOrderId(order.getId());
-            discount.setVoucherId(voucher.getId());
-            discount.setCode(voucher.getCode());
-            discount.setDiscountAmount(voucherDiscount);
-            orderDiscountRepository.save(discount);
-        }
-
         PaymentModel payment = buildPayment(request, order.getId(), total, now);
         paymentRepository.save(payment);
 
@@ -227,7 +225,8 @@ public class PosOrderServiceImpl implements IPosOrderService {
             }
         }
 
-        return toResponse(order, items, payment, customer);
+        BranchModel branch = branchRepository.findById(branchId).orElse(null);
+        return toResponse(order, items, payment, customer, cashier, branch);
     }
 
     // =========================================================================
@@ -237,11 +236,13 @@ public class PosOrderServiceImpl implements IPosOrderService {
     @Override
     public List<OrderResponse> getOrders(LocalDate from, LocalDate to) {
         UserModel cashier = requireCashier();
+        Long shiftId = requireCurrentShiftId(cashier);
         List<OrderModel> orders = (from == null || to == null)
-                ? orderRepository.findTop50ByBranchIdOrderByCreatedAtDesc(cashier.getBranchId())
+                ? orderRepository.findTop50ByBranchIdAndShiftIdOrderByCreatedAtDesc(
+                        cashier.getBranchId(), shiftId)
                 : orderRepository
-                        .findByBranchIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
-                                cashier.getBranchId(), from.atStartOfDay(), to.plusDays(1).atStartOfDay());
+                        .findByBranchIdAndShiftIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+                                cashier.getBranchId(), shiftId, from.atStartOfDay(), to.plusDays(1).atStartOfDay());
         return hydrate(orders);
     }
 
@@ -253,8 +254,11 @@ public class PosOrderServiceImpl implements IPosOrderService {
             String paymentMethod
     ) {
         UserModel cashier = requireCashier();
+        Long shiftId = requireCurrentShiftId(cashier);
         Specification<OrderModel> spec = (root, query, cb) ->
-                cb.equal(root.get("branchId"), cashier.getBranchId());
+                cb.and(
+                        cb.equal(root.get("branchId"), cashier.getBranchId()),
+                        cb.equal(root.get("shiftId"), shiftId));
 
         if (from != null) {
             spec = spec.and((root, query, cb) ->
@@ -311,25 +315,10 @@ public class PosOrderServiceImpl implements IPosOrderService {
         if (!order.getBranchId().equals(cashier.getBranchId())) {
             throw new BusinessException("This order belongs to another branch.");
         }
-        return hydrate(List.of(order)).get(0);
-    }
-
-    @Override
-    public VoucherResponse lookupVoucher(String code) {
-        VoucherModel voucher = resolveVoucher(code);
-        if (voucher == null) {
-            throw new NotFoundException("Discount code not found.");
+        if (!Objects.equals(order.getShiftId(), requireCurrentShiftId(cashier))) {
+            throw new BusinessException("This order does not belong to the current shift.");
         }
-        VoucherCatalogModel catalog = catalogOf(voucher);
-
-        VoucherResponse response = new VoucherResponse();
-        response.setVoucherId(voucher.getId());
-        response.setCode(voucher.getCode());
-        response.setName(catalog.getName());
-        response.setDiscountType(catalog.getDiscountType());
-        response.setDiscountValue(catalog.getDiscountValue());
-        response.setExpiresAt(voucher.getExpiresAt());
-        return response;
+        return hydrate(List.of(order)).get(0);
     }
 
     // =========================================================================
@@ -351,42 +340,6 @@ public class PosOrderServiceImpl implements IPosOrderService {
             throw new NotFoundException("One or more products were not found.");
         }
         return products;
-    }
-
-    private VoucherModel resolveVoucher(String code) {
-        if (code == null || code.isBlank()) {
-            return null;
-        }
-        VoucherModel voucher = voucherRepository.findByCodeIgnoreCase(code.trim())
-                .orElseThrow(() -> new NotFoundException("Discount code not found."));
-        if (!"active".equalsIgnoreCase(voucher.getStatus())) {
-            throw new BusinessException("This discount code has already been used.");
-        }
-        if (voucher.getExpiresAt() != null && voucher.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new BusinessException("This discount code has expired.");
-        }
-        return voucher;
-    }
-
-    private VoucherCatalogModel catalogOf(VoucherModel voucher) {
-        if (voucher.getVoucherCatalogId() == null) {
-            throw new BusinessException("This discount code is not linked to a discount type.");
-        }
-        return voucherCatalogRepository.findById(voucher.getVoucherCatalogId())
-                .orElseThrow(() -> new NotFoundException("Discount type not found."));
-    }
-
-    private BigDecimal voucherDiscountFor(VoucherModel voucher, BigDecimal subtotal) {
-        if (voucher == null) {
-            return BigDecimal.ZERO;
-        }
-        VoucherCatalogModel catalog = catalogOf(voucher);
-        BigDecimal discount = "PERCENT".equalsIgnoreCase(catalog.getDiscountType())
-                ? subtotal.multiply(catalog.getDiscountValue())
-                        .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP)
-                : catalog.getDiscountValue();
-        // Không cho giảm quá giá trị đơn.
-        return discount.min(subtotal).max(BigDecimal.ZERO);
     }
 
     private UserModel resolveCustomer(CheckoutRequest request) {
@@ -461,6 +414,14 @@ public class PosOrderServiceImpl implements IPosOrderService {
                 .orElse(null);
     }
 
+    private Long requireCurrentShiftId(UserModel cashier) {
+        Long shiftId = findOpenShiftId(cashier.getBranchId(), LocalDateTime.now());
+        if (shiftId == null) {
+            throw new BusinessException("Open a shift before viewing order history.");
+        }
+        return shiftId;
+    }
+
     private String buildInvoiceCode(Long orderId, LocalDateTime now) {
         return "INV-" + now.getYear() + "-" + String.format("%06d", orderId);
     }
@@ -484,13 +445,27 @@ public class PosOrderServiceImpl implements IPosOrderService {
                 .collect(Collectors.groupingBy(OrderItemModel::getOrderId));
         Map<Long, PaymentModel> paymentByOrder = paymentRepository.findByOrderIdIn(ids).stream()
                 .collect(Collectors.toMap(PaymentModel::getOrderId, p -> p, (first, ignored) -> first));
-        Map<Long, UserModel> customerById = userRepository.findAllById(
-                        orders.stream()
-                                .map(OrderModel::getCustomerId)
-                                .filter(java.util.Objects::nonNull)
-                                .collect(Collectors.toSet()))
-                .stream()
-                .collect(Collectors.toMap(UserModel::getId, customer -> customer));
+        Set<Long> userIds = new HashSet<>();
+        Set<Long> branchIds = new HashSet<>();
+        for (OrderModel order : orders) {
+            if (order.getCustomerId() != null) {
+                userIds.add(order.getCustomerId());
+            }
+            if (order.getCashierId() != null) {
+                userIds.add(order.getCashierId());
+            }
+            if (order.getBranchId() != null) {
+                branchIds.add(order.getBranchId());
+            }
+        }
+        Map<Long, UserModel> usersById = userIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(userIds).stream()
+                        .collect(Collectors.toMap(UserModel::getId, user -> user));
+        Map<Long, BranchModel> branchesById = branchIds.isEmpty()
+                ? Map.of()
+                : branchRepository.findAllById(branchIds).stream()
+                        .collect(Collectors.toMap(BranchModel::getId, branch -> branch));
 
         return orders.stream()
                 .sorted(Comparator.comparing(OrderModel::getCreatedAt).reversed())
@@ -498,7 +473,9 @@ public class PosOrderServiceImpl implements IPosOrderService {
                         order,
                         itemsByOrder.getOrDefault(order.getId(), List.of()),
                         paymentByOrder.get(order.getId()),
-                        customerById.get(order.getCustomerId())))
+                        usersById.get(order.getCustomerId()),
+                        usersById.get(order.getCashierId()),
+                        branchesById.get(order.getBranchId())))
                 .toList();
     }
 
@@ -506,16 +483,25 @@ public class PosOrderServiceImpl implements IPosOrderService {
             OrderModel order,
             List<OrderItemModel> items,
             PaymentModel payment,
-            UserModel customer) {
+            UserModel customer,
+            UserModel cashier,
+            BranchModel branch) {
 
         OrderResponse response = new OrderResponse();
         response.setId(order.getId());
         response.setInvoiceCode(order.getInvoiceCode());
         response.setBranchId(order.getBranchId());
+        if (branch != null) {
+            response.setBranchName(branch.getName());
+            response.setBranchAddress(branch.getAddress());
+            response.setBranchPhone(branch.getPhone());
+        }
         response.setShiftId(order.getShiftId());
         response.setCashierId(order.getCashierId());
+        response.setCashierName(cashier == null ? null : cashier.getFullName());
         response.setCustomerId(order.getCustomerId());
-        response.setCustomerName(customer == null ? null : customer.getFirstName());
+        response.setCustomerName(customer == null ? null : customer.getFullName());
+        response.setCustomerPhone(customer == null ? null : customer.getPhone());
         response.setSubtotal(order.getSubtotal());
         response.setDiscountAmount(order.getDiscountAmount());
         response.setTotal(order.getTotal());
@@ -524,6 +510,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
         response.setStatus(order.getStatus());
         response.setCreatedAt(order.getCreatedAt());
         response.setLines(items.stream().map(this::toItemResponse).toList());
+        response.setRefundable(items.stream().allMatch(item -> !Boolean.FALSE.equals(item.getRefundable())));
         response.setItemCount(items.stream().mapToInt(OrderItemModel::getQuantity).sum());
         if (payment != null) {
             response.setPaymentMethod(payment.getMethod());
@@ -542,6 +529,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
         response.setQuantity(item.getQuantity());
         response.setUnitPrice(item.getUnitPrice());
         response.setLineTotal(item.getLineTotal());
+        response.setRefundable(!Boolean.FALSE.equals(item.getRefundable()));
         return response;
     }
 

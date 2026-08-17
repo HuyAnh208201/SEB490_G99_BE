@@ -175,7 +175,7 @@ class ReportServiceExtraTest {
     void getTopProductsDefaultsLimitAndBlankNameFallback() {
         when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.ADMIN);
         when(reportOrderRepository.topProductsByRevenue(isNull(), isNull(), any(), any(), any()))
-                .thenReturn(List.of(new TopProductAggRow(9, "  ", 4L, new BigDecimal("80"))));
+                .thenReturn(List.of(new TopProductAggRow(9, "  ", 4L, new BigDecimal("80"), BigDecimal.ZERO)));
 
         List<TopProductRow> rows = service.getTopProducts(FROM, TO, null, null, 0);
 

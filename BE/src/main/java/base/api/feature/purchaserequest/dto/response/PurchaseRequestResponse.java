@@ -24,6 +24,9 @@ public class PurchaseRequestResponse {
     private String rejectReason;
     private LocalDate requestDate;
     private LocalDateTime createdAt;
+    private LocalDateTime submittedAt;
+    private LocalDate desiredReceiveDate;
+    private Long supplementalForReceiptId;
     private String notes;
     private List<PurchaseRequestDetailResponse> items = new ArrayList<>();
 }

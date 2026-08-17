@@ -71,6 +71,7 @@ public class DirectorDashboardServiceImpl implements IDirectorDashboardService {
         for (BranchModel branch : branchRepository.findAll()) {
             RevenueRow row = revenueByBranchId.get(branch.getId());
             BigDecimal revenue = row != null && row.revenue() != null ? row.revenue() : BigDecimal.ZERO;
+            BigDecimal profit = row != null && row.profit() != null ? row.profit() : BigDecimal.ZERO;
             long orders = row != null ? row.orderCount() : 0L;
             BigDecimal share = BigDecimal.ZERO;
             if (chainRevenue.compareTo(BigDecimal.ZERO) > 0) {
@@ -81,6 +82,7 @@ public class DirectorDashboardServiceImpl implements IDirectorDashboardService {
                     branch.getId(),
                     branch.getName(),
                     revenue,
+                    profit,
                     orders,
                     share
             ));
@@ -93,9 +95,9 @@ public class DirectorDashboardServiceImpl implements IDirectorDashboardService {
             BranchPortfolioRow top = portfolio.get(0);
             BranchPortfolioRow bottom = portfolio.get(portfolio.size() - 1);
             if (top.revenue().compareTo(BigDecimal.ZERO) > 0) {
-                best = new BranchHighlight(top.branchId(), top.branchName(), top.revenue());
+                best = new BranchHighlight(top.branchId(), top.branchName(), top.revenue(), top.profit());
             }
-            weakest = new BranchHighlight(bottom.branchId(), bottom.branchName(), bottom.revenue());
+            weakest = new BranchHighlight(bottom.branchId(), bottom.branchName(), bottom.revenue(), bottom.profit());
         }
 
         BigDecimal projected = project7Day(rangeTo);
@@ -136,6 +138,9 @@ public class DirectorDashboardServiceImpl implements IDirectorDashboardService {
                 rangeFrom,
                 rangeTo,
                 summary.totalRevenue(),
+                summary.totalCogs(),
+                summary.totalProfit(),
+                summary.profitMarginPercent(),
                 summary.transactionCount(),
                 summary.avgTransactionValue(),
                 momPercent,

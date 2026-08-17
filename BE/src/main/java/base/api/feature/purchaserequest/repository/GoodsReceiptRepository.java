@@ -29,4 +29,6 @@ public interface GoodsReceiptRepository extends JpaRepository<GoodsReceiptModel,
     List<GoodsReceiptModel> findByPurchaseRequestIdInAndStatus(
             Collection<Long> purchaseRequestIds,
             String status);
+
+    List<GoodsReceiptModel> findByPurchaseRequestIdIn(Collection<Long> purchaseRequestIds);
 }

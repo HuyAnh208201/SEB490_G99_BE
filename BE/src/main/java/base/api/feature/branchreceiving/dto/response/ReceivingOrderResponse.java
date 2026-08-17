@@ -3,6 +3,7 @@ package base.api.feature.branchreceiving.dto.response;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +20,10 @@ public class ReceivingOrderResponse {
     private Long requestId;
     private String requestNumber;
     private LocalDateTime shipmentDate;
+    private LocalDateTime requestSubmittedAt;
+    private LocalDate desiredReceiveDate;
+    private String requestedByName;
+    private String assignedReceiverName;
     private List<String> categories = new ArrayList<>();
     private Integer productCount;
     /** PREPARING / DELIVERING / RECEIVED */

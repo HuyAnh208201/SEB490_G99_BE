@@ -35,6 +35,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -119,12 +120,26 @@ class PurchaseOrderServiceImplTest {
     }
 
     @Test
-    void createOrderSavesOrderedPurchaseOrder() {
+    void createOrderFinalizesSupplierReceiptAndStocksWarehouseImmediately() {
         CreatePurchaseOrderRequest request = orderRequest(1, 10, 5);
+        request.setSupplierDeliveryDate(LocalDate.of(2026, 8, 13));
+        request.setDeliveredByName("Nguyen Van Giao");
+        request.setDeliveredByPhone("0909123456");
         when(supplierRepository.findById(1)).thenReturn(Optional.of(supplier(1)));
-        when(productRepository.findByIdInWithCategory(anyCollection())).thenReturn(List.of(product(10)));
+        ProductModel product = product(10);
+        product.setSupplierId(1);
+        when(productRepository.findByIdInWithCategory(anyCollection())).thenReturn(List.of(product));
+        when(productPackagingService.toBaseQty(eq(5), any(ProductModel.class))).thenReturn(120);
+        WarehouseInventoryModel inventory = new WarehouseInventoryModel();
+        inventory.setProductId(10);
+        inventory.setQuantity(8);
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(inventory));
+        when(warehouseInventoryRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.AWAITING_STOCK)).thenReturn(List.of());
+        when(warehouseStockAllocationHelper.reconcileApprovedStockStatus()).thenReturn(0);
         UserModel actor = new UserModel();
         actor.setId(7L);
+        actor.setFullName("Warehouse Receiver");
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(actor);
         when(purchaseOrderRepository.save(any(PurchaseOrderModel.class))).thenAnswer(inv -> {
             PurchaseOrderModel saved = inv.getArgument(0);
@@ -137,12 +152,62 @@ class PurchaseOrderServiceImplTest {
         PurchaseOrderResponse response = service.createOrder(request);
 
         assertEquals(100L, response.getId());
-        assertEquals(PurchaseOrderStatus.ORDERED.name(), response.getStatus());
+        assertEquals(PurchaseOrderStatus.RECEIVED.name(), response.getStatus());
+        assertEquals(128, inventory.getQuantity());
+        assertEquals("Nguyen Van Giao", response.getDeliveredByName());
+        assertEquals("Warehouse Receiver", response.getReceivedByName());
         ArgumentCaptor<PurchaseOrderModel> orderCaptor = ArgumentCaptor.forClass(PurchaseOrderModel.class);
         verify(purchaseOrderRepository).save(orderCaptor.capture());
-        assertEquals(PurchaseOrderStatus.ORDERED, orderCaptor.getValue().getStatus());
+        assertEquals(PurchaseOrderStatus.RECEIVED, orderCaptor.getValue().getStatus());
         assertEquals(7L, orderCaptor.getValue().getCreatedBy());
+        assertEquals(7L, orderCaptor.getValue().getReceivedBy());
+        assertNotNull(orderCaptor.getValue().getReceivedAt());
         verify(purchaseOrderItemRepository).saveAll(any());
+        verify(warehouseInventoryRepository).saveAll(any());
+    }
+
+    @Test
+    void createOrderAllowsProductsNotAssignedToSupplier() {
+        CreatePurchaseOrderRequest request = orderRequest(1, 10, 5);
+        when(supplierRepository.findById(1)).thenReturn(Optional.of(supplier(1)));
+        ProductModel product = product(10);
+        product.setSupplierId(2);
+        when(productRepository.findByIdInWithCategory(anyCollection())).thenReturn(List.of(product));
+        when(productPackagingService.toBaseQty(eq(5), any(ProductModel.class))).thenReturn(120);
+        WarehouseInventoryModel inventory = new WarehouseInventoryModel();
+        inventory.setProductId(10);
+        inventory.setQuantity(8);
+        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(inventory));
+        when(warehouseInventoryRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.AWAITING_STOCK)).thenReturn(List.of());
+        when(warehouseStockAllocationHelper.reconcileApprovedStockStatus()).thenReturn(0);
+        UserModel actor = new UserModel();
+        actor.setId(7L);
+        actor.setFullName("Warehouse Receiver");
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(actor);
+        when(purchaseOrderRepository.save(any(PurchaseOrderModel.class))).thenAnswer(inv -> {
+            PurchaseOrderModel saved = inv.getArgument(0);
+            saved.setId(101L);
+            return saved;
+        });
+        when(purchaseOrderItemRepository.findByPurchaseOrderId(101L)).thenReturn(List.of());
+        when(purchaseOrderMapper.toOrderNumber(any())).thenReturn("PO-101");
+
+        PurchaseOrderResponse response = service.createOrder(request);
+
+        assertEquals(101L, response.getId());
+        verify(purchaseOrderRepository).save(any());
+    }
+
+    @Test
+    void searchProductsSearchesAllActiveProducts() {
+        when(productRepository.searchActiveProducts(eq("milk"), any()))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        service.searchProducts(3, "milk");
+
+        verify(productRepository).searchActiveProducts(eq("milk"), any());
+        verify(productRepository, never()).searchActiveProductsBySupplier(any(), any(), any());
     }
 
     @Test
@@ -225,8 +290,8 @@ class PurchaseOrderServiceImplTest {
         WarehouseInventoryModel inventory = new WarehouseInventoryModel();
         inventory.setProductId(10);
         inventory.setQuantity(10);
-        when(warehouseInventoryRepository.findByProductId(10)).thenReturn(Optional.of(inventory));
-        when(warehouseInventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(warehouseInventoryRepository.findByProductIdIn(Set.of(10))).thenReturn(List.of(inventory));
+        when(warehouseInventoryRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(purchaseOrderRepository.save(any(PurchaseOrderModel.class))).thenAnswer(inv -> inv.getArgument(0));
         when(purchaseRequestRepository.findByStatus(any())).thenReturn(List.of());
         when(warehouseStockAllocationHelper.reconcileApprovedStockStatus()).thenReturn(0);
@@ -238,7 +303,7 @@ class PurchaseOrderServiceImplTest {
         assertEquals(PurchaseOrderStatus.RECEIVED.name(), response.getStatus());
         assertEquals(58, inventory.getQuantity());
         assertEquals(PurchaseOrderStatus.RECEIVED, order.getStatus());
-        verify(warehouseInventoryRepository).save(inventory);
+        verify(warehouseInventoryRepository).saveAll(List.of(inventory));
     }
 
     @Test
@@ -250,8 +315,8 @@ class PurchaseOrderServiceImplTest {
         when(purchaseOrderItemRepository.findByPurchaseOrderId(50L)).thenReturn(List.of(item));
         when(productRepository.findByIdInWithCategory(Set.of(10))).thenReturn(List.of(product(10)));
         when(productPackagingService.toBaseQty(eq(2), any(ProductModel.class))).thenReturn(48);
-        when(warehouseInventoryRepository.findByProductId(10)).thenReturn(Optional.empty());
-        when(warehouseInventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(warehouseInventoryRepository.findByProductIdIn(Set.of(10))).thenReturn(List.of());
+        when(warehouseInventoryRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(purchaseOrderRepository.save(any(PurchaseOrderModel.class))).thenAnswer(inv -> inv.getArgument(0));
         when(purchaseRequestRepository.findByStatus(any())).thenReturn(List.of());
         when(warehouseStockAllocationHelper.reconcileApprovedStockStatus()).thenReturn(0);
@@ -260,12 +325,13 @@ class PurchaseOrderServiceImplTest {
 
         service.receiveOrder(50L);
 
-        ArgumentCaptor<WarehouseInventoryModel> inventoryCaptor =
-                ArgumentCaptor.forClass(WarehouseInventoryModel.class);
-        verify(warehouseInventoryRepository).save(inventoryCaptor.capture());
-        assertEquals(10, inventoryCaptor.getValue().getProductId());
-        assertEquals(48, inventoryCaptor.getValue().getQuantity());
-        assertEquals(0, inventoryCaptor.getValue().getReorderPoint());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<WarehouseInventoryModel>> inventoryCaptor = ArgumentCaptor.forClass(List.class);
+        verify(warehouseInventoryRepository).saveAll(inventoryCaptor.capture());
+        WarehouseInventoryModel saved = inventoryCaptor.getValue().get(0);
+        assertEquals(10, saved.getProductId());
+        assertEquals(48, saved.getQuantity());
+        assertEquals(0, saved.getReorderPoint());
     }
 
     @Test
@@ -282,8 +348,8 @@ class PurchaseOrderServiceImplTest {
         WarehouseInventoryModel inventory = new WarehouseInventoryModel();
         inventory.setProductId(10);
         inventory.setQuantity(5);
-        when(warehouseInventoryRepository.findByProductId(10)).thenReturn(Optional.of(inventory));
-        when(warehouseInventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(warehouseInventoryRepository.findByProductIdIn(Set.of(10))).thenReturn(List.of(inventory));
+        when(warehouseInventoryRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(purchaseOrderRepository.save(any(PurchaseOrderModel.class))).thenAnswer(inv -> inv.getArgument(0));
         when(purchaseRequestRepository.findByStatus(any())).thenReturn(List.of());
         when(warehouseStockAllocationHelper.reconcileApprovedStockStatus()).thenReturn(0);

@@ -17,6 +17,7 @@ public class PosCatalogItemResponse {
     private Integer categoryId;
     private String categoryName;
     private BigDecimal defaultSalePrice;
+    private Boolean refundable;
     private Integer branchStock;
     private String imageUrl;
 }

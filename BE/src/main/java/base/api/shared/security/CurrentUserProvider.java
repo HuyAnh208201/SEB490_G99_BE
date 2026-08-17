@@ -40,6 +40,7 @@ public class CurrentUserProvider {
 
         return userRepository.findByUserName(authentication.getName())
                 .or(() -> userRepository.findByUserNameOrEmail(authentication.getName()))
+                .or(() -> userRepository.findByPhone(authentication.getName()))
                 .orElseThrow(() -> new ForbiddenException("Access denied."));
     }
 

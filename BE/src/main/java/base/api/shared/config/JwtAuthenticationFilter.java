@@ -54,12 +54,12 @@ public class JwtAuthenticationFilter  extends OncePerRequestFilter {
 
         String token = header.substring(7);
         try {
-            String username = jwtUtil.extractUsername(token);
+            Long userId = jwtUtil.extractUserId(token);
 
-            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                var userDetails = userDetailsService.loadUserByUsername(username);
+            if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                var userDetails = userDetailsService.loadUserById(userId);
 
-                if (jwtUtil.isTokenValid(token, userDetails)) {
+                if (jwtUtil.isTokenValidForUserId(token, userId)) {
                     if (!userDetails.isEnabled()) {
                         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                         response.setContentType("application/json");

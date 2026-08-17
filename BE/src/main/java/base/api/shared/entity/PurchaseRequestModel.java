@@ -14,6 +14,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Getter
 @Setter
@@ -50,4 +51,13 @@ public class PurchaseRequestModel {
 
     @Column(name = "approved_at")
     private LocalDateTime approvedAt;
+
+    @Column(name = "submitted_at")
+    private LocalDateTime submittedAt;
+
+    @Column(name = "desired_receive_date")
+    private LocalDate desiredReceiveDate;
+
+    @Column(name = "supplemental_for_receipt_id")
+    private Long supplementalForReceiptId;
 }

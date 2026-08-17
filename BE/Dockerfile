@@ -1,29 +1,26 @@
-#Stage 1 Dùng để BUILD source (có Maven + JDK 17)
 FROM maven:3.9-eclipse-temurin-17 AS build
-#=> Chọn image có Maven và JDK 17 để compile project. Đặt tên stage là build
 
-WORKDIR /app
-#=> Chuyển vào thư mục làm việc /app (sẽ chứa source code).
-COPY pom.xml .
-#=> Copy file pom.xml vào thư mục làm việc
-RUN mvn dependency:go-offline -B
-#=>Maven tải toàn bộ dependencies về sẵn
+WORKDIR /workspace
+
+# Resolve dependencies in a separate layer so source-only changes rebuild faster.
+COPY pom.xml ./
+RUN mvn -B dependency:go-offline
+
 COPY src ./src
-#Copy toàn bộ source code Java (folder src) vào container.
-RUN mvn clean package -DskipTests
-#Build project → tạo file .jar trong thư mục target. Bỏ qua test để build nhanh hơn.
+RUN mvn -B clean package -DskipTests
 
-#Stage 2 — Dùng để RUN app (chỉ cần JRE (Java Runtime Environment) 17)
-FROM eclipse-temurin:17-jre-alpine
-#Đặt thư mục làm việc trong container là /app
+FROM eclipse-temurin:17-jre-alpine AS runtime
+
+RUN addgroup -S chainstore && adduser -S chainstore -G chainstore
+
 WORKDIR /app
+COPY --from=build --chown=chainstore:chainstore /workspace/target/*.jar app.jar
 
-COPY --from=build /app/target/*.jar app.jar
-#Copy file JAR đã build ở stage 1 → sang đây, đặt tên là app.jar
+USER chainstore
+
 EXPOSE 4313
-ENTRYPOINT ["java", "-jar", "app.jar"]
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:4313/swagger-ui/index.html || exit 1
 
-
-
-# Docker file => docker image => docker container
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

@@ -48,6 +48,12 @@ public class SystemSettingsController extends BaseAPIController {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Operation(summary = "Current server time")
+    @GetMapping("time")
+    public ResponseEntity<TFUResponse<Map<String, Long>>> time() {
+        return success(Map.of("epochMs", System.currentTimeMillis()));
+    }
+
     @Operation(summary = "System settings summary")
     @PreAuthorize("@permissionChecker.has('SYSTEM_SETTINGS_MASTER_DATA')")
     @GetMapping("settings")

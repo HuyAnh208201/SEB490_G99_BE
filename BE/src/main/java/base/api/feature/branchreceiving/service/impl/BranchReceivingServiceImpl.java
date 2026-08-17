@@ -6,6 +6,7 @@ import base.api.feature.branchreceiving.dto.response.ReceiveShipmentDetailRespon
 import base.api.feature.branchreceiving.dto.response.ReceivingHistoryResponse;
 import base.api.feature.branchreceiving.dto.response.ReceivingOrderResponse;
 import base.api.feature.branchreceiving.dto.response.ReceivingReceiptDetailResponse;
+import base.api.feature.branchreceiving.dto.response.SupplementalRequestResponse;
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branchreceiving.service.IBranchReceivingService;
 import base.api.feature.dispatch.mapper.DispatchMapper;
@@ -232,10 +233,11 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
                 .collect(Collectors.toMap(DispatchOrderModel::getId, o -> o, (a, b) -> a));
         Map<Long, List<PurchaseRequestDetailModel>> detailsByRequest = loadDetailsByRequest(requestIds);
         Map<Integer, ProductModel> productsById = loadProducts(detailsByRequest.values());
-        Set<Long> pendingRequestIds = goodsReceiptRepository
-                .findByPurchaseRequestIdInAndStatus(requestIds, STATUS_PENDING).stream()
-                .map(GoodsReceiptModel::getPurchaseRequestId)
-                .collect(Collectors.toSet());
+        Set<Long> peopleIds = new LinkedHashSet<>();
+        requests.stream().map(PurchaseRequestModel::getCreatedBy).filter(id -> id != null).forEach(peopleIds::add);
+        ordersById.values().stream().map(DispatchOrderModel::getRecipientId).filter(id -> id != null).forEach(peopleIds::add);
+        Map<Long, UserModel> peopleById = userRepository.findAllById(peopleIds).stream()
+                .collect(Collectors.toMap(UserModel::getId, user -> user, (a, b) -> a));
 
         List<ReceivingOrderResponse> rows = new ArrayList<>();
         for (PurchaseRequestModel pr : requests) {
@@ -251,14 +253,19 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
             row.setDispatchNumber(order == null ? null : dispatchMapper.toDispatchNumber(order));
             row.setRequestId(pr.getId());
             row.setRequestNumber(dispatchMapper.toRequestNumber(pr));
-            row.setShipmentDate(order == null ? pr.getCreatedAt() : order.getCreatedAt());
+            row.setShipmentDate(order == null ? null : order.getShippedAt());
+            row.setRequestSubmittedAt(pr.getSubmittedAt());
+            row.setDesiredReceiveDate(pr.getDesiredReceiveDate());
+            UserModel requestedBy = peopleById.get(pr.getCreatedBy());
+            row.setRequestedByName(requestedBy == null ? null : requestedBy.getFullName());
+            UserModel assignedReceiver = order == null ? null : peopleById.get(order.getRecipientId());
+            row.setAssignedReceiverName(assignedReceiver == null ? null : assignedReceiver.getFullName());
             row.setProductCount(details.size());
             row.setCategories(distinctCategories(details, productsById));
             row.setStatus(mapTrackingStatus(order, pr.getStatus()));
             row.setCanReceive(pr.getStatus() == PurchaseRequestStatus.IN_TRANSIT
                     && order != null
-                    && order.getStatus() == DispatchStatus.DELIVERING
-                    && !pendingRequestIds.contains(pr.getId()));
+                    && order.getStatus() == DispatchStatus.DELIVERING);
             rows.add(row);
         }
         rows.sort(Comparator.comparing(
@@ -285,14 +292,28 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         response.setDispatchNumber(dispatchMapper.toDispatchNumber(order));
         response.setRequestId(requestId);
         response.setRequestNumber(dispatchMapper.toRequestNumber(pr));
-        response.setShipmentDate(order.getCreatedAt());
+        response.setShipmentDate(order.getShippedAt());
+        response.setRequestSubmittedAt(pr.getSubmittedAt());
+        response.setDesiredReceiveDate(pr.getDesiredReceiveDate());
+        UserModel requestedBy = userRepository.findById(pr.getCreatedBy()).orElse(null);
+        response.setRequestedByName(requestedBy == null ? null : requestedBy.getFullName());
+        UserModel assignedReceiver = order.getRecipientId() == null ? null : userRepository.findById(order.getRecipientId()).orElse(null);
+        if (order.getShipperName() != null && !order.getShipperName().isBlank()) {
+            response.setSenderName(order.getShipperName());
+            response.setSenderPhone(order.getShipperPhone());
+        } else {
+            UserModel sender = order.getCreatedBy() == null ? null : userRepository.findById(order.getCreatedBy()).orElse(null);
+            response.setSenderName(sender == null ? null : sender.getFullName());
+            response.setSenderPhone(sender == null ? null : sender.getPhone());
+        }
+        response.setAssignedReceiverName(assignedReceiver == null ? null : assignedReceiver.getFullName());
+        response.setAssignedReceiverPhone(assignedReceiver == null ? null : assignedReceiver.getPhone());
         response.setBranchId(branchId);
         response.setStoreName(branch == null ? null : branch.getName());
         response.setSource("Warehouse Stock");
         response.setStatus(receivingStatus(pr.getStatus()));
         response.setCanReceive(pr.getStatus() == PurchaseRequestStatus.IN_TRANSIT
-                && order.getStatus() == DispatchStatus.DELIVERING
-                && !hasPendingReceipt(dispatchOrderId, requestId));
+                && order.getStatus() == DispatchStatus.DELIVERING);
 
         for (PurchaseRequestDetailModel detail : details) {
             ProductModel product = productsById.get(detail.getProductId());
@@ -301,6 +322,8 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
             item.setProductCode(product == null ? null : product.getCode());
             item.setProductName(product == null ? null : product.getName());
             item.setUnit(product == null ? null : product.getUnit());
+            item.setCategoryName(product == null || product.getCategory() == null ? null : product.getCategory().getName());
+            item.setUnitCost(product == null ? null : product.getReferenceImportPrice());
             item.setShippedQuantity(dispatchQuantity(detail));
             response.getItems().add(item);
         }
@@ -321,10 +344,6 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         if (pr.getStatus() != PurchaseRequestStatus.IN_TRANSIT) {
             throw new BadRequestException("Only shipments in transit can be received.");
         }
-        if (hasPendingReceipt(dispatchOrderId, requestId)) {
-            throw new BadRequestException("A receipt for this shipment is already pending branch manager approval.");
-        }
-
         List<PurchaseRequestDetailModel> details = detailRepository.findByPurchaseRequestIdOrderByIdAsc(requestId);
         Map<Integer, PurchaseRequestDetailModel> detailByProduct = details.stream()
                 .collect(Collectors.toMap(PurchaseRequestDetailModel::getProductId, d -> d, (a, b) -> a));
@@ -345,7 +364,7 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         receipt.setDispatchOrderId(dispatchOrderId);
         receipt.setBranchId(branchId);
         receipt.setStockStaffId(staff.getId());
-        receipt.setStatus(STATUS_PENDING);
+        receipt.setStatus(STATUS_APPROVED);
         GoodsReceiptModel savedReceipt = goodsReceiptRepository.save(receipt);
 
         Map<Integer, ProductModel> productsById = productRepository.findByIdInWithCategory(
@@ -370,6 +389,13 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
             receiptItems.add(receiptItem);
         }
         goodsReceiptItemRepository.saveAll(receiptItems);
+
+        for (GoodsReceiptItemModel item : receiptItems) {
+            increaseBranchStock(branchId, item.getProductId(), safe(item.getReceivedQuantity()));
+        }
+        pr.setStatus(PurchaseRequestStatus.RECEIVED);
+        purchaseRequestRepository.save(pr);
+        markDispatchReceivedIfComplete(dispatchOrderId);
 
         return buildHistoryRow(savedReceipt, receiptItems.size(), staff.getFullName(), pr);
     }
@@ -449,11 +475,17 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         Long branchId = currentBranchId();
         String search = pageRequest.normalizedSearch();
         String normalizedStatus = normalize(status);
+        if (normalizedStatus == null) {
+            normalizedStatus = "APPROVED";
+        } else if ("ALL".equalsIgnoreCase(normalizedStatus)) {
+            normalizedStatus = null;
+        }
         Long searchedId = extractNumericId(search);
+        final String statusFilter = normalizedStatus;
 
         Specification<GoodsReceiptModel> spec = (root, query, cb) -> cb.equal(root.get("branchId"), branchId);
-        if (normalizedStatus != null) {
-            spec = spec.and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), normalizedStatus.toUpperCase(Locale.ROOT)));
+        if (statusFilter != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), statusFilter.toUpperCase(Locale.ROOT)));
         }
         if (search != null) {
             String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
@@ -549,9 +581,31 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
         response.setDispatchNumber(order == null ? null : dispatchMapper.toDispatchNumber(order));
         response.setRequestNumber(pr == null ? null : dispatchMapper.toRequestNumber(pr));
         response.setReceivedAt(receipt.getReceivedAt());
-        response.setReceivedByName(staffNames(List.of(receipt)).get(receipt.getStockStaffId()));
+        UserModel receivedBy = receipt.getStockStaffId() == null ? null : userRepository.findById(receipt.getStockStaffId()).orElse(null);
+        response.setReceivedByName(receivedBy == null ? null : receivedBy.getFullName());
+        response.setReceivedByPhone(receivedBy == null ? null : receivedBy.getPhone());
         response.setStoreName(branch == null ? null : branch.getName());
         response.setStatus(normalizeReceiptStatus(receipt.getStatus()));
+        if (pr != null) {
+            response.setRequestSubmittedAt(pr.getSubmittedAt());
+            response.setDesiredReceiveDate(pr.getDesiredReceiveDate());
+            UserModel requestedBy = userRepository.findById(pr.getCreatedBy()).orElse(null);
+            response.setRequestedByName(requestedBy == null ? null : requestedBy.getFullName());
+        }
+        if (order != null) {
+            response.setShipmentDate(order.getShippedAt());
+            UserModel assigned = order.getRecipientId() == null ? null : userRepository.findById(order.getRecipientId()).orElse(null);
+            if (order.getShipperName() != null && !order.getShipperName().isBlank()) {
+                response.setSenderName(order.getShipperName());
+                response.setSenderPhone(order.getShipperPhone());
+            } else {
+                UserModel sender = order.getCreatedBy() == null ? null : userRepository.findById(order.getCreatedBy()).orElse(null);
+                response.setSenderName(sender == null ? null : sender.getFullName());
+                response.setSenderPhone(sender == null ? null : sender.getPhone());
+            }
+            response.setAssignedReceiverName(assigned == null ? null : assigned.getFullName());
+            response.setAssignedReceiverPhone(assigned == null ? null : assigned.getPhone());
+        }
 
         for (GoodsReceiptItemModel item : items) {
             ProductModel product = productsById.get(item.getProductId());
@@ -560,12 +614,67 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
             line.setProductCode(product == null ? null : product.getCode());
             line.setProductName(product == null ? null : product.getName());
             line.setUnit(product == null ? null : product.getUnit());
+            line.setCategoryName(product == null || product.getCategory() == null ? null : product.getCategory().getName());
+            line.setUnitCost(product == null ? null : product.getReferenceImportPrice());
             line.setOrderedQuantity(item.getOrderedQuantity());
             line.setReceivedQuantity(item.getReceivedQuantity());
+            line.setDifference(safe(item.getReceivedQuantity()) - safe(item.getOrderedQuantity()));
             line.setNote(item.getNote());
             response.getItems().add(line);
         }
         return response;
+    }
+
+    @Override
+    @Transactional
+    public SupplementalRequestResponse createSupplementalRequest(Long receiptId) {
+        UserModel manager = currentUserProvider.getCurrentUserOrThrow();
+        Long branchId = requireBranch(manager);
+        GoodsReceiptModel receipt = loadBranchReceipt(receiptId, branchId);
+
+        var existing = purchaseRequestRepository.findFirstBySupplementalForReceiptIdOrderByIdDesc(receiptId);
+        if (existing.isPresent()) {
+            PurchaseRequestModel request = existing.get();
+            int count = goodsReceiptItemRepository.findByGoodsReceiptId(receiptId).size();
+            return new SupplementalRequestResponse(request.getId(), dispatchMapper.toRequestNumber(request), count, true);
+        }
+
+        List<GoodsReceiptItemModel> missing = goodsReceiptItemRepository.findByGoodsReceiptId(receiptId).stream()
+                .filter(item -> safe(item.getReceivedQuantity()) < safe(item.getOrderedQuantity()))
+                .toList();
+        if (missing.isEmpty()) {
+            throw new BadRequestException("This receipt has no missing quantity to supplement.");
+        }
+        Map<Integer, ProductModel> products = productRepository.findByIdInWithCategory(
+                missing.stream().map(GoodsReceiptItemModel::getProductId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(ProductModel::getId, product -> product, (a, b) -> a));
+
+        PurchaseRequestModel original = purchaseRequestRepository.findById(receipt.getPurchaseRequestId()).orElse(null);
+        PurchaseRequestModel supplement = new PurchaseRequestModel();
+        supplement.setBranchId(branchId);
+        supplement.setCreatedBy(manager.getId());
+        supplement.setStatus(PurchaseRequestStatus.DRAFT);
+        supplement.setReason("Supplement for receipt " + receiptCode(receipt));
+        supplement.setSupplementalForReceiptId(receiptId);
+        supplement.setDesiredReceiveDate(original == null ? null : original.getDesiredReceiveDate());
+        supplement = purchaseRequestRepository.save(supplement);
+
+        List<PurchaseRequestDetailModel> details = new ArrayList<>();
+        for (GoodsReceiptItemModel item : missing) {
+            ProductModel product = products.get(item.getProductId());
+            if (product == null) continue;
+            int shortageBase = safe(item.getOrderedQuantity()) - safe(item.getReceivedQuantity());
+            int conversion = Math.max(1, productPackagingService.topConversionQty(product));
+            int shortageTop = Math.max(1, (shortageBase + conversion - 1) / conversion);
+            PurchaseRequestDetailModel detail = new PurchaseRequestDetailModel();
+            detail.setPurchaseRequestId(supplement.getId());
+            detail.setProductId(item.getProductId());
+            detail.setRequestedQty(shortageTop);
+            details.add(detail);
+        }
+        detailRepository.saveAll(details);
+        return new SupplementalRequestResponse(
+                supplement.getId(), dispatchMapper.toRequestNumber(supplement), details.size(), false);
     }
 
     // ----------------------------------------------------------------------------------
@@ -698,6 +807,9 @@ public class BranchReceivingServiceImpl implements IBranchReceivingService {
     }
 
     private String mapTrackingStatus(DispatchOrderModel order, PurchaseRequestStatus requestStatus) {
+        if (requestStatus == PurchaseRequestStatus.RECEIVED) {
+            return DispatchStatus.RECEIVED.name();
+        }
         if (order != null && order.getStatus() != null) {
             if (order.getStatus() == DispatchStatus.RECEIVED) {
                 return DispatchStatus.RECEIVED.name();

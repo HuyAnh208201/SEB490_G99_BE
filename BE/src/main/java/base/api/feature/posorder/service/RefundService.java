@@ -4,23 +4,18 @@ import base.api.feature.posorder.dto.response.RefundResponse;
 
 import java.util.List;
 
-/**
- * Hủy đơn / trả hàng cần BM duyệt.
- *
- * Cashier yêu cầu hoàn/trả trong 5 phút sau khi tạo đơn kèm lý do; BM duyệt thì
- * hoàn tồn kho, thu hồi điểm và chuyển đơn sang REFUNDED (loại khỏi doanh thu).
- */
+/** POS refund operations, including review of records pending from the legacy workflow. */
 public interface RefundService {
 
-    /** Cashier yêu cầu hoàn/trả một đơn (chỉ trong cửa sổ 5 phút). */
+    /** Immediately refund a full order within the five-minute refund window. */
     RefundResponse requestRefund(Long orderId, String reason);
 
-    /** Danh sách yêu cầu hoàn/trả đang chờ duyệt của chi nhánh BM. */
+    /** Return refund records that were pending before immediate refunds were introduced. */
     List<RefundResponse> getPendingRefunds();
 
-    /** BM duyệt: hoàn tồn kho, thu hồi điểm, đơn chuyển REFUNDED. */
+    /** Approve a legacy pending refund. */
     RefundResponse approveRefund(Long refundId, String note);
 
-    /** BM từ chối: đơn giữ nguyên COMPLETED. */
+    /** Reject a legacy pending refund. */
     RefundResponse rejectRefund(Long refundId, String note);
 }

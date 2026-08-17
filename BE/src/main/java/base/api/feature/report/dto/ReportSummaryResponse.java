@@ -10,8 +10,11 @@ public record ReportSummaryResponse(
         BigDecimal totalRevenue,
         long transactionCount,
         BigDecimal avgTransactionValue,
-        TopBranchSummary topBranch
+        TopBranchSummary topBranch,
+        BigDecimal totalCogs,
+        BigDecimal totalProfit,
+        BigDecimal profitMarginPercent
 ) {
-    public record TopBranchSummary(Long id, String name, BigDecimal revenue) {
+    public record TopBranchSummary(Long id, String name, BigDecimal revenue, BigDecimal profit) {
     }
 }

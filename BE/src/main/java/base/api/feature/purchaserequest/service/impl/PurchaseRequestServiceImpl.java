@@ -1,6 +1,7 @@
 package base.api.feature.purchaserequest.service.impl;
 
 import base.api.feature.auth.repository.IUserRepository;
+import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.ProductPackagingService;
@@ -82,6 +83,13 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
             PurchaseRequestStatus.RECEIVED
     );
 
+    /** Incoming Requests screen: pending review, short-stock, and ready-to-ship. */
+    static final Set<PurchaseRequestStatus> WAREHOUSE_INCOMING_STATUSES = EnumSet.of(
+            PurchaseRequestStatus.PENDING,
+            PurchaseRequestStatus.AWAITING_STOCK,
+            PurchaseRequestStatus.APPROVED
+    );
+
     @Autowired
     private PurchaseRequestRepository purchaseRequestRepository;
 
@@ -116,6 +124,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     private IUserRepository userRepository;
 
     @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    @Autowired
     private PurchaseRequestMapper purchaseRequestMapper;
 
     @Autowired
@@ -135,6 +146,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         purchaseRequest.setReason(normalizeNullableText(request.getNotes()));
         purchaseRequest.setStatus(PurchaseRequestStatus.DRAFT);
         purchaseRequest.setCreatedBy(currentUser.getId());
+        purchaseRequest.setDesiredReceiveDate(request.getDesiredReceiveDate());
 
         PurchaseRequestModel savedRequest = purchaseRequestRepository.save(purchaseRequest);
         replaceDetails(savedRequest.getId(), buildRequestedQuantities(request.getItems(), request.getAddAllRecommended(), branchId));
@@ -150,6 +162,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         assertDraftEditable(purchaseRequest);
 
         purchaseRequest.setReason(normalizeNullableText(request.getNotes()));
+        purchaseRequest.setDesiredReceiveDate(request.getDesiredReceiveDate());
         PurchaseRequestModel savedRequest = purchaseRequestRepository.save(purchaseRequest);
         replaceDetails(savedRequest.getId(), buildRequestedQuantities(request.getItems(), request.getAddAllRecommended(), savedRequest.getBranchId()));
         return buildResponse(savedRequest);
@@ -170,8 +183,14 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         if (details.stream().anyMatch(detail -> detail.getRequestedQty() == null || detail.getRequestedQty() <= 0)) {
             throw new BadRequestException("Quantity must be greater than zero.");
         }
+        if (purchaseRequest.getDesiredReceiveDate() == null) {
+            throw new BadRequestException("Desired receive date is required before submitting.");
+        }
 
         purchaseRequest.setStatus(PurchaseRequestStatus.PENDING);
+        if (purchaseRequest.getSubmittedAt() == null) {
+            purchaseRequest.setSubmittedAt(LocalDateTime.now());
+        }
         return buildResponse(purchaseRequestRepository.save(purchaseRequest));
     }
 
@@ -238,6 +257,15 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
         if (status != null) {
             specification = specification.and((root, ignored, cb) -> cb.equal(root.get("status"), status));
+        } else if (role == UserRole.BRANCH_MANAGER) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.equal(root.get("status"), PurchaseRequestStatus.DRAFT));
+        } else if (role == UserRole.WAREHOUSE_MANAGER) {
+            specification = specification.and((root, ignored, cb) ->
+                    root.get("status").in(WAREHOUSE_INCOMING_STATUSES));
+        } else if (role == UserRole.INVENTORY_STAFF) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.notEqual(root.get("status"), PurchaseRequestStatus.DRAFT));
         }
         String search = pageRequest == null ? null : pageRequest.normalizedSearch();
         if (search != null) {
@@ -368,7 +396,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
                     .collect(Collectors.toCollection(ArrayList::new));
         }
 
-        String sort = stockSort == null ? "" : stockSort.trim().toLowerCase(Locale.ROOT);
+        String sort = stockSort == null || stockSort.isBlank()
+                ? "asc"
+                : stockSort.trim().toLowerCase(Locale.ROOT);
         if ("asc".equals(sort) || "desc".equals(sort)) {
             Comparator<ProductSearchResponse> byStock = Comparator.comparingInt(
                     row -> row.getCurrentStock() == null ? 0 : row.getCurrentStock());
@@ -605,23 +635,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
     @Override
     @Transactional
     public PurchaseRequestResponse rejectRequest(Long id, RejectPurchaseRequestRequest request) {
-        UserModel currentUser = currentUserProvider.getCurrentUserOrThrow();
-        assertCanApproveOrReject();
-        PurchaseRequestModel purchaseRequest = findRequestOrThrow(id);
-        if (purchaseRequest.getStatus() == null || !purchaseRequest.getStatus().isApprovable()) {
-            throw new BadRequestException("Only pending requests can be rejected.");
-        }
-
-        String reason = request == null ? null : normalizeNullableText(request.getReason());
-        if (reason == null) {
-            throw new BadRequestException("Reject reason is required.");
-        }
-
-        purchaseRequest.setStatus(PurchaseRequestStatus.REJECTED);
-        purchaseRequest.setRejectReason(reason);
-        purchaseRequest.setApprovedBy(currentUser.getId());
-        purchaseRequest.setApprovedAt(LocalDateTime.now());
-        return buildResponse(purchaseRequestRepository.save(purchaseRequest));
+        throw new BadRequestException("Rejecting purchase requests is not supported.");
     }
 
     @Override
@@ -747,9 +761,7 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
 
     private void assertCanApproveOrReject() {
         UserRole role = currentUserProvider.getCurrentUserRole();
-        if (role == UserRole.ADMIN
-                || role == UserRole.DIRECTOR
-                || role == UserRole.WAREHOUSE_MANAGER) {
+        if (role == UserRole.WAREHOUSE_MANAGER) {
             return;
         }
         throw new ForbiddenException("Access denied.");
@@ -877,34 +889,50 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         Map<Integer, ProductPackagingModel> topPackagings =
                 productPackagingService.getTopPackagingsByProductIds(productIds);
 
-        record Candidate(RecommendedProductResponse response, int shortfallBaseUnits) {}
+        Map<Integer, Integer> soldByProduct = new HashMap<>();
+        for (Object[] row : orderItemRepository.sumSoldQuantityByProduct(branchId, LocalDateTime.now().minusDays(30))) {
+            if (row[0] instanceof Number productId && row[1] instanceof Number sold) {
+                soldByProduct.put(productId.intValue(), sold.intValue());
+            }
+        }
+
+        record Candidate(RecommendedProductResponse response, boolean lowStock, int sold30, int shortfallBaseUnits) {}
 
         List<Candidate> candidates = new ArrayList<>();
         for (ProductModel product : products) {
             BranchInventoryModel inventory = inventoryByProductId.get(product.getId());
             int currentStock = inventory == null ? 0 : safeStock(inventory.getCurrentStock());
             int reorderPoint = resolveBranchReorderPoint(product, inventory);
-            if (reorderPoint <= 0 || currentStock > reorderPoint) {
+            int sold30 = soldByProduct.getOrDefault(product.getId(), 0);
+            boolean lowStock = reorderPoint > 0 && currentStock <= reorderPoint;
+            boolean highSellThrough = sold30 > currentStock;
+            if (!lowStock && !highSellThrough) {
                 continue;
             }
-            int shortfallBaseUnits = Math.max(reorderPoint - currentStock, 0);
+            int targetStock = Math.max(reorderPoint, sold30);
+            int shortfallBaseUnits = Math.max(targetStock - currentStock, 0);
             ProductPackagingModel top = topPackagings.get(product.getId());
             if (top == null) {
                 top = productPackagingService.getTopPackaging(product);
             }
             int conversionQty = productPackagingService.conversionQtyOf(top);
             int suggestedQty = toTopUnitsCeil(shortfallBaseUnits, conversionQty);
-            candidates.add(new Candidate(
-                    purchaseRequestMapper.toRecommendedProductResponse(
+            RecommendedProductResponse recommendation = purchaseRequestMapper.toRecommendedProductResponse(
                             product,
                             currentStock,
                             reorderPoint,
                             suggestedQty,
-                            top),
-                    shortfallBaseUnits));
+                            top);
+            recommendation.setSoldLast30Days(sold30);
+            recommendation.setPriorityReason(lowStock && highSellThrough
+                    ? "Low stock + high sell-through"
+                    : lowStock ? "Low stock" : "High sell-through");
+            candidates.add(new Candidate(recommendation, lowStock, sold30, shortfallBaseUnits));
         }
         candidates.sort(Comparator
-                .comparingInt(Candidate::shortfallBaseUnits).reversed()
+                .comparing(Candidate::lowStock).reversed()
+                .thenComparing(Comparator.comparingInt(Candidate::sold30).reversed())
+                .thenComparing(Comparator.comparingInt(Candidate::shortfallBaseUnits).reversed())
                 .thenComparing(
                         c -> c.response().getProductName(),
                         Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));

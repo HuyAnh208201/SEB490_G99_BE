@@ -1,6 +1,7 @@
 package base.api.feature.dispatch.service.impl;
 
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.dispatch.dto.request.CreateDispatchOrderRequest;
 import base.api.feature.dispatch.dto.request.UpdateDispatchStatusRequest;
 import base.api.feature.dispatch.dto.response.DispatchOrderResponse;
@@ -13,6 +14,8 @@ import base.api.feature.product.service.ProductPackagingService;
 import base.api.feature.purchaserequest.repository.PurchaseRequestDetailRepository;
 import base.api.feature.purchaserequest.repository.PurchaseRequestRepository;
 import base.api.feature.purchaserequest.repository.WarehouseInventoryRepository;
+import base.api.feature.purchaserequest.repository.GoodsReceiptRepository;
+import base.api.feature.purchaserequest.repository.GoodsReceiptItemRepository;
 import base.api.feature.supplier.repository.ISupplierRepository;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.DispatchOrderModel;
@@ -71,6 +74,9 @@ class DispatchServiceImplTest {
     @Mock private DispatchMapper dispatchMapper;
     @Mock private CurrentUserProvider currentUserProvider;
     @Mock private ProductPackagingService productPackagingService;
+    @Mock private IUserRepository userRepository;
+    @Mock private GoodsReceiptRepository goodsReceiptRepository;
+    @Mock private GoodsReceiptItemRepository goodsReceiptItemRepository;
 
     @InjectMocks
     private DispatchServiceImpl service;
@@ -502,6 +508,8 @@ class DispatchServiceImplTest {
     private static CreateDispatchOrderRequest createRequest(Long requestId) {
         CreateDispatchOrderRequest request = new CreateDispatchOrderRequest();
         request.setRequestId(requestId);
+        request.setShipperName("Nguyen Van Shipper");
+        request.setShipperPhone("0909123456");
         return request;
     }
 

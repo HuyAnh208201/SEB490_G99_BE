@@ -14,7 +14,7 @@ public interface IPurchaseOrderService {
 
     List<RecommendedPurchaseProductResponse> getRecommendedProducts();
 
-    List<PurchaseProductOptionResponse> searchProducts(String keyword);
+    List<PurchaseProductOptionResponse> searchProducts(Integer supplierId, String keyword);
 
     PurchaseOrderResponse createOrder(CreatePurchaseOrderRequest request);
 

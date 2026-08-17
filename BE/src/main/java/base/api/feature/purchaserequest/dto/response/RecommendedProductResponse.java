@@ -13,6 +13,8 @@ public class RecommendedProductResponse {
     private String unit;
     private Integer currentStock;
     private Integer reorderPoint;
+    private Integer soldLast30Days;
+    private String priorityReason;
     /** Suggested quantity expressed in TOP packaging units (what BM enters on the request). */
     private Integer suggestedQty;
     /** English label of the TOP packaging level, e.g. "Case of 24". */

@@ -9,6 +9,7 @@ import base.api.feature.auth.dto.response.InitiateForgotPasswordResponse;
 import base.api.feature.auth.repository.CriticalUserActionTokenRepository;
 import base.api.feature.auth.repository.IRoleRepository;
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.auth.dto.response.CriticalRoleSlotsResponse;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.CriticalUserActionTokenModel;
@@ -26,6 +27,7 @@ import base.api.feature.auth.service.IUserService;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionRepository;
 import base.api.shared.config.EmailService;
+import base.api.shared.config.FrontendOrigin;
 import base.api.shared.config.VerificationCodeIssuer;
 import base.api.shared.entity.ShiftAssignmentModel;
 import base.api.shared.enums.ShiftSessionStatus;
@@ -39,6 +41,8 @@ import base.api.shared.exception.NotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -90,6 +94,12 @@ public class UserService implements IUserService {
 
     @Autowired
     private ShiftAssignmentRepository shiftAssignmentRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Value("${url.api-url:http://localhost:4313}")
     private String apiBaseUrl;
@@ -259,10 +269,14 @@ public class UserService implements IUserService {
             actor = currentUserProvider.getCurrentUserOrThrow();
             actorRole = actor.getRole() == null ? null : actor.getRole().toWebRole();
         } catch (Exception ex) {
-            return userRepository.findAll();
+            return userRepository.findAll().stream()
+                    .filter(u -> u.getRole() != UserRole.CUSTOMER)
+                    .toList();
         }
 
-        List<UserModel> all = userRepository.findAll();
+        List<UserModel> all = userRepository.findAll().stream()
+                .filter(u -> u.getRole() != UserRole.CUSTOMER)
+                .toList();
         if (actorRole != UserRole.BRANCH_MANAGER) {
             return all;
         }
@@ -287,7 +301,8 @@ public class UserService implements IUserService {
             throw new ForbiddenException("You do not have permission to list users.");
         }
 
-        Specification<UserModel> specification = (root, ignored, cb) -> cb.conjunction();
+        Specification<UserModel> specification = (root, ignored, cb) ->
+                cb.notEqual(root.get("roleEntity").get("name"), UserRole.CUSTOMER.name());
         if (actorRole == UserRole.BRANCH_MANAGER) {
             specification = specification.and((root, ignored, cb) -> cb.or(
                     root.get("roleEntity").get("name").in(UserRole.ADMIN.name(), UserRole.DIRECTOR.name()),
@@ -335,6 +350,13 @@ public class UserService implements IUserService {
     @Override
     @Transactional
     public InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo) throws Exception {
+        return initiateForgotPassword(contactInfo, null);
+    }
+
+    @Override
+    @Transactional
+    public InitiateForgotPasswordResponse initiateForgotPassword(String contactInfo, String frontendBaseUrl)
+            throws Exception {
         if (contactInfo == null || contactInfo.trim().isEmpty()) {
             throw new IllegalArgumentException("Contact information is required.");
         }
@@ -368,7 +390,9 @@ public class UserService implements IUserService {
                 fullName = user.getUserName();
             }
 
-            String resetUrl = clientBaseUrl + "/reset-password?token=" + resetToken;
+            String resetUrl = FrontendOrigin.path(
+                    staffFrontendOrigin(frontendBaseUrl),
+                    "/reset-password?token=" + resetToken);
 
             String body = String.format(
                     "<html>" +
@@ -525,7 +549,7 @@ public class UserService implements IUserService {
                             "</div>" +
                             "<p>You can start using the system now!</p>" +
                             "<div style='text-align: center; margin: 30px 0;'>" +
-                            "<a href='" + clientBaseUrl + "/' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Open the system</a>" +
+                            "<a href='%s' style='background-color: #8cf425; color: #0f172a; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;'>Open the system</a>" +
                             "</div>" +
                             "<p style='color: #666; font-size: 14px;'>If you have any questions, feel free to contact us.</p>" +
                             "<hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;'>" +
@@ -535,7 +559,8 @@ public class UserService implements IUserService {
                             "</html>",
                     fullName,
                     user.getUserName(),
-                    user.getEmail()
+                    user.getEmail(),
+                    staffFrontendOrigin(null)
             );
 
             emailService.sendHtmlEmail(user.getEmail(), subject, body);
@@ -652,10 +677,10 @@ public class UserService implements IUserService {
         user.setLastName(dto.getLastName().trim());
         user.setEmail(normalizedEmail);
         user.setAvatar(dto.getAvatar());
-        if (dto.getBirthDate() != null && dto.getBirthDate().isAfter(java.time.LocalDateTime.now())) {
+        if (dto.getBirthDate() != null && dto.getBirthDate().isAfter(java.time.LocalDate.now())) {
             throw new IllegalArgumentException("Birth date cannot be in the future.");
         }
-        user.setBirthDate(dto.getBirthDate());
+        user.setBirthDate(dto.getBirthDate() == null ? null : dto.getBirthDate().atStartOfDay());
 
         if (dto.getGender() != null && !dto.getGender().isBlank()) {
             user.setGender(UserGender.valueOf(dto.getGender()));
@@ -789,7 +814,7 @@ public class UserService implements IUserService {
                     savedUser.getEmail(),
                     tempPassword,
                     dto.getRole().name(),
-                    clientBaseUrl + "/login"
+                    FrontendOrigin.path(staffFrontendOrigin(null), "/login")
             );
 
             emailService.sendHtmlEmail(savedUser.getEmail(), subject, body);
@@ -981,6 +1006,11 @@ public class UserService implements IUserService {
                     "Cannot delete this account while they are assigned to published shifts. Deactivate the account first (assignments will be cleared).");
         }
 
+        if (orderRepository.existsByCashierId(targetUserId)) {
+            throw new BadRequestException(
+                    "Không thể xóa tài khoản này vì đã có lịch sử bán hàng. Vui lòng vô hiệu hóa tài khoản để giữ nguyên dữ liệu hóa đơn.");
+        }
+
         if (targetRole == UserRole.BRANCH_MANAGER && target.getBranchId() != null) {
             branchRepository.findById(target.getBranchId()).ifPresent(branch -> {
                 if (targetUserId.equals(branch.getManagerId())) {
@@ -990,7 +1020,44 @@ public class UserService implements IUserService {
             });
         }
 
-        userRepository.delete(target);
+        deleteUserTokens(targetUserId);
+
+        try {
+            userRepository.delete(target);
+            userRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new BadRequestException(
+                    "Không thể xóa tài khoản này vì đã có dữ liệu nghiệp vụ liên quan. Vui lòng vô hiệu hóa tài khoản để giữ nguyên lịch sử.");
+        }
+    }
+
+    /**
+     * Native SQL keeps the transaction usable: a JPA repository call against a table that is
+     * missing on the deployed schema marks the transaction rollback-only even when caught.
+     */
+    private void deleteUserTokens(Long targetUserId) {
+        deleteTokenRows("password_reset_tokens", "user_id", targetUserId);
+        deleteTokenRows("email_verification_tokens", "user_id", targetUserId);
+        deleteTokenRows("critical_user_action_tokens", "target_user_id", targetUserId);
+        deleteTokenRows("critical_user_action_tokens", "actor_user_id", targetUserId);
+    }
+
+    private void deleteTokenRows(String table, String column, Long targetUserId) {
+        Integer tableExists = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*) FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = ?
+                          AND COLUMN_NAME = ?
+                        """,
+                Integer.class,
+                table,
+                column);
+        if (tableExists == null || tableExists == 0) {
+            log.debug("Skipped token cleanup, {}.{} not present on this schema", table, column);
+            return;
+        }
+        jdbcTemplate.update("DELETE FROM " + table + " WHERE " + column + " = ?", targetUserId);
     }
 
     @Override
@@ -1145,5 +1212,9 @@ public class UserService implements IUserService {
         }
 
         throw new ForbiddenException("You do not have permission to manage users.");
+    }
+
+    private String staffFrontendOrigin(String requested) {
+        return FrontendOrigin.resolve(requested, clientBaseUrl);
     }
 }

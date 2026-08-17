@@ -1,6 +1,7 @@
 package base.api.feature.posorder.service.impl;
 
 import base.api.feature.auth.service.IUserService;
+import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
@@ -12,9 +13,11 @@ import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.posorder.repository.VoucherCatalogRepository;
 import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductCostService;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftRepository;
+import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.OrderItemModel;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.ProductModel;
@@ -35,6 +38,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -60,9 +64,11 @@ class PosOrderCheckoutTest {
     @Mock private VoucherRepository voucherRepository;
     @Mock private VoucherCatalogRepository voucherCatalogRepository;
     @Mock private IProductRepository productRepository;
+    @Mock private ProductCostService productCostService;
     @Mock private BranchInventoryRepository branchInventoryRepository;
     @Mock private ShiftRepository shiftRepository;
     @Mock private IUserService userService;
+    @Mock private IBranchRepository branchRepository;
     @Mock private ICashierService cashierService;
     @Mock private PointTransactionRepository pointTransactionRepository;
     @Mock private CurrentUserProvider currentUserProvider;
@@ -75,9 +81,17 @@ class PosOrderCheckoutTest {
         UserModel cashier = new UserModel();
         cashier.setId(3L);
         cashier.setBranchId(BRANCH_ID);
+        cashier.setFullName("Nguyen Thu Ngan");
         cashier.setRole(UserRole.CASHIER);
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
         when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.CASHIER);
+        BranchModel branch = new BranchModel();
+        branch.setId(BRANCH_ID);
+        branch.setName("ChainStore Quan 1");
+        branch.setAddress("123 Nguyen Hue, Quan 1, TP.HCM");
+        branch.setPhone("02811110001");
+        when(branchRepository.findById(BRANCH_ID)).thenReturn(Optional.of(branch));
+        when(productCostService.unitCostForProduct(any())).thenReturn(BigDecimal.ZERO);
         when(shiftRepository
                 .findByBranchIdAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
                         anyLong(), any(), any()))
@@ -177,6 +191,10 @@ class PosOrderCheckoutTest {
         OrderResponse response = service.checkout(cashRequest(1, 2, "24000"));
 
         assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
+        assertEquals("Nguyen Thu Ngan", response.getCashierName());
+        assertEquals("ChainStore Quan 1", response.getBranchName());
+        assertEquals("123 Nguyen Hue, Quan 1, TP.HCM", response.getBranchAddress());
+        assertEquals("02811110001", response.getBranchPhone());
         verify(paymentRepository).save(any());
     }
 

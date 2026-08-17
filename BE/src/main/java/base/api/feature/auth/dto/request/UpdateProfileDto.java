@@ -1,12 +1,13 @@
 package base.api.feature.auth.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Data
 public class UpdateProfileDto {
@@ -33,7 +34,8 @@ public class UpdateProfileDto {
     @Size(max = 20, message = "Phone number must be at most 20 characters.")
     private String phone;
 
-    private LocalDateTime birthDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate birthDate;
 
     @Pattern(regexp = "^(MALE|FEMALE|OTHER)$", message = "Gender is invalid.")
     private String gender;

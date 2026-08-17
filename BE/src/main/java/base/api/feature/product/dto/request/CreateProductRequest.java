@@ -35,11 +35,15 @@ public class CreateProductRequest {
 
     private Integer unitsPerImportUnit;
 
+    private Integer supplierId;
+
     @NotNull(message = "Reference import price is required.")
     private BigDecimal referenceImportPrice;
 
     @NotNull(message = "Default sale price is required.")
     private BigDecimal defaultSalePrice;
+
+    private Boolean refundable = true;
 
     private String description;
 

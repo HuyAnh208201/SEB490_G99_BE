@@ -59,6 +59,7 @@ public class PosOrderTablesMigration {
                         quantity INT NOT NULL,
                         unit_price DECIMAL(15,2) NOT NULL,
                         line_total DECIMAL(15,2) NOT NULL,
+                        refundable TINYINT(1) NOT NULL DEFAULT 1,
                         PRIMARY KEY (id),
                         KEY idx_order_items_order (order_id)
                     )
@@ -120,6 +121,7 @@ public class PosOrderTablesMigration {
             addColumnIfMissing("orders", "points_redeemed", "BIGINT NOT NULL DEFAULT 0");
             addColumnIfMissing("orders", "points_earned", "BIGINT NOT NULL DEFAULT 0");
             addColumnIfMissing("order_items", "product_name", "VARCHAR(255) NULL");
+            addColumnIfMissing("order_items", "refundable", "TINYINT(1) NOT NULL DEFAULT 1");
             addColumnIfMissing("order_discounts", "code", "VARCHAR(64) NULL");
 
             // Bảng orders gốc đặt FK customer_id -> customers(id), nhưng cả hệ thống coi

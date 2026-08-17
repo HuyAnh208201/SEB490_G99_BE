@@ -1,6 +1,7 @@
 package base.api.feature.posorder.service.impl;
 
 import base.api.feature.auth.service.IUserService;
+import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
@@ -12,17 +13,16 @@ import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.posorder.repository.VoucherCatalogRepository;
 import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.product.repository.IProductRepository;
+import base.api.feature.product.service.ProductCostService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.shift.repository.ShiftRepository;
+import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.PaymentModel;
 import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.UserModel;
-import base.api.shared.entity.VoucherCatalogModel;
-import base.api.shared.entity.VoucherModel;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
-import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,6 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -66,9 +65,11 @@ class PosOrderCheckoutExtraTest {
     @Mock private VoucherRepository voucherRepository;
     @Mock private VoucherCatalogRepository voucherCatalogRepository;
     @Mock private IProductRepository productRepository;
+    @Mock private ProductCostService productCostService;
     @Mock private BranchInventoryRepository branchInventoryRepository;
     @Mock private ShiftRepository shiftRepository;
     @Mock private IUserService userService;
+    @Mock private IBranchRepository branchRepository;
     @Mock private ICashierService cashierService;
     @Mock private PointTransactionRepository pointTransactionRepository;
     @Mock private CurrentUserProvider currentUserProvider;
@@ -81,9 +82,17 @@ class PosOrderCheckoutExtraTest {
         UserModel cashier = new UserModel();
         cashier.setId(3L);
         cashier.setBranchId(BRANCH_ID);
+        cashier.setFullName("Nguyen Thu Ngan");
         cashier.setRole(UserRole.CASHIER);
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
         when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.CASHIER);
+        BranchModel branch = new BranchModel();
+        branch.setId(BRANCH_ID);
+        branch.setName("ChainStore Quan 1");
+        branch.setAddress("123 Nguyen Hue, Quan 1, TP.HCM");
+        branch.setPhone("02811110001");
+        when(branchRepository.findById(BRANCH_ID)).thenReturn(Optional.of(branch));
+        when(productCostService.unitCostForProduct(any())).thenReturn(BigDecimal.ZERO);
         when(shiftRepository
                 .findByBranchIdAndStartTimeLessThanAndEndTimeGreaterThanOrderByStartTimeAsc(
                         anyLong(), any(), any()))
@@ -125,100 +134,20 @@ class PosOrderCheckoutExtraTest {
     }
 
     @Test
-    void fixedVoucherReducesTotalAndStoresDiscount() {
+    void voucherCodeIsIgnoredOnCheckout() {
         stubProduct(1, "Milk", "12000");
         when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
-        stubActiveVoucher("SAVE5K", "FIXED", "5000");
-        when(voucherRepository.markUsed(11L)).thenReturn(1);
 
         CheckoutRequest request = cashRequest(1, 2, "30000");
         request.setVoucherCode("SAVE5K");
 
         OrderResponse response = service.checkout(request);
 
-        assertEquals(0, new BigDecimal("19000").compareTo(response.getTotal()));
-        assertEquals(0, new BigDecimal("5000").compareTo(response.getDiscountAmount()));
-        verify(orderDiscountRepository).save(any());
-        verify(voucherRepository).markUsed(11L);
-    }
-
-    @Test
-    void percentVoucherRoundsHalfUp() {
-        stubProduct(1, "Milk", "12000");
-        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
-        stubActiveVoucher("TENPCT", "PERCENT", "10");
-        when(voucherRepository.markUsed(11L)).thenReturn(1);
-
-        OrderResponse response = service.checkout(cashWithVoucher(1, 2, "30000", "TENPCT"));
-
-        // 10% of 24000 = 2400
-        assertEquals(0, new BigDecimal("21600").compareTo(response.getTotal()));
-        assertEquals(0, new BigDecimal("2400").compareTo(response.getDiscountAmount()));
-    }
-
-    @Test
-    void fixedVoucherIsCappedAtSubtotal() {
-        stubProduct(1, "Milk", "12000");
-        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
-        stubActiveVoucher("HUGE", "FIXED", "999999");
-        when(voucherRepository.markUsed(11L)).thenReturn(1);
-
-        OrderResponse response = service.checkout(cashWithVoucher(1, 1, "0", "HUGE"));
-
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getTotal()));
-        assertEquals(0, new BigDecimal("12000").compareTo(response.getDiscountAmount()));
-    }
-
-    @Test
-    void expiredVoucherIsRejected() {
-        stubProduct(1, "Milk", "12000");
-        VoucherModel voucher = voucherShell("OLD");
-        voucher.setExpiresAt(LocalDateTime.now().minusDays(1));
-        when(voucherRepository.findByCodeIgnoreCase("OLD")).thenReturn(Optional.of(voucher));
-
-        BusinessException error = assertThrows(
-                BusinessException.class,
-                () -> service.checkout(cashWithVoucher(1, 1, "20000", "OLD")));
-
-        assertTrue(error.getMessage().contains("expired"));
-        verify(branchInventoryRepository, never()).deductStock(anyLong(), anyInt(), anyInt());
-    }
-
-    @Test
-    void usedVoucherIsRejected() {
-        stubProduct(1, "Milk", "12000");
-        VoucherModel voucher = voucherShell("USED");
-        voucher.setStatus("used");
-        when(voucherRepository.findByCodeIgnoreCase("USED")).thenReturn(Optional.of(voucher));
-
-        BusinessException error = assertThrows(
-                BusinessException.class,
-                () -> service.checkout(cashWithVoucher(1, 1, "20000", "USED")));
-
-        assertTrue(error.getMessage().contains("already been used"));
-    }
-
-    @Test
-    void unknownVoucherIsNotFound() {
-        stubProduct(1, "Milk", "12000");
-        when(voucherRepository.findByCodeIgnoreCase("NOPE")).thenReturn(Optional.empty());
-
-        assertThrows(NotFoundException.class, () -> service.checkout(cashWithVoucher(1, 1, "20000", "NOPE")));
-    }
-
-    @Test
-    void voucherMarkUsedRaceFailsAfterStockDeduct() {
-        stubProduct(1, "Milk", "12000");
-        when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
-        stubActiveVoucher("RACE", "FIXED", "1000");
-        when(voucherRepository.markUsed(11L)).thenReturn(0);
-
-        BusinessException error = assertThrows(
-                BusinessException.class,
-                () -> service.checkout(cashWithVoucher(1, 1, "20000", "RACE")));
-
-        assertTrue(error.getMessage().contains("just used on another order"));
-        verify(orderItemRepository, never()).saveAll(any());
+        assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getDiscountAmount()));
+        verify(voucherRepository, never()).findByCodeIgnoreCase(any());
+        verify(voucherRepository, never()).markUsed(any());
+        verify(orderDiscountRepository, never()).save(any());
     }
 
     @Test
@@ -239,6 +168,8 @@ class PosOrderCheckoutExtraTest {
         // balance 3 * 1000 = 3000 off 24000
         assertEquals(0, new BigDecimal("21000").compareTo(response.getTotal()));
         assertEquals(3L, response.getPointsRedeemed());
+        assertEquals("Guest", response.getCustomerName());
+        assertEquals("0909111222", response.getCustomerPhone());
         verify(cashierService).settlePoints(any(), any(), eq(3L));
     }
 
@@ -307,47 +238,12 @@ class PosOrderCheckoutExtraTest {
         verify(voucherRepository, never()).findByCodeIgnoreCase(any());
     }
 
-    @Test
-    void voucherWithoutCatalogLinkIsRejected() {
-        stubProduct(1, "Milk", "12000");
-        VoucherModel voucher = voucherShell("ORPHAN");
-        voucher.setVoucherCatalogId(null);
-        when(voucherRepository.findByCodeIgnoreCase("ORPHAN")).thenReturn(Optional.of(voucher));
-
-        BusinessException error = assertThrows(
-                BusinessException.class,
-                () -> service.checkout(cashWithVoucher(1, 1, "20000", "ORPHAN")));
-
-        assertTrue(error.getMessage().contains("not linked to a discount type"));
-    }
-
     private void stubProduct(int id, String name, String price) {
         ProductModel product = new ProductModel();
         product.setId(id);
         product.setName(name);
         product.setDefaultSalePrice(new BigDecimal(price));
         when(productRepository.findAllById(any())).thenReturn(List.of(product));
-    }
-
-    private void stubActiveVoucher(String code, String discountType, String value) {
-        VoucherModel voucher = voucherShell(code);
-        when(voucherRepository.findByCodeIgnoreCase(code)).thenReturn(Optional.of(voucher));
-        VoucherCatalogModel catalog = new VoucherCatalogModel();
-        catalog.setId(21L);
-        catalog.setName("Promo");
-        catalog.setDiscountType(discountType);
-        catalog.setDiscountValue(new BigDecimal(value));
-        when(voucherCatalogRepository.findById(21L)).thenReturn(Optional.of(catalog));
-    }
-
-    private VoucherModel voucherShell(String code) {
-        VoucherModel voucher = new VoucherModel();
-        voucher.setId(11L);
-        voucher.setCode(code);
-        voucher.setStatus("active");
-        voucher.setVoucherCatalogId(21L);
-        voucher.setExpiresAt(LocalDateTime.now().plusDays(7));
-        return voucher;
     }
 
     private UserModel customer(Long id, Long points) {
@@ -370,12 +266,6 @@ class PosOrderCheckoutExtraTest {
         CheckoutRequest request = baseRequest(productId, qty);
         request.setPaymentMethod("CASH");
         request.setCashReceived(new BigDecimal(cashReceived));
-        return request;
-    }
-
-    private CheckoutRequest cashWithVoucher(int productId, int qty, String cash, String code) {
-        CheckoutRequest request = cashRequest(productId, qty, cash);
-        request.setVoucherCode(code);
         return request;
     }
 

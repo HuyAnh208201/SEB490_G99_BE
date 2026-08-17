@@ -17,6 +17,7 @@ import base.api.shared.security.CurrentUserProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -59,6 +60,7 @@ class UserForgotPasswordTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(service, "apiBaseUrl", "http://localhost:1328");
+        ReflectionTestUtils.setField(service, "clientBaseUrl", "http://localhost:5175");
     }
 
     // -------------------------------------------------------------------------
@@ -100,12 +102,15 @@ class UserForgotPasswordTest {
         when(passwordResetTokenRepository.save(any(PasswordResetTokenModel.class)))
                 .thenAnswer(call -> call.getArgument(0));
 
-        InitiateForgotPasswordResponse response = service.initiateForgotPassword("alice@example.com");
+        InitiateForgotPasswordResponse response = service.initiateForgotPassword(
+                "alice@example.com", "http://localhost:5175");
 
         assertTrue(response.getMessage().contains("Link đặt lại mật khẩu đã được gửi"));
         verify(passwordResetTokenRepository).deleteByUserId(1L);
         verify(passwordResetTokenRepository).save(any(PasswordResetTokenModel.class));
-        verify(emailService).sendHtmlEmail(anyString(), anyString(), anyString());
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendHtmlEmail(anyString(), anyString(), body.capture());
+        assertTrue(body.getValue().contains("http://localhost:5175/reset-password?token="));
     }
 
     @Test

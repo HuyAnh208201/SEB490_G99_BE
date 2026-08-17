@@ -3,6 +3,8 @@ package base.api.feature.branchreceiving.dto.response;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +21,15 @@ public class ReceivingReceiptDetailResponse {
     private String requestNumber;
     private LocalDateTime receivedAt;
     private String receivedByName;
+    private String receivedByPhone;
+    private String senderName;
+    private String senderPhone;
+    private String assignedReceiverName;
+    private String assignedReceiverPhone;
+    private LocalDateTime shipmentDate;
+    private LocalDateTime requestSubmittedAt;
+    private LocalDate desiredReceiveDate;
+    private String requestedByName;
     private String storeName;
     private String status;
     private List<Item> items = new ArrayList<>();
@@ -30,8 +41,11 @@ public class ReceivingReceiptDetailResponse {
         private String productCode;
         private String productName;
         private String unit;
+        private String categoryName;
+        private BigDecimal unitCost;
         private Integer orderedQuantity;
         private Integer receivedQuantity;
+        private Integer difference;
         private String note;
     }
 }

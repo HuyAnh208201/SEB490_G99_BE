@@ -2,7 +2,6 @@ package base.api.feature.posorder.service;
 
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderResponse;
-import base.api.feature.posorder.dto.response.VoucherResponse;
 import base.api.shared.dto.PageRequestDTO;
 import org.springframework.data.domain.Page;
 
@@ -12,8 +11,8 @@ import java.util.List;
 public interface IPosOrderService {
 
     /**
-     * Chốt một đơn tại quầy: ghi hoá đơn, trừ tồn kho, chốt điểm và đánh dấu
-     * voucher đã dùng — tất cả trong một transaction. Hỏng bất kỳ bước nào thì
+     * Chốt một đơn tại quầy: ghi hoá đơn, trừ tồn kho và chốt điểm
+     * — tất cả trong một transaction. Hỏng bất kỳ bước nào thì
      * không có gì được ghi.
      */
     OrderResponse checkout(CheckoutRequest request);
@@ -28,7 +27,4 @@ public interface IPosOrderService {
             String paymentMethod);
 
     OrderResponse getOrderById(Long id);
-
-    /** Tra mã giảm giá trước khi chốt đơn để cashier thấy ngay số tiền giảm. */
-    VoucherResponse lookupVoucher(String code);
 }

@@ -106,7 +106,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void workingStockAfterApprovedReservationsDeductsReservedNeed() {
-        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 200)));
+        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 200)));
         PurchaseRequestModel approved = request(10L, LocalDateTime.now().minusHours(1));
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(approved));
@@ -119,6 +119,27 @@ class WarehouseStockAllocationHelperTest {
         Map<Integer, Integer> working = helper.workingStockAfterApprovedReservations();
 
         assertEquals(176, working.get(PRODUCT_ID));
+    }
+
+    @Test
+    void workingStockAfterApprovedReservationsIncludesUnreservedProducts() {
+        Integer awaitingProductId = 8;
+        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(
+                stock(PRODUCT_ID, 200),
+                stock(awaitingProductId, 38)));
+        PurchaseRequestModel approved = request(10L, LocalDateTime.now().minusHours(1));
+        when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
+                .thenReturn(List.of(approved));
+        when(detailRepository.findByPurchaseRequestIdIn(List.of(10L)))
+                .thenReturn(List.of(detail(10L, PRODUCT_ID, 1, 1)));
+        when(productRepository.findByIdInWithCategory(anyCollection()))
+                .thenReturn(List.of(product(PRODUCT_ID)));
+        when(productPackagingService.toBaseQty(eq(1), any(ProductModel.class))).thenReturn(24);
+
+        Map<Integer, Integer> working = helper.workingStockAfterApprovedReservations();
+
+        assertEquals(176, working.get(PRODUCT_ID));
+        assertEquals(38, working.get(awaitingProductId));
     }
 
     @Test
@@ -258,7 +279,7 @@ class WarehouseStockAllocationHelperTest {
 
     @Test
     void workingStockLeavesMissingProductAsZeroThenNegative() {
-        when(warehouseInventoryRepository.findByProductIdIn(anyCollection())).thenReturn(List.of(stock(PRODUCT_ID, 10)));
+        when(warehouseInventoryRepository.findAll()).thenReturn(List.of(stock(PRODUCT_ID, 10)));
         PurchaseRequestModel approved = request(10L, LocalDateTime.now());
         when(purchaseRequestRepository.findByStatus(PurchaseRequestStatus.APPROVED))
                 .thenReturn(List.of(approved));

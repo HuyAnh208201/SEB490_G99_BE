@@ -220,7 +220,7 @@ class PurchaseRequestSubmitTest {
         });
         ProductModel product = activeProduct();
         product.setStatus("inactive");
-        when(productRepository.findByIdWithCategory(PRODUCT_ID)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdInWithCategory(any())).thenReturn(List.of(product));
 
         CreatePurchaseRequestRequest body = new CreatePurchaseRequestRequest();
         body.setItems(List.of(item(PRODUCT_ID, "2")));
@@ -238,7 +238,7 @@ class PurchaseRequestSubmitTest {
             model.setId(REQUEST_ID);
             return model;
         });
-        when(productRepository.findByIdWithCategory(PRODUCT_ID)).thenReturn(Optional.of(activeProduct()));
+        when(productRepository.findByIdInWithCategory(any())).thenReturn(List.of(activeProduct()));
         when(purchaseRequestMapper.buildDetailSnapshot(anyLong(), any(), any()))
                 .thenAnswer(call -> {
                     PurchaseRequestDetailModel detail = new PurchaseRequestDetailModel();
@@ -600,7 +600,7 @@ class PurchaseRequestSubmitTest {
         when(warehouseInventoryRepository.findByProductIdIn(any())).thenReturn(List.of());
         PurchaseRequestResponse response = new PurchaseRequestResponse();
         response.setId(REQUEST_ID);
-        when(purchaseRequestMapper.toResponse(any(), any(), any(), any(), any(), any(), any()))
+        when(purchaseRequestMapper.toResponse(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(response);
     }
 

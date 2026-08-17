@@ -10,6 +10,9 @@ public record DirectorDashboardResponse(
         LocalDate from,
         LocalDate to,
         BigDecimal totalRevenue,
+        BigDecimal totalCogs,
+        BigDecimal totalProfit,
+        BigDecimal profitMarginPercent,
         long transactionCount,
         BigDecimal avgTransactionValue,
         BigDecimal momPercent,
@@ -25,13 +28,14 @@ public record DirectorDashboardResponse(
         long pendingImportRequests,
         long exceptionCount
 ) {
-    public record BranchHighlight(Long id, String name, BigDecimal revenue) {
+    public record BranchHighlight(Long id, String name, BigDecimal revenue, BigDecimal profit) {
     }
 
     public record BranchPortfolioRow(
             Long branchId,
             String branchName,
             BigDecimal revenue,
+            BigDecimal profit,
             long orderCount,
             BigDecimal shareOfChainPercent
     ) {
