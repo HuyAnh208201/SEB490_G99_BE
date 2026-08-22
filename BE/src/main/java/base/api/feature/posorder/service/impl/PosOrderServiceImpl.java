@@ -8,12 +8,9 @@ import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderItemResponse;
 import base.api.feature.posorder.dto.response.OrderResponse;
-import base.api.feature.posorder.repository.OrderDiscountRepository;
 import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.repository.PaymentRepository;
-import base.api.feature.posorder.repository.VoucherCatalogRepository;
-import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.posorder.service.IPosOrderService;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.product.repository.IProductRepository;
@@ -69,16 +66,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
     private OrderItemRepository orderItemRepository;
 
     @Autowired
-    private OrderDiscountRepository orderDiscountRepository;
-
-    @Autowired
     private PaymentRepository paymentRepository;
-
-    @Autowired
-    private VoucherRepository voucherRepository;
-
-    @Autowired
-    private VoucherCatalogRepository voucherCatalogRepository;
 
     @Autowired
     private IProductRepository productRepository;
@@ -154,18 +142,18 @@ public class PosOrderServiceImpl implements IPosOrderService {
             subtotal = subtotal.add(lineTotal);
         }
 
-        // 3. Loyalty points apply against the promo-adjusted subtotal. Discount codes are unused.
-        BigDecimal afterVoucher = subtotal;
+        // 3. Loyalty points apply against the promo-adjusted subtotal.
+        BigDecimal afterDiscounts = subtotal;
 
         // 4. Khách hàng: tạo nhanh nếu SĐT chưa có.
         UserModel customer = resolveCustomer(request);
 
         // 5. Điểm đổi: chặn trên theo số tiền còn lại, không để đổi thừa mất điểm oan.
-        long pointsToRedeem = affordablePoints(request.getPointsToRedeem(), customer, afterVoucher);
+        long pointsToRedeem = affordablePoints(request.getPointsToRedeem(), customer, afterDiscounts);
         BigDecimal pointsDiscount = pointsToRedeem > 0
                 ? cashierService.redeemValueOf(pointsToRedeem)
                 : BigDecimal.ZERO;
-        BigDecimal total = afterVoucher.subtract(pointsDiscount).max(BigDecimal.ZERO);
+        BigDecimal total = afterDiscounts.subtract(pointsDiscount).max(BigDecimal.ZERO);
 
         validatePayment(request, total);
 

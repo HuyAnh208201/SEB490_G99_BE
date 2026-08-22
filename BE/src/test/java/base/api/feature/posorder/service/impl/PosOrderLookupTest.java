@@ -5,12 +5,9 @@ import base.api.feature.auth.service.IUserService;
 import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.response.OrderResponse;
-import base.api.feature.posorder.repository.OrderDiscountRepository;
 import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.repository.PaymentRepository;
-import base.api.feature.posorder.repository.VoucherCatalogRepository;
-import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.report.repository.PointTransactionRepository;
@@ -57,10 +54,7 @@ class PosOrderLookupTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private OrderItemRepository orderItemRepository;
-    @Mock private OrderDiscountRepository orderDiscountRepository;
     @Mock private PaymentRepository paymentRepository;
-    @Mock private VoucherRepository voucherRepository;
-    @Mock private VoucherCatalogRepository voucherCatalogRepository;
     @Mock private IProductRepository productRepository;
     @Mock private BranchInventoryRepository branchInventoryRepository;
     @Mock private ShiftRepository shiftRepository;

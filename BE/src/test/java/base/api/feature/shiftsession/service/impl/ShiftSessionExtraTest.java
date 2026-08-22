@@ -125,6 +125,32 @@ class ShiftSessionExtraTest {
     }
 
     @Test
+    void getCurrentReschedulesCompletedSessionWhenClockRewoundWithinShiftWindow() {
+        UserModel cashier = cashier();
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.empty());
+        ShiftAssignmentModel assignment = publishedAssignment(cashier);
+        when(assignmentRepository.findPublishedAssignmentsForStaffBetween(
+                eq(EMPLOYEE_ID), any(), any(), eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of(assignment));
+        stubCurrentAssignment(assignment);
+        ShiftSessionModel completed = openSession(ShiftSessionStatus.COMPLETED);
+        completed.setClosedAt(LocalDateTime.now().plusHours(2));
+        when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
+                .thenReturn(Optional.of(completed));
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubToResponseDeps(cashier);
+
+        ShiftSessionResponse response = service.getCurrent();
+
+        assertEquals(ShiftSessionStatus.SCHEDULED, response.getStatus());
+        assertEquals(ShiftSessionStatus.SCHEDULED, completed.getStatus());
+        assertNull(completed.getClosedAt());
+        verify(sessionRepository, org.mockito.Mockito.atLeastOnce()).save(completed);
+    }
+
+    @Test
     void getCurrentKeepsDemoCashierClosingSessionActive() {
         UserModel cashier = cashier();
         cashier.setEmail("demo_cashier@chainstore.vn");
@@ -223,15 +249,46 @@ class ShiftSessionExtraTest {
     }
 
     @Test
-    void startShiftRejectsWhenAnotherCashierIsOpenInBranch() {
+    void startShiftJoinsWhenColleagueOpenOnSameShift() {
         UserModel cashier = cashier();
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
         stubCurrentAssignment(publishedAssignment(cashier));
         ShiftSessionModel scheduled = scheduledSession();
         when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
                 .thenReturn(Optional.of(scheduled));
+        ShiftSessionModel otherOpen = openSession(ShiftSessionStatus.OPEN);
+        otherOpen.setEmployeeId(99L);
+        when(sessionRepository.findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+                SHIFT_ID, ShiftSessionStatus.OPEN, EMPLOYEE_ID))
+                .thenReturn(Optional.of(otherOpen));
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubToResponseDeps(cashier);
+        when(userRepository.findById(99L)).thenReturn(Optional.of(cashier(99L, "Other Cashier")));
+
+        StartShiftRequest request = new StartShiftRequest();
+        request.setConfirmedReceived(true);
+
+        ShiftSessionResponse response = service.startShift(request);
+
+        assertEquals(ShiftSessionStatus.OPEN, scheduled.getStatus());
+        assertEquals(BigDecimal.ZERO, scheduled.getOpeningFundAmount());
+        assertTrue(Boolean.TRUE.equals(response.getJoinedExistingShift()));
+    }
+
+    @Test
+    void startShiftRejectsWhenAnotherCashierIsOpenOnDifferentShift() {
+        UserModel cashier = cashier();
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        stubCurrentAssignment(publishedAssignment(cashier));
+        ShiftSessionModel scheduled = scheduledSession();
+        when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
+                .thenReturn(Optional.of(scheduled));
+        when(sessionRepository.findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+                SHIFT_ID, ShiftSessionStatus.OPEN, EMPLOYEE_ID))
+                .thenReturn(Optional.empty());
         ShiftSessionModel otherOpen = new ShiftSessionModel();
         otherOpen.setEmployeeId(99L);
+        otherOpen.setShiftId(999L);
         otherOpen.setStatus(ShiftSessionStatus.OPEN);
         when(sessionRepository.findFirstByBranchIdAndStatusOrderByOpenedAtDesc(BRANCH_ID, ShiftSessionStatus.OPEN))
                 .thenReturn(Optional.of(otherOpen));
@@ -257,6 +314,9 @@ class ShiftSessionExtraTest {
         ShiftSessionModel scheduled = scheduledSession();
         when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
                 .thenReturn(Optional.of(scheduled));
+        when(sessionRepository.findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+                SHIFT_ID, ShiftSessionStatus.OPEN, EMPLOYEE_ID))
+                .thenReturn(Optional.empty());
         when(sessionRepository.findFirstByBranchIdAndStatusOrderByOpenedAtDesc(BRANCH_ID, ShiftSessionStatus.OPEN))
                 .thenReturn(Optional.empty());
         when(shiftRepository.findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
@@ -286,6 +346,9 @@ class ShiftSessionExtraTest {
         ShiftSessionModel scheduled = scheduledSession();
         when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
                 .thenReturn(Optional.of(scheduled));
+        when(sessionRepository.findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+                SHIFT_ID, ShiftSessionStatus.OPEN, EMPLOYEE_ID))
+                .thenReturn(Optional.empty());
         when(sessionRepository.findFirstByBranchIdAndStatusOrderByOpenedAtDesc(BRANCH_ID, ShiftSessionStatus.OPEN))
                 .thenReturn(Optional.empty());
         when(shiftRepository.findByBranchIdAndStartTimeGreaterThanEqualAndStartTimeLessThanOrderByStartTimeAsc(
@@ -535,6 +598,66 @@ class ShiftSessionExtraTest {
         service.closeCashierShift();
 
         assertEquals(ShiftSessionStatus.PENDING_APPROVAL, closing.getStatus());
+    }
+
+    @Test
+    void closeCashierShiftPendingApprovalWhenProductDifferenceOnly() {
+        UserModel cashier = cashier();
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        ShiftSessionModel closing = openSession(ShiftSessionStatus.CLOSING);
+        closing.setVerificationConfirmed(true);
+        closing.setHandoverConfirmed(true);
+        closing.setOpeningFundAmount(new BigDecimal("2000000"));
+        closing.setActualCash(new BigDecimal("2000000"));
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.of(closing));
+        when(paymentRepository.sumCashTakenInShift(SHIFT_ID)).thenReturn(BigDecimal.ZERO);
+        when(paymentRepository.countTransactionsInShift(SHIFT_ID)).thenReturn(0L);
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(shiftRepository.findById(SHIFT_ID)).thenReturn(Optional.of(shiftModel()));
+        when(shiftRepository.save(any(ShiftModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(assignmentRepository.findFirstByShiftIdAndStaffIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
+                .thenReturn(Optional.empty());
+        stubToResponseDeps(cashier);
+        ShiftSessionHighValueItemModel hvItem = new ShiftSessionHighValueItemModel();
+        hvItem.setSessionId(SESSION_ID);
+        hvItem.setProductId(101);
+        hvItem.setExpectedQty(5);
+        hvItem.setActualQty(4);
+        hvItem.setDifference(-1);
+        when(highValueItemRepository.findBySessionIdOrderByIdAsc(anyLong())).thenReturn(List.of(hvItem));
+
+        service.closeCashierShift();
+
+        assertEquals(ShiftSessionStatus.PENDING_APPROVAL, closing.getStatus());
+    }
+
+    @Test
+    void getCurrentAutoJoinsWhenColleagueOpenSameShift() {
+        UserModel cashier = cashier();
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(cashier);
+        when(sessionRepository.findFirstByEmployeeIdAndStatusInOrderByOpenedAtDesc(eq(EMPLOYEE_ID), anyList()))
+                .thenReturn(Optional.empty());
+        ShiftAssignmentModel assignment = publishedAssignment(cashier);
+        when(assignmentRepository.findPublishedAssignmentsOverlapping(
+                eq(EMPLOYEE_ID), any(), any(), eq(ShiftStatus.PUBLISHED)))
+                .thenReturn(List.of(assignment));
+        ShiftSessionModel scheduled = scheduledSession();
+        when(sessionRepository.findFirstByShiftIdAndEmployeeIdOrderByIdDesc(SHIFT_ID, EMPLOYEE_ID))
+                .thenReturn(Optional.of(scheduled));
+        when(sessionRepository.save(any(ShiftSessionModel.class))).thenAnswer(inv -> inv.getArgument(0));
+        ShiftSessionModel colleagueOpen = openSession(ShiftSessionStatus.OPEN);
+        colleagueOpen.setEmployeeId(99L);
+        when(sessionRepository.findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+                SHIFT_ID, ShiftSessionStatus.OPEN, EMPLOYEE_ID))
+                .thenReturn(Optional.of(colleagueOpen));
+        stubToResponseDeps(cashier);
+        when(userRepository.findById(99L)).thenReturn(Optional.of(cashier(99L, "Colleague")));
+
+        ShiftSessionResponse response = service.getCurrent();
+
+        assertEquals(ShiftSessionStatus.OPEN, scheduled.getStatus());
+        assertTrue(Boolean.TRUE.equals(response.getJoinedExistingShift()));
     }
 
     @Test

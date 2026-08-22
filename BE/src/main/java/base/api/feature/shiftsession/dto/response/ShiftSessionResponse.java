@@ -94,4 +94,13 @@ public class ShiftSessionResponse {
     private String approvedByName;
     private LocalDateTime approvedAt;
     private String managerNote;
+
+    /** True when this cashier joined a shift already opened by a colleague. */
+    private Boolean joinedExistingShift;
+    private Long shiftOpenedByEmployeeId;
+    private String shiftOpenedByName;
+
+    /** True when any high-value product count differs from expected at closing. */
+    private Boolean hasProductDiscrepancy;
+    private Integer productDiscrepancyCount;
 }

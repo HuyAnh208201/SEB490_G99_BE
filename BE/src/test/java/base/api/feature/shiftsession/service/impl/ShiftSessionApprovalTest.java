@@ -2,6 +2,7 @@ package base.api.feature.shiftsession.service.impl;
 
 import base.api.feature.auth.repository.IUserRepository;
 import base.api.feature.branch.repository.IBranchRepository;
+import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.shift.repository.ShiftAssignmentRepository;
 import base.api.feature.shift.repository.ShiftRepository;
 import base.api.feature.shiftsession.dto.request.ReconcileShiftSessionRequest;
@@ -10,6 +11,7 @@ import base.api.feature.shiftsession.repository.ShiftSessionApprovalRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionHighValueItemRepository;
 import base.api.feature.shiftsession.repository.ShiftSessionRepository;
 import base.api.shared.entity.ShiftSessionApprovalModel;
+import base.api.shared.entity.ShiftSessionHighValueItemModel;
 import base.api.shared.entity.ShiftSessionModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.enums.ShiftSessionApprovalDecision;
@@ -24,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -64,6 +67,9 @@ class ShiftSessionApprovalTest {
 
     @Mock
     private IBranchRepository branchRepository;
+
+    @Mock
+    private IProductRepository productRepository;
 
     @Mock
     private CurrentUserProvider currentUserProvider;
@@ -110,6 +116,34 @@ class ShiftSessionApprovalTest {
         assertFalse(session.getHandoverConfirmed());
         assertEquals(MANAGER_ID, session.getApprovedBy());
         assertEquals("Difference too large, recount.", session.getManagerNote());
+    }
+
+    @Test
+    void approveProductOnlyDiscrepancy() {
+        signedInAsManager(BRANCH_ID);
+        ShiftSessionModel session = pendingSession();
+        session.setDifference(BigDecimal.ZERO);
+        session.setActualCash(new BigDecimal("7000000"));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session));
+        ShiftSessionHighValueItemModel hvItem = new ShiftSessionHighValueItemModel();
+        hvItem.setSessionId(SESSION_ID);
+        hvItem.setProductId(101);
+        hvItem.setDifference(-1);
+        when(highValueItemRepository.findBySessionIdOrderByIdAsc(SESSION_ID)).thenReturn(List.of(hvItem));
+        when(productRepository.findAllById(any())).thenReturn(List.of());
+        when(approvalRepository.findBySessionIdOrderByDecidedAtDesc(SESSION_ID)).thenReturn(List.of());
+        when(shiftRepository.findById(7L)).thenReturn(Optional.empty());
+        when(userRepository.findById(EMPLOYEE_ID)).thenReturn(Optional.of(employee()));
+        when(userRepository.findById(MANAGER_ID)).thenReturn(Optional.of(managerUser()));
+
+        ReconcileShiftSessionRequest request = new ReconcileShiftSessionRequest();
+        request.setApproved(true);
+        request.setNote("Product count verified.");
+
+        ShiftSessionResponse response = service.decideReconciliation(SESSION_ID, request);
+
+        assertEquals(ShiftSessionStatus.COMPLETED, session.getStatus());
+        assertEquals(ShiftSessionStatus.COMPLETED, response.getStatus());
     }
 
     @Test

@@ -42,9 +42,9 @@ public class PosOrderController extends BaseAPIController {
 
     @Operation(
             summary = "Chốt đơn tại quầy",
-            description = "Ghi hoá đơn, trừ tồn kho, chốt điểm và khoá voucher trong cùng một "
+            description = "Ghi hoá đơn, trừ tồn kho và chốt điểm trong cùng một "
                     + "transaction. Giá và tiền giảm đều tính lại ở server — client chỉ gửi "
-                    + "productId, số lượng, mã giảm giá và số điểm muốn đổi."
+                    + "productId, số lượng và số điểm muốn đổi."
     )
     @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
     @PostMapping

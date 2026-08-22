@@ -17,7 +17,7 @@ import java.util.List;
  * Cashier chốt một đơn tại quầy.
  *
  * Cố ý KHÔNG nhận giá, tiền giảm hay tổng tiền từ client — tất cả được tính lại
- * ở server từ bảng products và voucher, nếu không thì ai cũng có thể tự đặt giá.
+ * ở server từ bảng products, nếu không thì ai cũng có thể tự đặt giá.
  */
 @Data
 public class CheckoutRequest {

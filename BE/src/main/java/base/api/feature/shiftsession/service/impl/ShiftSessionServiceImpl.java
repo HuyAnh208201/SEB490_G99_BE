@@ -83,6 +83,7 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     private static final BigDecimal STANDARD_OPENING_FUND = new BigDecimal("2000000");
     private static final String BRANCH_ALREADY_OPEN_MESSAGE =
             "Another cashier is currently operating an active shift in this branch.";
+    private static final String JOINED_SHIFT_NOTE_PREFIX = "Joined shift opened by ";
     private static final String AUTO_CLOSE_NOTE =
             "Auto-closed by system: cashier did not complete closing within the grace period after shift end time.";
     private static final List<ShiftSessionStatus> CASHIER_ACTIVE_STATUSES = List.of(
@@ -177,6 +178,16 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 populateOpeningFund(session, shift);
                 sessionRepository.save(session);
             });
+            Optional<ShiftSessionModel> colleagueOpen =
+                    findColleagueOpenSessionOnShift(session.getShiftId(), user.getId());
+            if (colleagueOpen.isPresent()) {
+                applyJoinSession(session, colleagueOpen.get(), user);
+                sessionRepository.save(session);
+                ShiftSessionResponse response = toResponse(session, user);
+                enrichJoinResponse(response, colleagueOpen.get());
+                applySlotContext(response, user);
+                return response;
+            }
         }
         ShiftSessionResponse response = toResponse(session, user);
         applySlotContext(response, user);
@@ -221,12 +232,24 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             return toResponse(session, user);
         }
         assertCanBeginOpening(session);
+        Optional<ShiftSessionModel> colleagueOpen =
+                findColleagueOpenSessionOnShift(session.getShiftId(), user.getId());
+        if (colleagueOpen.isPresent()) {
+            applyJoinSession(session, colleagueOpen.get(), user);
+            if (session.getShiftAssignmentId() == null) {
+                session.setShiftAssignmentId(assignment.getId());
+            }
+            sessionRepository.save(session);
+            ShiftSessionResponse response = toResponse(session, user);
+            enrichJoinResponse(response, colleagueOpen.get());
+            return response;
+        }
         boolean confirmed = request != null && Boolean.TRUE.equals(request.getConfirmedReceived());
         if (user.getRole() == UserRole.CASHIER && !confirmed && !Boolean.TRUE.equals(session.getOpeningConfirmed())) {
             throw new BusinessException(
                     "You must confirm that you have received the opening fund before opening the shift.");
         }
-        assertNoOtherOpenSessionInBranch(session.getBranchId(), user.getId(), user);
+        assertNoConflictingOpenSessionInBranch(session.getBranchId(), session.getShiftId(), user.getId(), user);
         populateOpeningFund(session, assignment.getShift());
         applyOpeningFundReceipt(
                 session,
@@ -381,10 +404,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             throw new BusinessException("An explanation is required when there is a cash difference.");
         }
         session.setClosedAt(LocalDateTime.now());
-        if (diff.compareTo(BigDecimal.ZERO) == 0) {
-            session.setStatus(ShiftSessionStatus.COMPLETED);
-        } else {
+        if (requiresReconciliationApproval(session)) {
             session.setStatus(ShiftSessionStatus.PENDING_APPROVAL);
+        } else {
+            session.setStatus(ShiftSessionStatus.COMPLETED);
         }
         sessionRepository.save(session);
 
@@ -486,10 +509,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 .orElseThrow(() -> new BusinessException("Shift session not found."));
         assertSameBranch(manager, session);
         if (session.getStatus() == ShiftSessionStatus.PENDING_APPROVAL
-                && !hasCashDifference(session.getDifference())) {
+                && !requiresReconciliationApproval(session)) {
             session.setStatus(ShiftSessionStatus.COMPLETED);
             sessionRepository.save(session);
-            throw new BusinessException("This shift had no cash difference and does not require reconciliation.");
+            throw new BusinessException("This shift had no cash or product difference and does not require reconciliation.");
         }
         ShiftSessionResponse response = toResponse(session, manager);
         response.setTransactionSummary(buildTransactionSummary(session));
@@ -506,10 +529,10 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         if (session.getStatus() != ShiftSessionStatus.PENDING_APPROVAL) {
             throw new BusinessException("This shift session is not awaiting cash reconciliation approval.");
         }
-        if (!hasCashDifference(session.getDifference())) {
+        if (!requiresReconciliationApproval(session)) {
             session.setStatus(ShiftSessionStatus.COMPLETED);
             sessionRepository.save(session);
-            throw new BusinessException("This shift had no cash difference and does not require reconciliation.");
+            throw new BusinessException("This shift had no cash or product difference and does not require reconciliation.");
         }
         if (request.getApproved() == null) {
             throw new BusinessException("Approval decision is required.");
@@ -613,17 +636,91 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
                 .orElseThrow(() -> new BusinessException("No open shift session. Start your shift first."));
     }
 
-    private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId, UserModel actor) {
+    private void assertNoConflictingOpenSessionInBranch(
+            Long branchId, Long shiftId, Long employeeId, UserModel actor) {
         if (actor != null && DemoAccounts.isDemoCashierBypassEmail(actor.getEmail())) {
             return;
         }
         sessionRepository
                 .findFirstByBranchIdAndStatusOrderByOpenedAtDesc(branchId, ShiftSessionStatus.OPEN)
                 .ifPresent(open -> {
-                    if (!Objects.equals(open.getEmployeeId(), employeeId)) {
+                    if (!Objects.equals(open.getEmployeeId(), employeeId)
+                            && !Objects.equals(open.getShiftId(), shiftId)) {
                         throw new BusinessException(BRANCH_ALREADY_OPEN_MESSAGE);
                     }
                 });
+    }
+
+    private Optional<ShiftSessionModel> findColleagueOpenSessionOnShift(Long shiftId, Long employeeId) {
+        if (shiftId == null || employeeId == null) {
+            return Optional.empty();
+        }
+        return sessionRepository.findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+                shiftId, ShiftSessionStatus.OPEN, employeeId);
+    }
+
+    private void applyJoinSession(ShiftSessionModel session, ShiftSessionModel opener, UserModel user) {
+        LocalDateTime now = LocalDateTime.now();
+        session.setStatus(ShiftSessionStatus.OPEN);
+        session.setOpenedAt(now);
+        session.setOpeningConfirmed(true);
+        session.setOpeningFundAmount(BigDecimal.ZERO);
+        if (opener.getOpeningFundReceivedFrom() != null) {
+            session.setOpeningFundReceivedFrom(opener.getOpeningFundReceivedFrom());
+        }
+        if (opener.getOpeningFundMethod() != null) {
+            session.setOpeningFundMethod(opener.getOpeningFundMethod());
+        }
+        userRepository.findById(opener.getEmployeeId()).ifPresent(openerUser -> session.setOpeningNote(
+                JOINED_SHIFT_NOTE_PREFIX + formatName(openerUser)));
+        if (session.getOpeningFundReceivedAt() == null) {
+            session.setOpeningFundReceivedAt(now);
+        }
+    }
+
+    private void enrichJoinResponse(ShiftSessionResponse response, ShiftSessionModel opener) {
+        if (response == null || opener == null) {
+            return;
+        }
+        response.setJoinedExistingShift(true);
+        response.setShiftOpenedByEmployeeId(opener.getEmployeeId());
+        userRepository.findById(opener.getEmployeeId())
+                .ifPresent(u -> response.setShiftOpenedByName(formatName(u)));
+    }
+
+    private boolean requiresReconciliationApproval(ShiftSessionModel session) {
+        if (hasCashDifference(session.getDifference())) {
+            return true;
+        }
+        if (session.getId() == null) {
+            return false;
+        }
+        return hasProductCountDiscrepancy(session.getId());
+    }
+
+    private boolean hasProductCountDiscrepancy(Long sessionId) {
+        return highValueItemRepository.findBySessionIdOrderByIdAsc(sessionId).stream()
+                .anyMatch(item -> item.getDifference() != null && item.getDifference() != 0);
+    }
+
+    private void applyProductDiscrepancyFlags(
+            ShiftSessionResponse response, List<ShiftSessionHighValueItemModel> items) {
+        if (response == null || items == null || items.isEmpty()) {
+            if (response != null) {
+                response.setHasProductDiscrepancy(false);
+                response.setProductDiscrepancyCount(0);
+            }
+            return;
+        }
+        long count = items.stream()
+                .filter(item -> item.getDifference() != null && item.getDifference() != 0)
+                .count();
+        response.setHasProductDiscrepancy(count > 0);
+        response.setProductDiscrepancyCount((int) count);
+    }
+
+    private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId, UserModel actor) {
+        assertNoConflictingOpenSessionInBranch(branchId, null, employeeId, actor);
     }
 
     private void assertNoOtherOpenSessionInBranch(Long branchId, Long employeeId) {
@@ -811,27 +908,97 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
     }
 
     private ShiftSessionModel getOrCreateScheduledSession(UserModel user, ShiftAssignmentModel assignment) {
-        ShiftModel shift = assignment.getShift();
-        return sessionRepository
-                .findFirstByShiftIdAndEmployeeIdOrderByIdDesc(shift.getId(), user.getId())
-                .orElseGet(() -> createNewScheduledSession(user, assignment, shift));
+        return resolveSessionForAssignment(user, assignment);
     }
 
     /**
-     * Validates that a cashier may open (start) a shift. Does not reset session state.
+     * Loads or creates the shift session for an assignment. When a terminal session
+     * still falls inside the published shift window, it may be reset so cashiers can
+     * reopen after auto-close or local clock changes during QA.
      */
-    private ShiftSessionModel resolveSessionForStart(UserModel user, ShiftAssignmentModel assignment) {
+    private ShiftSessionModel resolveSessionForAssignment(UserModel user, ShiftAssignmentModel assignment) {
         ShiftModel shift = assignment.getShift();
         ShiftSessionModel session = sessionRepository
                 .findFirstByShiftIdAndEmployeeIdOrderByIdDesc(shift.getId(), user.getId())
                 .orElseGet(() -> createNewScheduledSession(user, assignment, shift));
+        if (maybeReopenTerminalSessionWithinShiftWindow(session, shift)) {
+            session = sessionRepository.save(session);
+        }
+        syncShiftAssignmentId(session, assignment);
+        return session;
+    }
 
+    /**
+     * Validates that a cashier may open (start) a shift.
+     */
+    private ShiftSessionModel resolveSessionForStart(UserModel user, ShiftAssignmentModel assignment) {
+        ShiftSessionModel session = resolveSessionForAssignment(user, assignment);
         ShiftSessionStatus status = session.getStatus();
         if (status == ShiftSessionStatus.OPEN || status == ShiftSessionStatus.SCHEDULED) {
-            syncShiftAssignmentId(session, assignment);
             return session;
         }
         throw new BusinessException(blockedStartMessage(status));
+    }
+
+    /**
+     * Re-schedule a terminal session when the shift slot has not ended yet. Covers
+     * auto-close after the grace period and QA scenarios where the OS clock is moved
+     * backward after a close recorded in the "future".
+     */
+    private boolean maybeReopenTerminalSessionWithinShiftWindow(
+            ShiftSessionModel session, ShiftModel shift) {
+        if (session == null || shift == null || shift.getEndTime() == null) {
+            return false;
+        }
+        ShiftSessionStatus status = session.getStatus();
+        if (status != ShiftSessionStatus.COMPLETED
+                && status != ShiftSessionStatus.CLOSED
+                && status != ShiftSessionStatus.APPROVED) {
+            return false;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (!now.isBefore(shift.getEndTime())) {
+            return false;
+        }
+        boolean autoClosed = isAutoClosed(session);
+        boolean clockRewound =
+                session.getClosedAt() != null && session.getClosedAt().isAfter(now);
+        if (!autoClosed && !clockRewound && !allowOutsideHoursTestMode) {
+            return false;
+        }
+        resetSessionForReopening(session, shift);
+        return true;
+    }
+
+    private boolean isAutoClosed(ShiftSessionModel session) {
+        return AUTO_CLOSE_NOTE.equals(session.getClosingNote())
+                || AUTO_CLOSE_NOTE.equals(session.getHandoverRemark());
+    }
+
+    private void resetSessionForReopening(ShiftSessionModel session, ShiftModel shift) {
+        session.setStatus(ShiftSessionStatus.SCHEDULED);
+        session.setOpenedAt(null);
+        session.setClosedAt(null);
+        session.setOpeningConfirmed(false);
+        session.setVerificationConfirmed(false);
+        session.setHandoverConfirmed(false);
+        session.setActualCash(null);
+        session.setDifference(null);
+        session.setCashSales(null);
+        session.setExpectedCash(null);
+        session.setTransactionCount(null);
+        session.setRefundAmount(null);
+        session.setClosingNote(null);
+        session.setHandoverRemark(null);
+        session.setHandoverToEmployeeId(null);
+        session.setOpeningFundReceivedFrom(null);
+        session.setOpeningFundMethod(null);
+        session.setOpeningFundReceivedAt(null);
+        session.setOpeningNote(null);
+        session.setApprovedBy(null);
+        session.setApprovedAt(null);
+        session.setManagerNote(null);
+        populateOpeningFund(session, shift);
     }
 
     private void assertCanBeginOpening(ShiftSessionModel session) {
@@ -1048,12 +1215,12 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
         return true;
     }
 
-    /** Legacy or auto-closed sessions with no cash difference do not need BM review. */
+    /** Legacy or auto-closed sessions with no cash/product difference do not need BM review. */
     private void finalizeBalancedPendingSessions(Long branchId) {
         sessionRepository
                 .findByBranchIdAndStatusOrderByClosedAtDesc(branchId, ShiftSessionStatus.PENDING_APPROVAL)
                 .stream()
-                .filter(session -> !hasCashDifference(session.getDifference()))
+                .filter(session -> !requiresReconciliationApproval(session))
                 .forEach(session -> {
                     session.setStatus(ShiftSessionStatus.COMPLETED);
                     sessionRepository.save(session);
@@ -1650,6 +1817,11 @@ public class ShiftSessionServiceImpl implements IShiftSessionService {
             List<ShiftSessionHighValueItemModel> items =
                     highValueItemRepository.findBySessionIdOrderByIdAsc(session.getId());
             response.setHighValueItems(mapHighValueItems(items));
+            applyProductDiscrepancyFlags(response, items);
+            if (session.getOpeningNote() != null && session.getOpeningNote().startsWith(JOINED_SHIFT_NOTE_PREFIX)) {
+                response.setJoinedExistingShift(true);
+                response.setShiftOpenedByName(session.getOpeningNote().substring(JOINED_SHIFT_NOTE_PREFIX.length()));
+            }
             if (session.getStatus() != ShiftSessionStatus.SCHEDULED) {
                 response.setPreviousShiftProductVariance(
                         buildPreviousShiftProductVariance(session, items));

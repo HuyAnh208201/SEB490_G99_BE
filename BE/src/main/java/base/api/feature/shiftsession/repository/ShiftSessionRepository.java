@@ -22,6 +22,11 @@ public interface ShiftSessionRepository extends JpaRepository<ShiftSessionModel,
             Long shiftId,
             Long employeeId);
 
+    Optional<ShiftSessionModel> findFirstByShiftIdAndStatusAndEmployeeIdNotOrderByOpenedAtAsc(
+            Long shiftId,
+            ShiftSessionStatus status,
+            Long employeeId);
+
     List<ShiftSessionModel> findByEmployeeIdOrderByCreatedAtDesc(Long employeeId);
 
     Optional<ShiftSessionModel> findFirstByBranchIdAndStatusAndRoleOrderByClosedAtDesc(
@@ -47,11 +52,14 @@ public interface ShiftSessionRepository extends JpaRepository<ShiftSessionModel,
             ShiftSessionStatus status);
 
     @Query("""
-            SELECT s FROM ShiftSessionModel s
+            SELECT DISTINCT s FROM ShiftSessionModel s
+            LEFT JOIN ShiftSessionHighValueItemModel h ON h.sessionId = s.id
             WHERE s.branchId = :branchId
               AND s.status = :status
-              AND s.difference IS NOT NULL
-              AND s.difference <> 0
+              AND (
+                (s.difference IS NOT NULL AND s.difference <> 0)
+                OR (h.difference IS NOT NULL AND h.difference <> 0)
+              )
             ORDER BY s.closedAt DESC
             """)
     List<ShiftSessionModel> findPendingReconciliationWithDifference(
@@ -59,11 +67,14 @@ public interface ShiftSessionRepository extends JpaRepository<ShiftSessionModel,
             @Param("status") ShiftSessionStatus status);
 
     @Query("""
-            SELECT COUNT(s) FROM ShiftSessionModel s
+            SELECT COUNT(DISTINCT s.id) FROM ShiftSessionModel s
+            LEFT JOIN ShiftSessionHighValueItemModel h ON h.sessionId = s.id
             WHERE s.branchId = :branchId
               AND s.status = :status
-              AND s.difference IS NOT NULL
-              AND s.difference <> 0
+              AND (
+                (s.difference IS NOT NULL AND s.difference <> 0)
+                OR (h.difference IS NOT NULL AND h.difference <> 0)
+              )
             """)
     long countPendingReconciliationWithDifference(
             @Param("branchId") Long branchId,
