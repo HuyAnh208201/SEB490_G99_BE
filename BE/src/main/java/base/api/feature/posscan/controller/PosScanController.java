@@ -29,8 +29,9 @@ public class PosScanController extends BaseAPIController {
 
     @Operation(
             summary = "Gửi mã vừa quét (thiết bị phụ)",
-            description = "Điện thoại quét xong gọi API này. Mã được kiểm tra ngay như quét thường "
-                    + "nên biết liền hợp lệ hay hết hàng, rồi mới vào hàng đợi cho máy bán hàng."
+            description = "Điện thoại quét xong gọi API này. Mã được kiểm tra ngay như quét thường. "
+                    + "Thành công hoặc lỗi (hết hàng / không tìm thấy) đều ghi vào hàng đợi; "
+                    + "lỗi vẫn trả HTTP lỗi cho điện thoại, máy bán hàng poll được errorMessage."
     )
     @PreAuthorize("@permissionChecker.has('CASHIER_ADD_POINTS')")
     @PostMapping

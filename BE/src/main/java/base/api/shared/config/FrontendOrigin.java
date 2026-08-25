@@ -59,10 +59,30 @@ public final class FrontendOrigin {
             String configuredHost = configuredUri.getHost() == null
                     ? ""
                     : configuredUri.getHost().toLowerCase(Locale.ROOT);
-            return !configuredHost.isEmpty() && configuredHost.equals(host);
+            if (configuredHost.isEmpty()) {
+                return false;
+            }
+            return sameSiteHost(host, configuredHost);
         } catch (Exception ex) {
             return false;
         }
+    }
+
+    /** Apex and www are treated as the same production site. */
+    static boolean sameSiteHost(String host, String configuredHost) {
+        if (host.equals(configuredHost)) {
+            return true;
+        }
+        String bareHost = stripWww(host);
+        String bareConfigured = stripWww(configuredHost);
+        return !bareHost.isEmpty() && bareHost.equals(bareConfigured);
+    }
+
+    private static String stripWww(String host) {
+        if (host != null && host.startsWith("www.")) {
+            return host.substring(4);
+        }
+        return host == null ? "" : host;
     }
 
     private static String currentOriginHeader() {

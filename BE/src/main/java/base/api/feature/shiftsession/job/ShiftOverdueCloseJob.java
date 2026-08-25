@@ -14,5 +14,6 @@ public class ShiftOverdueCloseJob {
     @Scheduled(fixedDelayString = "${shift.overdue-check-ms:300000}")
     public void closeOverdueShiftSessions() {
         shiftSessionService.autoCloseOverdueSessions();
+        shiftSessionService.purgeFutureClosedSessions();
     }
 }

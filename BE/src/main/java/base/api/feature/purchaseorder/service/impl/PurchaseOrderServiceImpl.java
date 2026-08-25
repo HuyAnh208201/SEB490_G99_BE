@@ -162,9 +162,10 @@ public class PurchaseOrderServiceImpl implements IPurchaseOrderService {
 
     @Override
     public List<PurchaseProductOptionResponse> searchProducts(Integer ignoredSupplierId, String keyword) {
+        String looseKeyword = base.api.shared.util.ProductSearchNormalizer.toLooseLikePattern(normalize(keyword));
         List<ProductModel> products = productRepository
                 .searchActiveProducts(
-                        normalize(keyword),
+                        looseKeyword,
                         PageRequest.of(0, SEARCH_LIMIT, Sort.by(Sort.Direction.ASC, "name")))
                 .getContent();
         Set<Integer> productIds = products.stream().map(ProductModel::getId).collect(Collectors.toSet());

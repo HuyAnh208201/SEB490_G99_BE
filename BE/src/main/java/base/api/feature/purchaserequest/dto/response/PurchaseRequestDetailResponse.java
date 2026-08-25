@@ -3,6 +3,8 @@ package base.api.feature.purchaserequest.dto.response;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+
 @Getter
 @Setter
 public class PurchaseRequestDetailResponse {
@@ -16,6 +18,10 @@ public class PurchaseRequestDetailResponse {
     private Integer requestedQty;
     private Integer approvedQuantity;
     private Integer supplierId;
+    /** Catalog reference import price (cost per base retail unit). */
+    private BigDecimal unitCost;
+    /** unitCost × conversionQty × requestedQty (TOP packaging qty); null when cost or qty missing. */
+    private BigDecimal lineCost;
     /** English label of the TOP packaging level this request line is quoted in, e.g. "Case of 24". */
     private String topPackagingLabel;
     /** How many base units one TOP packaging unit contains. */

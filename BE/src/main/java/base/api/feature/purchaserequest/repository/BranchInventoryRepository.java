@@ -18,6 +18,8 @@ public interface BranchInventoryRepository extends JpaRepository<BranchInventory
 
     List<BranchInventoryModel> findByBranchId(Long branchId);
 
+    boolean existsByProductId(Integer productId);
+
     Optional<BranchInventoryModel> findByBranchIdAndProductId(Long branchId, Integer productId);
 
     List<BranchInventoryModel> findByBranchIdAndProductIdIn(Long branchId, Collection<Integer> productIds);

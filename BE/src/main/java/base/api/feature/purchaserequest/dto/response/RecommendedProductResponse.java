@@ -3,6 +3,8 @@ package base.api.feature.purchaserequest.dto.response;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+
 @Getter
 @Setter
 public class RecommendedProductResponse {
@@ -21,4 +23,8 @@ public class RecommendedProductResponse {
     private String topPackagingLabel;
     /** How many base units one TOP packaging unit contains. */
     private Integer topPackagingConversionQty;
+    /** Catalog reference import price (VND per base retail unit). */
+    private BigDecimal unitCost;
+    /** Alias of unitCost for clients that key off referenceImportPrice. */
+    private BigDecimal referenceImportPrice;
 }

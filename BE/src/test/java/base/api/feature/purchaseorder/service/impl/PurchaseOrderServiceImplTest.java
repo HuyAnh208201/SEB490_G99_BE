@@ -201,12 +201,12 @@ class PurchaseOrderServiceImplTest {
 
     @Test
     void searchProductsSearchesAllActiveProducts() {
-        when(productRepository.searchActiveProducts(eq("milk"), any()))
+        when(productRepository.searchActiveProducts(eq("%milk%"), any()))
                 .thenReturn(org.springframework.data.domain.Page.empty());
 
         service.searchProducts(3, "milk");
 
-        verify(productRepository).searchActiveProducts(eq("milk"), any());
+        verify(productRepository).searchActiveProducts(eq("%milk%"), any());
         verify(productRepository, never()).searchActiveProductsBySupplier(any(), any(), any());
     }
 

@@ -7,7 +7,7 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-/** Một mã quét do thiết bị phụ gửi lên. */
+/** Một mã quét do thiết bị phụ gửi lên (thành công hoặc lỗi). */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -19,4 +19,8 @@ public class ScanEventResponse {
     private Integer productId;
     private String productName;
     private LocalDateTime createdAt;
+    /** Null when the scan succeeded; set when not-found / out-of-stock / etc. */
+    private String errorMessage;
+    /** True when productId is present and errorMessage is null. */
+    private boolean success;
 }

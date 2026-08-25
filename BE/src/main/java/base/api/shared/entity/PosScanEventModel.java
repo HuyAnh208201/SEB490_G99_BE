@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 /**
  * Một lần quét mã từ thiết bị phụ (điện thoại) gửi về cho máy bán hàng.
  * Máy bán hàng đọc theo con trỏ id tăng dần nên không sợ lệch đồng hồ giữa 2 máy.
+ * Sự kiện lỗi (hết hàng / không tìm thấy) vẫn được lưu để máy bán hàng hiển thị.
  */
 @Getter
 @Setter
@@ -35,12 +36,16 @@ public class PosScanEventModel {
     @Column(name = "barcode", nullable = false)
     private String barcode;
 
-    /** Lưu kèm để máy bán hàng hiển thị ngay, và để tra lại khi cần. */
+    /** Lưu kèm để máy bán hàng hiển thị ngay, và để tra lại khi cần. Null khi quét lỗi. */
     @Column(name = "product_id")
     private Integer productId;
 
     @Column(name = "product_name")
     private String productName;
+
+    /** Lý do quét thất bại (hết hàng, không tìm thấy, …). Null khi thành công. */
+    @Column(name = "error_message", length = 500)
+    private String errorMessage;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

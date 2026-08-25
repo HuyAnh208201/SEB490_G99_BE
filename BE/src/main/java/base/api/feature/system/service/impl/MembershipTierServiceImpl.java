@@ -16,9 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class MembershipTierServiceImpl implements IMembershipTierService {
+
+    private static final Set<String> LEGACY_TIER_NAMES = Set.of("Đồng", "Bạc", "Vàng");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -26,10 +29,30 @@ public class MembershipTierServiceImpl implements IMembershipTierService {
     private MembershipTierRepository membershipTierRepository;
 
     @Override
+    @Transactional
     public List<MembershipTierResponse> listTiers() {
+        deactivateLegacyTiers();
         return membershipTierRepository.findAllByOrderBySortOrderAsc().stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private void deactivateLegacyTiers() {
+        for (MembershipTierModel tier : membershipTierRepository.findAllByOrderBySortOrderAsc()) {
+            if (Boolean.TRUE.equals(tier.getActive()) && isLegacyTier(tier)) {
+                tier.setActive(false);
+                membershipTierRepository.save(tier);
+            }
+        }
+    }
+
+    private static boolean isLegacyTier(MembershipTierModel tier) {
+        String code = tier.getCode();
+        if (code == null || code.isBlank()) {
+            return true;
+        }
+        String name = tier.getName();
+        return name != null && LEGACY_TIER_NAMES.contains(name.trim());
     }
 
     @Override

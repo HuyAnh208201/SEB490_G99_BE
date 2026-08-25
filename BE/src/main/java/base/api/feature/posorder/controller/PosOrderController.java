@@ -1,9 +1,9 @@
 package base.api.feature.posorder.controller;
 
 import base.api.feature.posorder.dto.request.CheckoutRequest;
+import base.api.feature.posorder.dto.response.ApplicablePromotionResponse;
 import base.api.feature.posorder.dto.response.OrderResponse;
 import base.api.feature.posorder.service.IPosOrderService;
-import base.api.feature.product.dto.response.PosCatalogItemResponse;
 import base.api.feature.product.service.IProductService;
 import base.api.shared.base.BaseAPIController;
 import base.api.shared.dto.TFUResponse;
@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -44,7 +45,8 @@ public class PosOrderController extends BaseAPIController {
             summary = "Chốt đơn tại quầy",
             description = "Ghi hoá đơn, trừ tồn kho và chốt điểm trong cùng một "
                     + "transaction. Giá và tiền giảm đều tính lại ở server — client chỉ gửi "
-                    + "productId, số lượng và số điểm muốn đổi."
+                    + "productId, số lượng, optional campaignId và số điểm muốn đổi. "
+                    + "Loyalty points are earned on the payable amount after promo discount."
     )
     @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
     @PostMapping
@@ -55,6 +57,22 @@ public class PosOrderController extends BaseAPIController {
         TFUResponse<OrderResponse> body = new TFUResponse<>(
                 true, data, "Order completed successfully.", HttpStatus.CREATED.value(), null);
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    @Operation(
+            summary = "Applicable promotions for the cashier's branch",
+            description = "Returns ACTIVE campaigns visible to the current branch. "
+                    + "Each item includes eligibility against the given cart subtotal "
+                    + "(min order amount / supported discount types) and a computed "
+                    + "discountAmount when eligible."
+    )
+    @PreAuthorize("@permissionChecker.has('POS_CHECKOUT')")
+    @GetMapping("/applicable-promotions")
+    public ResponseEntity<TFUResponse<List<ApplicablePromotionResponse>>> listApplicablePromotions(
+            @RequestParam(required = false) BigDecimal subtotal) {
+
+        return success(posOrderService.listApplicablePromotions(
+                subtotal == null ? BigDecimal.ZERO : subtotal));
     }
 
     @Operation(

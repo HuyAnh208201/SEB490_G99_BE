@@ -15,7 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -64,8 +64,11 @@ public class InventoryCountController extends BaseAPIController {
     @GetMapping("/page")
     public ResponseEntity<TFUResponse<PageResponseDTO<InventoryCountSessionResponse>>> getHistoryPage(
             @ModelAttribute PageRequestDTO pageRequest,
-            @RequestParam(required = false) String status) {
-        return successPage(inventoryCountService.getHistoryPage(pageRequest, status));
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String discrepancy,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to) {
+        return successPage(inventoryCountService.getHistoryPage(pageRequest, status, discrepancy, from, to));
     }
 
     @Operation(summary = "Inventory count session detail")
@@ -73,19 +76,5 @@ public class InventoryCountController extends BaseAPIController {
     @GetMapping("/{id}")
     public ResponseEntity<TFUResponse<InventoryCountSessionResponse>> getSession(@PathVariable Long id) {
         return success(inventoryCountService.getSession(id));
-    }
-
-    @Operation(summary = "Approve a count session and update branch stock (cập nhật tồn kho)")
-    @PreAuthorize("@permissionChecker.has('INVENTORY_COUNT')")
-    @PatchMapping("/{id}/approve")
-    public ResponseEntity<TFUResponse<InventoryCountSessionResponse>> approve(@PathVariable Long id) {
-        return success(inventoryCountService.approve(id), "Inventory count approved and stock updated.");
-    }
-
-    @Operation(summary = "Reject a count session")
-    @PreAuthorize("@permissionChecker.has('INVENTORY_COUNT')")
-    @PatchMapping("/{id}/reject")
-    public ResponseEntity<TFUResponse<InventoryCountSessionResponse>> reject(@PathVariable Long id) {
-        return success(inventoryCountService.reject(id), "Inventory count rejected.");
     }
 }

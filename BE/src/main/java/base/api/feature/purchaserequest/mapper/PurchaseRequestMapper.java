@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -146,11 +147,21 @@ public class PurchaseRequestMapper {
         response.setApprovedQuantity(detail.getApprovedQuantity());
         response.setSupplierId(detail.getSupplierId());
         if (product != null) {
+            BigDecimal unitCost = product.getReferenceImportPrice();
+            response.setUnitCost(unitCost);
             ProductPackagingModel top = topPackaging != null
                     ? topPackaging
                     : productPackagingService.getTopPackaging(product);
+            int conversionQty = productPackagingService.conversionQtyOf(top);
             response.setTopPackagingLabel(top == null ? null : top.displayLabel());
-            response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(top));
+            response.setTopPackagingConversionQty(conversionQty);
+            Integer qty = detail.getRequestedQty();
+            // unitCost is per base unit; requestedQty is TOP packs → multiply by conversion.
+            if (unitCost != null && qty != null) {
+                response.setLineCost(unitCost
+                        .multiply(BigDecimal.valueOf(Math.max(1, conversionQty)))
+                        .multiply(BigDecimal.valueOf(qty)));
+            }
             boolean shortDate = product.getCategory() != null
                     && Boolean.TRUE.equals(product.getCategory().getShortDate());
             response.setShortDate(shortDate);
@@ -192,6 +203,9 @@ public class PurchaseRequestMapper {
                 : productPackagingService.getTopPackaging(product);
         response.setTopPackagingLabel(top == null ? null : top.displayLabel());
         response.setTopPackagingConversionQty(productPackagingService.conversionQtyOf(top));
+        BigDecimal unitCost = product.getReferenceImportPrice();
+        response.setUnitCost(unitCost);
+        response.setReferenceImportPrice(unitCost);
         return response;
     }
 
@@ -211,6 +225,9 @@ public class PurchaseRequestMapper {
         response.setCategoryName(product.getCategory() == null ? null : product.getCategory().getName());
         response.setCategoryId(product.getCategory() == null ? null : product.getCategory().getId());
         response.setUnit(product.getUnit());
+        BigDecimal unitCost = product.getReferenceImportPrice();
+        response.setUnitCost(unitCost);
+        response.setReferenceImportPrice(unitCost);
         ProductPackagingModel top = topPackaging != null
                 ? topPackaging
                 : productPackagingService.getTopPackaging(product);

@@ -6,12 +6,16 @@ import base.api.feature.branch.repository.IBranchRepository;
 import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
+import base.api.feature.posorder.dto.response.ApplicablePromotionResponse;
 import base.api.feature.posorder.dto.response.OrderItemResponse;
 import base.api.feature.posorder.dto.response.OrderResponse;
+import base.api.feature.posorder.repository.OrderDiscountRepository;
 import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.repository.PaymentRepository;
 import base.api.feature.posorder.service.IPosOrderService;
+import base.api.feature.promotion.repository.CampaignRepository;
+import base.api.feature.promotion.service.CampaignBranchVisibility;
 import base.api.feature.report.repository.PointTransactionRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.ProductCostService;
@@ -19,6 +23,8 @@ import base.api.feature.product.service.ProductSalePriceService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
 import base.api.feature.shift.repository.ShiftRepository;
 import base.api.shared.entity.BranchModel;
+import base.api.shared.entity.CampaignModel;
+import base.api.shared.entity.OrderDiscountModel;
 import base.api.shared.entity.OrderItemModel;
 import base.api.shared.entity.OrderModel;
 import base.api.shared.entity.PaymentModel;
@@ -27,11 +33,15 @@ import base.api.shared.entity.ProductModel;
 import base.api.shared.entity.ShiftModel;
 import base.api.shared.entity.UserModel;
 import base.api.shared.dto.PageRequestDTO;
+import base.api.shared.enums.CampaignStatus;
+import base.api.shared.enums.CampaignType;
 import base.api.shared.enums.ShiftStatus;
 import base.api.shared.enums.UserRole;
 import base.api.shared.exception.BusinessException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -99,6 +109,18 @@ public class PosOrderServiceImpl implements IPosOrderService {
     private PointTransactionRepository pointTransactionRepository;
 
     @Autowired
+    private CampaignRepository campaignRepository;
+
+    @Autowired
+    private CampaignBranchVisibility campaignBranchVisibility;
+
+    @Autowired
+    private OrderDiscountRepository orderDiscountRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
     private CurrentUserProvider currentUserProvider;
 
     // =========================================================================
@@ -142,18 +164,27 @@ public class PosOrderServiceImpl implements IPosOrderService {
             subtotal = subtotal.add(lineTotal);
         }
 
-        // 3. Loyalty points apply against the promo-adjusted subtotal.
-        BigDecimal afterDiscounts = subtotal;
+        // 3. Campaign promo (optional) — recomputed server-side; never trust client amounts.
+        BigDecimal promoDiscount = BigDecimal.ZERO;
+        CampaignModel appliedCampaign = null;
+        if (request.getCampaignId() != null) {
+            AppliedCampaignDiscount applied = requireEligibleCampaignDiscount(
+                    request.getCampaignId(), branchId, subtotal, now);
+            appliedCampaign = applied.campaign();
+            promoDiscount = applied.discountAmount();
+        }
+        BigDecimal afterPromo = subtotal.subtract(promoDiscount).max(BigDecimal.ZERO);
 
         // 4. Khách hàng: tạo nhanh nếu SĐT chưa có.
         UserModel customer = resolveCustomer(request);
 
-        // 5. Điểm đổi: chặn trên theo số tiền còn lại, không để đổi thừa mất điểm oan.
-        long pointsToRedeem = affordablePoints(request.getPointsToRedeem(), customer, afterDiscounts);
+        // 5. Điểm đổi: chặn trên theo số tiền còn lại sau promo, không để đổi thừa mất điểm oan.
+        long pointsToRedeem = affordablePoints(request.getPointsToRedeem(), customer, afterPromo);
         BigDecimal pointsDiscount = pointsToRedeem > 0
                 ? cashierService.redeemValueOf(pointsToRedeem)
                 : BigDecimal.ZERO;
-        BigDecimal total = afterDiscounts.subtract(pointsDiscount).max(BigDecimal.ZERO);
+        BigDecimal total = afterPromo.subtract(pointsDiscount).max(BigDecimal.ZERO);
+        BigDecimal totalDiscount = promoDiscount.add(pointsDiscount);
 
         validatePayment(request, total);
 
@@ -167,7 +198,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
             }
         }
 
-        // 7. Chốt điểm (trừ điểm đổi + cộng điểm tích trên số tiền thực trả).
+        // 7. Chốt điểm (trừ điểm đổi + cộng điểm tích trên số tiền thực trả sau promo).
         long pointsEarned = 0;
         if (customer != null) {
             ICashierService.PointSettlement settlement =
@@ -183,7 +214,7 @@ public class PosOrderServiceImpl implements IPosOrderService {
         order.setCashierId(cashier.getId());
         order.setCustomerId(customer == null ? null : customer.getId());
         order.setSubtotal(subtotal);
-        order.setDiscountAmount(pointsDiscount);
+        order.setDiscountAmount(totalDiscount);
         order.setTotal(total);
         order.setPointsRedeemed(pointsToRedeem);
         order.setPointsEarned(pointsEarned);
@@ -198,6 +229,14 @@ public class PosOrderServiceImpl implements IPosOrderService {
             item.setOrderId(order.getId());
         }
         orderItemRepository.saveAll(items);
+
+        if (appliedCampaign != null && promoDiscount.compareTo(BigDecimal.ZERO) > 0) {
+            OrderDiscountModel discountRow = new OrderDiscountModel();
+            discountRow.setOrderId(order.getId());
+            discountRow.setCode("CAMPAIGN:" + appliedCampaign.getId());
+            discountRow.setDiscountAmount(promoDiscount);
+            orderDiscountRepository.save(discountRow);
+        }
 
         PaymentModel payment = buildPayment(request, order.getId(), total, now);
         paymentRepository.save(payment);
@@ -215,6 +254,16 @@ public class PosOrderServiceImpl implements IPosOrderService {
 
         BranchModel branch = branchRepository.findById(branchId).orElse(null);
         return toResponse(order, items, payment, customer, cashier, branch);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ApplicablePromotionResponse> listApplicablePromotions(BigDecimal subtotal) {
+        UserModel cashier = requireCashier();
+        BigDecimal cartSubtotal = subtotal == null ? BigDecimal.ZERO : subtotal.max(BigDecimal.ZERO);
+        return findLiveCampaignsForBranch(cashier.getBranchId(), LocalDateTime.now()).stream()
+                .map(campaign -> toApplicablePromotion(campaign, cartSubtotal))
+                .toList();
     }
 
     // =========================================================================
@@ -312,6 +361,122 @@ public class PosOrderServiceImpl implements IPosOrderService {
     // =========================================================================
     // Private helpers
     // =========================================================================
+
+    private record AppliedCampaignDiscount(CampaignModel campaign, BigDecimal discountAmount) {
+    }
+
+    private AppliedCampaignDiscount requireEligibleCampaignDiscount(
+            Long campaignId, Long branchId, BigDecimal subtotal, LocalDateTime now) {
+
+        CampaignModel campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new NotFoundException("Promotion not found."));
+
+        if (campaign.getStatus() != CampaignStatus.ACTIVE
+                || campaign.getStartAt() == null
+                || campaign.getEndAt() == null
+                || campaign.getStartAt().isAfter(now)
+                || campaign.getEndAt().isBefore(now)) {
+            throw new BusinessException("This promotion is not active.");
+        }
+        if (!campaignBranchVisibility.isVisibleToBranch(campaign, branchId)) {
+            throw new BusinessException("This promotion is not available at your branch.");
+        }
+
+        ApplicablePromotionResponse evaluated = toApplicablePromotion(campaign, subtotal);
+        if (!evaluated.isEligible()) {
+            throw new BusinessException(
+                    evaluated.getReason() != null
+                            ? evaluated.getReason()
+                            : "This promotion cannot be applied to the current cart.");
+        }
+        return new AppliedCampaignDiscount(campaign, evaluated.getDiscountAmount());
+    }
+
+    private List<CampaignModel> findLiveCampaignsForBranch(Long branchId, LocalDateTime now) {
+        return campaignRepository.findLiveByStatus(CampaignStatus.ACTIVE, now).stream()
+                .filter(campaign -> campaignBranchVisibility.isVisibleToBranch(campaign, branchId))
+                .sorted(Comparator
+                        .comparing(CampaignModel::getPriority, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(CampaignModel::getEndAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+
+    private ApplicablePromotionResponse toApplicablePromotion(CampaignModel campaign, BigDecimal subtotal) {
+        ApplicablePromotionResponse response = new ApplicablePromotionResponse();
+        response.setId(campaign.getId());
+        response.setName(campaign.getName());
+        response.setType(campaign.getType() == null ? null : campaign.getType().name());
+        response.setDiscountValue(campaign.getDiscountValue());
+
+        BigDecimal minOrderAmount = parseMinOrderAmount(campaign.getConditions());
+        response.setMinOrderAmount(minOrderAmount);
+
+        if (campaign.getType() == CampaignType.BUY_X_GET_Y || campaign.getType() == null) {
+            response.setEligible(false);
+            response.setReason("This promotion type is not supported at POS.");
+            return response;
+        }
+        if (campaign.getType() != CampaignType.PERCENT && campaign.getType() != CampaignType.FIXED_AMOUNT) {
+            response.setEligible(false);
+            response.setReason("This promotion type is not supported at POS.");
+            return response;
+        }
+        if (minOrderAmount != null && subtotal.compareTo(minOrderAmount) < 0) {
+            response.setEligible(false);
+            response.setReason("Cart subtotal is below the minimum order amount.");
+            return response;
+        }
+
+        BigDecimal discount = computeCampaignDiscount(campaign.getType(), campaign.getDiscountValue(), subtotal);
+        if (discount.compareTo(BigDecimal.ZERO) <= 0) {
+            response.setEligible(false);
+            response.setReason("This promotion does not reduce the order total.");
+            return response;
+        }
+
+        response.setEligible(true);
+        response.setDiscountAmount(discount);
+        return response;
+    }
+
+    private BigDecimal computeCampaignDiscount(
+            CampaignType type, BigDecimal discountValue, BigDecimal subtotal) {
+
+        if (discountValue == null || subtotal == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal safeSubtotal = subtotal.max(BigDecimal.ZERO);
+        if (type == CampaignType.PERCENT) {
+            BigDecimal raw = safeSubtotal
+                    .multiply(discountValue)
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            return raw.min(safeSubtotal).max(BigDecimal.ZERO);
+        }
+        if (type == CampaignType.FIXED_AMOUNT) {
+            return discountValue.min(safeSubtotal).max(BigDecimal.ZERO);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private BigDecimal parseMinOrderAmount(String conditionsJson) {
+        if (conditionsJson == null || conditionsJson.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(conditionsJson);
+            JsonNode node = root.get("minOrderAmount");
+            if (node == null || node.isNull()) {
+                return null;
+            }
+            BigDecimal value = node.isNumber()
+                    ? node.decimalValue()
+                    : new BigDecimal(node.asText().trim());
+            return value.compareTo(BigDecimal.ZERO) > 0 ? value : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
     private Map<Integer, Integer> mergeLines(List<CheckoutLineRequest> lines) {
         Map<Integer, Integer> merged = new LinkedHashMap<>();

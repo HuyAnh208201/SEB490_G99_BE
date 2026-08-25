@@ -6,6 +6,7 @@ import base.api.shared.dto.PageRequestDTO;
 import org.springframework.data.domain.Page;
 import base.api.feature.inventorycount.dto.response.InventoryCountSheetResponse;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -21,12 +22,12 @@ public interface IInventoryCountService {
 
     List<InventoryCountSessionResponse> getHistory();
 
-    Page<InventoryCountSessionResponse> getHistoryPage(PageRequestDTO pageRequest, String status);
+    Page<InventoryCountSessionResponse> getHistoryPage(
+            PageRequestDTO pageRequest,
+            String status,
+            String discrepancy,
+            LocalDate from,
+            LocalDate to);
 
     InventoryCountSessionResponse getSession(Long id);
-
-    /** Duyệt phiên kiểm kê → cập nhật tồn kho chi nhánh theo số đếm thực tế. */
-    InventoryCountSessionResponse approve(Long id);
-
-    InventoryCountSessionResponse reject(Long id);
 }

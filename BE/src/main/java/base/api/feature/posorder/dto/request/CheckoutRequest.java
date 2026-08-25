@@ -47,6 +47,12 @@ public class CheckoutRequest {
     @Size(max = 64, message = "Discount code is too long.")
     private String voucherCode;
 
+    /**
+     * Optional ACTIVE campaign to apply. Discount is recomputed server-side from
+     * campaign type / value / minOrderAmount — client amounts are ignored.
+     */
+    private Long campaignId;
+
     /** Số điểm khách muốn đổi; server tự chặn trên theo giá trị đơn. */
     @Min(value = 0, message = "Redeemed points must be greater than or equal to 0.")
     private Long pointsToRedeem;

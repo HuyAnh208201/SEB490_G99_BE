@@ -11,6 +11,7 @@ services:
       - "4313:4313"
     environment:
       SERVER_PORT: 4313
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       CLIENT_URL: ${CLIENT_URL:-https://chainstore.site}
       API_URL: ${API_URL:-https://api.chainstore.site}
       PAYOS_RETURN_URL: ${PAYOS_RETURN_URL:-https://chainstore.site/pos/payment/payos}
