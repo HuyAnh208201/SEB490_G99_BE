@@ -36,4 +36,13 @@ class FrontendOriginTest {
                 "https://app.chainstore.vn",
                 FrontendOrigin.resolve("https://evil.example", "https://app.chainstore.vn"));
     }
+
+    @Test
+    void allowsWwwAndApexAsSameSite() {
+        assertTrue(FrontendOrigin.isAllowed("https://www.chainstore.site", "https://chainstore.site"));
+        assertTrue(FrontendOrigin.isAllowed("https://chainstore.site", "https://www.chainstore.site"));
+        assertEquals(
+                "https://www.chainstore.site",
+                FrontendOrigin.resolve("https://www.chainstore.site", null, "https://chainstore.site"));
+    }
 }

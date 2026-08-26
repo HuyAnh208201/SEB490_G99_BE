@@ -11,7 +11,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-/** Ghi lại voucher đã áp vào hoá đơn và số tiền nó giảm. */
+/** Ghi lại mã giảm giá đã áp vào hoá đơn và số tiền nó giảm. */
 @Getter
 @Setter
 @Entity
@@ -25,10 +25,7 @@ public class OrderDiscountModel {
     @Column(name = "order_id", nullable = false)
     private Long orderId;
 
-    @Column(name = "voucher_id")
-    private Long voucherId;
-
-    /** Chụp lại mã lúc áp, phòng khi voucher bị xoá sau này. */
+    /** Chụp lại mã lúc áp, phòng khi mã bị xoá sau này. */
     @Column(length = 64)
     private String code;
 

@@ -18,7 +18,7 @@ import java.util.List;
  * Cashier chốt một đơn tại quầy.
  *
  * Cố ý KHÔNG nhận giá, tiền giảm hay tổng tiền từ client — tất cả được tính lại
- * ở server từ bảng products và voucher, nếu không thì ai cũng có thể tự đặt giá.
+ * ở server từ bảng products, nếu không thì ai cũng có thể tự đặt giá.
  */
 @Data
 public class CheckoutRequest {
@@ -54,6 +54,12 @@ public class CheckoutRequest {
     /** Unused by POS checkout; kept so older clients sending a code are ignored. */
     @Size(max = 64, message = "Discount code is too long.")
     private String voucherCode;
+
+    /**
+     * Optional ACTIVE campaign to apply. Discount is recomputed server-side from
+     * campaign type / value / minOrderAmount — client amounts are ignored.
+     */
+    private Long campaignId;
 
     /** Số điểm khách muốn đổi; server tự chặn trên theo giá trị đơn. */
     @Min(value = 0, message = "Redeemed points must be greater than or equal to 0.")

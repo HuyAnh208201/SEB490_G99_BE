@@ -35,15 +35,39 @@ public interface IShiftSessionService {
 
     List<ShiftSessionResponse> getHistory();
 
+    base.api.shared.dto.PageResponseDTO<ShiftSessionResponse> getHistoryPage(
+            base.api.shared.dto.PageRequestDTO pageRequest);
+
     List<ShiftSessionResponse> listBranchSessionsForManager();
 
     List<ShiftSessionResponse> listPendingReconciliation();
+
+    /**
+     * BM reconciliation list.
+     *
+     * @param discrepancyFilter {@code with} (default) | {@code without} | {@code all}
+     * @param statusFilter optional {@link base.api.shared.enums.ShiftSessionStatus} name; blank uses mode default
+     */
+    List<ShiftSessionResponse> listReconciliation(String discrepancyFilter, String statusFilter);
 
     ShiftSessionResponse getReconciliationDetail(Long sessionId);
 
     ShiftSessionResponse decideReconciliation(Long sessionId, ReconcileShiftSessionRequest request);
 
+    /** Attendance row for BM branch audit (assignment + session timing). */
+    List<base.api.feature.shiftsession.dto.response.BranchAttendanceResponse> listBranchAttendance(
+            java.time.LocalDate from,
+            java.time.LocalDate to);
+
+    /** Completed refunds at BM branch for audit. */
+    List<base.api.feature.shiftsession.dto.response.BranchRefundResponse> listBranchRefunds(
+            java.time.LocalDate from,
+            java.time.LocalDate to);
+
     /** Auto-close cashier sessions still open after shift end + grace period. */
     int autoCloseOverdueSessions();
+
+    /** Delete closed sessions whose shift start is still in the future (demo clock skew). */
+    int purgeFutureClosedSessions();
 }
-
+

@@ -68,7 +68,6 @@ public class PosOrderTablesMigration {
                     CREATE TABLE IF NOT EXISTS order_discounts (
                         id BIGINT NOT NULL AUTO_INCREMENT,
                         order_id BIGINT NOT NULL,
-                        voucher_id BIGINT NULL,
                         code VARCHAR(64) NULL,
                         discount_amount DECIMAL(15,2) NOT NULL,
                         PRIMARY KEY (id),
@@ -99,19 +98,6 @@ public class PosOrderTablesMigration {
                         points_required INT NOT NULL DEFAULT 0,
                         status VARCHAR(32) NOT NULL DEFAULT 'active',
                         PRIMARY KEY (id)
-                    )
-                    """);
-            jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS vouchers (
-                        id BIGINT NOT NULL AUTO_INCREMENT,
-                        code VARCHAR(64) NOT NULL,
-                        voucher_catalog_id BIGINT NULL,
-                        customer_id BIGINT NULL,
-                        status VARCHAR(32) NOT NULL DEFAULT 'active',
-                        expires_at DATETIME NULL,
-                        created_at DATETIME NULL,
-                        PRIMARY KEY (id),
-                        UNIQUE KEY uq_vouchers_code (code)
                     )
                     """);
             // Bảng orders/order_items/order_discounts có thể đã tồn tại từ bản thiết kế

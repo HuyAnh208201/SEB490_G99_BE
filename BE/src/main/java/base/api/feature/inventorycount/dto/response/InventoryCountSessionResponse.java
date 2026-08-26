@@ -22,6 +22,8 @@ public class InventoryCountSessionResponse {
     private String countedByName;
     private String reviewedByName;
     private Integer totalProducts;
+    private Integer varianceCount;
+    private Boolean hasDiscrepancy;
     private String status;
     private String note;
     private LocalDateTime createdAt;

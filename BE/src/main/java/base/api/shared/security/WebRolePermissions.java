@@ -101,7 +101,7 @@ public final class WebRolePermissions {
 
         map.put(UserRole.INVENTORY_STAFF, EnumSet.of(
                 WebPermission.VIEW_BRANCH_INVENTORY,
-                WebPermission.PRODUCT_MANAGEMENT,
+                WebPermission.PRODUCT_VIEW,
                 WebPermission.RECEIVE_SHIPMENT,
                 WebPermission.INVENTORY_COUNT,
                 WebPermission.CASHIER_CLOSE_SHIFT,

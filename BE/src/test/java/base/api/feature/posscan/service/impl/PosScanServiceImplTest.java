@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -64,12 +66,14 @@ class PosScanServiceImplTest {
         assertEquals(5L, captor.getValue().getBranchId());
         assertEquals("8901234567890", captor.getValue().getBarcode());
         assertEquals(10, captor.getValue().getProductId());
+        assertNull(captor.getValue().getErrorMessage());
     }
 
     @Test
-    void pushScanEventDoesNotPersistWhenBarcodeInvalid() {
+    void pushScanEventPersistsErrorWhenBarcodeInvalid() {
         asCashier();
         when(productService.scanByBarcode("BAD")).thenThrow(new NotFoundException("Product not found for this barcode."));
+        when(scanEventRepository.save(any(PosScanEventModel.class))).thenAnswer(inv -> inv.getArgument(0));
 
         PushScanEventRequest request = new PushScanEventRequest();
         request.setBarcode("BAD");
@@ -77,14 +81,19 @@ class PosScanServiceImplTest {
         NotFoundException error = assertThrows(NotFoundException.class, () -> service.pushScanEvent(request));
 
         assertEquals("Product not found for this barcode.", error.getMessage());
-        verify(scanEventRepository, never()).save(any());
+        ArgumentCaptor<PosScanEventModel> captor = ArgumentCaptor.forClass(PosScanEventModel.class);
+        verify(scanEventRepository).save(captor.capture());
+        assertEquals("BAD", captor.getValue().getBarcode());
+        assertNull(captor.getValue().getProductId());
+        assertEquals("Product not found for this barcode.", captor.getValue().getErrorMessage());
     }
 
     @Test
-    void pushScanEventPropagatesOutOfStockError() {
+    void pushScanEventPersistsOutOfStockErrorThenRethrows() {
         asCashier();
         when(productService.scanByBarcode("8901234567890"))
                 .thenThrow(new BadRequestException("This product is out of stock at your branch."));
+        when(scanEventRepository.save(any(PosScanEventModel.class))).thenAnswer(inv -> inv.getArgument(0));
 
         PushScanEventRequest request = new PushScanEventRequest();
         request.setBarcode("8901234567890");
@@ -92,7 +101,10 @@ class PosScanServiceImplTest {
         BadRequestException error = assertThrows(BadRequestException.class, () -> service.pushScanEvent(request));
 
         assertTrue(error.getMessage().contains("out of stock"));
-        verify(scanEventRepository, never()).save(any());
+        ArgumentCaptor<PosScanEventModel> captor = ArgumentCaptor.forClass(PosScanEventModel.class);
+        verify(scanEventRepository).save(captor.capture());
+        assertNull(captor.getValue().getProductId());
+        assertEquals("This product is out of stock at your branch.", captor.getValue().getErrorMessage());
     }
 
     @Test
@@ -128,6 +140,32 @@ class PosScanServiceImplTest {
         assertEquals(11L, response.getLatestId());
         assertEquals(1, response.getEvents().size());
         assertEquals("8901234567890", response.getEvents().get(0).getBarcode());
+        assertTrue(response.getEvents().get(0).isSuccess());
+        assertNull(response.getEvents().get(0).getErrorMessage());
+    }
+
+    @Test
+    void pollScanEventsReturnsErrorEvents() {
+        asCashier();
+        when(scanEventRepository.findLatestIdByCashierUserId(3L)).thenReturn(15L);
+
+        PosScanEventModel event = new PosScanEventModel();
+        event.setId(14L);
+        event.setBarcode("8901234567890");
+        event.setProductId(null);
+        event.setProductName(null);
+        event.setErrorMessage("This product is out of stock at your branch.");
+        event.setCreatedAt(LocalDateTime.now());
+        when(scanEventRepository.findByCashierUserIdAndIdGreaterThanAndCreatedAtAfterOrderByIdAsc(
+                eq(3L), eq(10L), any(LocalDateTime.class)))
+                .thenReturn(List.of(event));
+
+        ScanEventFeedResponse response = service.pollScanEvents(10L);
+
+        assertEquals(1, response.getEvents().size());
+        assertFalse(response.getEvents().get(0).isSuccess());
+        assertEquals("This product is out of stock at your branch.", response.getEvents().get(0).getErrorMessage());
+        assertNull(response.getEvents().get(0).getProductId());
     }
 
     @Test

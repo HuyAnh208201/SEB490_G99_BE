@@ -10,6 +10,7 @@ import base.api.feature.promotion.dto.response.CampaignSummaryResponse;
 import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchRepository;
 import base.api.feature.promotion.repository.CampaignRepository;
+import base.api.feature.promotion.service.CampaignBranchVisibility;
 import base.api.feature.promotion.service.CampaignExpiryService;
 import base.api.feature.promotion.service.ICampaignService;
 import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
@@ -44,7 +45,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -82,6 +82,9 @@ public class CampaignServiceImpl implements ICampaignService {
 
     @Autowired
     private CampaignExpiryService campaignExpiryService;
+
+    @Autowired
+    private CampaignBranchVisibility campaignBranchVisibility;
 
     @Override
     @Transactional
@@ -400,9 +403,7 @@ public class CampaignServiceImpl implements ICampaignService {
             // No additional visibility restriction for chain-level roles.
         } else if (currentRole == UserRole.BRANCH_MANAGER) {
             currentBranchId = resolveCurrentBranchId(currentUser);
-            Set<Long> visibleIds = findCampaignsVisibleToBranch(currentBranchId).stream()
-                    .map(CampaignModel::getId)
-                    .collect(Collectors.toSet());
+            Set<Long> visibleIds = campaignBranchVisibility.findVisibleCampaignIdsForBranch(currentBranchId);
             specification = visibleIds.isEmpty()
                     ? specification.and((root, ignored, cb) -> cb.disjunction())
                     : specification.and((root, ignored, cb) -> root.get("id").in(visibleIds));
@@ -420,21 +421,10 @@ public class CampaignServiceImpl implements ICampaignService {
             specification = specification.and((root, ignored, cb) -> cb.equal(root.get("status"), status));
         }
         if (branchId != null) {
-            Set<Long> linkedToBranch = Set.copyOf(campaignBranchRepository.findCampaignIdsByBranchId(branchId));
-            Set<Long> linkedCampaigns = campaignBranchRepository.findAll().stream()
-                    .map(CampaignBranchModel::getCampaignId)
-                    .collect(Collectors.toSet());
-            specification = specification.and((root, ignored, cb) -> {
-                var branchMatch = linkedToBranch.isEmpty()
-                        ? cb.disjunction()
-                        : root.get("id").in(linkedToBranch);
-                var unrestrictedChain = linkedCampaigns.isEmpty()
-                        ? cb.equal(root.get("scope"), CampaignScope.CHAIN)
-                        : cb.and(
-                                cb.equal(root.get("scope"), CampaignScope.CHAIN),
-                                cb.not(root.get("id").in(linkedCampaigns)));
-                return cb.or(branchMatch, unrestrictedChain);
-            });
+            Set<Long> visibleIds = campaignBranchVisibility.findVisibleCampaignIdsForBranch(branchId);
+            specification = visibleIds.isEmpty()
+                    ? specification.and((root, ignored, cb) -> cb.disjunction())
+                    : specification.and((root, ignored, cb) -> root.get("id").in(visibleIds));
         }
         if (creatorTier != null && !creatorTier.isBlank() && !"all".equalsIgnoreCase(creatorTier)) {
             Set<Long> chainCreatorIds = userRepository.findAll().stream()
@@ -477,19 +467,7 @@ public class CampaignServiceImpl implements ICampaignService {
     }
 
     private List<CampaignModel> findCampaignsVisibleToBranch(Long branchId) {
-        Map<Long, CampaignModel> visibleCampaigns = new LinkedHashMap<>();
-
-        campaignRepository.findByScopeOrderByIdAsc(CampaignScope.CHAIN)
-                .forEach(campaign -> visibleCampaigns.put(campaign.getId(), campaign));
-
-        List<Long> campaignIds = campaignBranchRepository.findCampaignIdsByBranchId(branchId);
-        if (!campaignIds.isEmpty()) {
-            campaignRepository.findByIdIn(campaignIds).forEach(campaign -> visibleCampaigns.put(campaign.getId(), campaign));
-        }
-
-        return visibleCampaigns.values().stream()
-                .sorted(Comparator.comparing(CampaignModel::getId))
-                .toList();
+        return campaignBranchVisibility.findCampaignsVisibleToBranch(branchId);
     }
 
     private boolean isDeactivatedForBranch(

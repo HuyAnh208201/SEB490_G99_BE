@@ -15,6 +15,8 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
 
     Optional<WarehouseInventoryModel> findByProductId(Integer productId);
 
+    boolean existsByProductId(Integer productId);
+
     List<WarehouseInventoryModel> findByProductIdIn(Collection<Integer> productIds);
 
     @Query("""

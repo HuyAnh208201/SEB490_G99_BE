@@ -10,6 +10,7 @@ import base.api.feature.promotion.mapper.CampaignMapper;
 import base.api.feature.promotion.repository.CampaignBranchExclusionRepository;
 import base.api.feature.promotion.repository.CampaignBranchRepository;
 import base.api.feature.promotion.repository.CampaignRepository;
+import base.api.feature.promotion.service.CampaignBranchVisibility;
 import base.api.feature.promotion.service.CampaignExpiryService;
 import base.api.shared.entity.BranchModel;
 import base.api.shared.entity.CampaignBranchModel;
@@ -63,6 +64,7 @@ class CampaignServiceImplTest {
     @Mock private CurrentUserProvider currentUserProvider;
     @Mock private ObjectMapper objectMapper;
     @Mock private CampaignExpiryService campaignExpiryService;
+    @Mock private CampaignBranchVisibility campaignBranchVisibility;
 
     @InjectMocks
     private CampaignServiceImpl service;

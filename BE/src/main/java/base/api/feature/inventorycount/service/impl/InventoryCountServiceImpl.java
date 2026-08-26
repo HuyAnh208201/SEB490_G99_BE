@@ -23,6 +23,9 @@ import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import jakarta.transaction.Transactional;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -31,9 +34,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -45,9 +48,7 @@ import java.util.stream.Collectors;
 @Service
 public class InventoryCountServiceImpl implements IInventoryCountService {
 
-    private static final String STATUS_PENDING = "PENDING_APPROVAL";
-    private static final String STATUS_APPROVED = "APPROVED";
-    private static final String STATUS_REJECTED = "REJECTED";
+    private static final String STATUS_COMPLETED = "COMPLETED";
     private static final DateTimeFormatter SESSION_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     @Autowired
@@ -148,7 +149,7 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         session.setBranchId(branchId);
         session.setCountDate(LocalDate.now());
         session.setCountedBy(staff.getId());
-        session.setStatus(STATUS_PENDING);
+        session.setStatus(STATUS_COMPLETED);
         session.setNote(normalize(request.getNote()));
         session.setTotalProducts(productIds.size());
         InventoryCountSessionModel saved = sessionRepository.save(session);
@@ -172,6 +173,12 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         }
         itemRepository.saveAll(items);
 
+        Map<Integer, Integer> countedByProduct = new HashMap<>();
+        for (InventoryCountItemModel item : items) {
+            countedByProduct.put(item.getProductId(), safe(item.getCountedQty()));
+        }
+        applyStockBatch(branchId, countedByProduct);
+
         return buildDetail(saved, items, productsById);
     }
 
@@ -183,11 +190,19 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
             return List.of();
         }
         Map<Long, String> userNames = resolveUserNames(sessions);
-        return sessions.stream().map(session -> buildSummary(session, userNames)).toList();
+        Map<Long, Integer> varianceCounts = loadVarianceCounts(sessions.stream().map(InventoryCountSessionModel::getId).toList());
+        return sessions.stream()
+                .map(session -> buildSummary(session, userNames, varianceCounts))
+                .toList();
     }
 
     @Override
-    public Page<InventoryCountSessionResponse> getHistoryPage(PageRequestDTO pageRequest, String status) {
+    public Page<InventoryCountSessionResponse> getHistoryPage(
+            PageRequestDTO pageRequest,
+            String status,
+            String discrepancy,
+            LocalDate from,
+            LocalDate to) {
         Long branchId = requireBranch(currentUserProvider.getCurrentUserOrThrow());
         PageRequestDTO query = pageRequest == null ? new PageRequestDTO() : pageRequest;
         Specification<InventoryCountSessionModel> specification = (root, ignored, cb) ->
@@ -196,15 +211,31 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
             specification = specification.and((root, ignored, cb) ->
                     cb.equal(cb.upper(root.get("status")), status.trim().toUpperCase(Locale.ROOT)));
         }
+        if (from != null) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.greaterThanOrEqualTo(root.get("countDate"), from));
+        }
+        if (to != null) {
+            specification = specification.and((root, ignored, cb) ->
+                    cb.lessThanOrEqualTo(root.get("countDate"), to));
+        }
+        specification = specification.and(discrepancySpecification(discrepancy));
         String search = query.normalizedSearch();
         if (search != null) {
             String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
             Long requestedId = parseSessionId(search);
-            specification = specification.and((root, ignored, cb) -> requestedId == null
-                    ? cb.like(cb.lower(root.get("note")), pattern)
-                    : cb.or(
-                            cb.equal(root.get("id"), requestedId),
-                            cb.like(cb.lower(root.get("note")), pattern)));
+            Set<Long> matchingCounterIds = resolveCounterIdsByName(search);
+            specification = specification.and((root, ignored, cb) -> {
+                List<Predicate> predicates = new ArrayList<>();
+                if (requestedId != null) {
+                    predicates.add(cb.equal(root.get("id"), requestedId));
+                }
+                predicates.add(cb.like(cb.lower(root.get("note")), pattern));
+                if (!matchingCounterIds.isEmpty()) {
+                    predicates.add(root.get("countedBy").in(matchingCounterIds));
+                }
+                return cb.or(predicates.toArray(Predicate[]::new));
+            });
         }
         Page<InventoryCountSessionModel> page = sessionRepository.findAll(
                 specification,
@@ -213,10 +244,51 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
                         Sort.Direction.DESC,
                         Set.of("id", "countDate", "status", "totalProducts", "createdAt", "reviewedAt")));
         Map<Long, String> userNames = resolveUserNames(page.getContent());
+        Map<Long, Integer> varianceCounts = loadVarianceCounts(
+                page.getContent().stream().map(InventoryCountSessionModel::getId).toList());
         List<InventoryCountSessionResponse> content = page.getContent().stream()
-                .map(session -> buildSummary(session, userNames))
+                .map(session -> buildSummary(session, userNames, varianceCounts))
                 .toList();
         return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
+    }
+
+    private Specification<InventoryCountSessionModel> discrepancySpecification(String discrepancy) {
+        if (discrepancy == null || discrepancy.isBlank() || "all".equalsIgnoreCase(discrepancy)) {
+            return (root, ignored, cb) -> cb.conjunction();
+        }
+        boolean withVariance = "with".equalsIgnoreCase(discrepancy);
+        return (root, query, cb) -> {
+            Subquery<Long> subquery = query.subquery(Long.class);
+            Root<InventoryCountItemModel> itemRoot = subquery.from(InventoryCountItemModel.class);
+            subquery.select(itemRoot.get("sessionId"))
+                    .where(cb.and(
+                            cb.equal(itemRoot.get("sessionId"), root.get("id")),
+                            cb.notEqual(itemRoot.get("variance"), 0)));
+            return withVariance ? cb.exists(subquery) : cb.not(cb.exists(subquery));
+        };
+    }
+
+    private Set<Long> resolveCounterIdsByName(String search) {
+        if (search == null || search.isBlank()) {
+            return Set.of();
+        }
+        String term = search.trim().toLowerCase(Locale.ROOT);
+        return userRepository.findAll().stream()
+                .filter(user -> user.getFullName() != null
+                        && user.getFullName().toLowerCase(Locale.ROOT).contains(term))
+                .map(UserModel::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Map<Long, Integer> loadVarianceCounts(List<Long> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return Map.of();
+        }
+        return itemRepository.countVarianceBySessionIds(sessionIds).stream()
+                .collect(Collectors.toMap(
+                        row -> ((Number) row[0]).longValue(),
+                        row -> ((Number) row[1]).intValue(),
+                        (a, b) -> a));
     }
 
     private Long parseSessionId(String search) {
@@ -240,54 +312,14 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         return buildDetail(session, items, productsById);
     }
 
-    @Override
-    @Transactional
-    public InventoryCountSessionResponse approve(Long id) {
-        UserModel reviewer = currentUserProvider.getCurrentUserOrThrow();
-        Long branchId = requireBranch(reviewer);
-        InventoryCountSessionModel session = loadBranchSession(id, branchId);
-        if (!STATUS_PENDING.equals(session.getStatus())) {
-            throw new BadRequestException("Only pending sessions can be approved.");
-        }
-
-        List<InventoryCountItemModel> items = itemRepository.findBySessionId(id);
-        for (InventoryCountItemModel item : items) {
-            applyStock(branchId, item.getProductId(), safe(item.getCountedQty()));
-        }
-
-        session.setStatus(STATUS_APPROVED);
-        session.setReviewedBy(reviewer.getId());
-        session.setReviewedAt(LocalDateTime.now());
-        sessionRepository.save(session);
-
-        Map<Integer, ProductModel> productsById = loadProducts(items);
-        return buildDetail(session, items, productsById);
-    }
-
-    @Override
-    @Transactional
-    public InventoryCountSessionResponse reject(Long id) {
-        UserModel reviewer = currentUserProvider.getCurrentUserOrThrow();
-        Long branchId = requireBranch(reviewer);
-        InventoryCountSessionModel session = loadBranchSession(id, branchId);
-        if (!STATUS_PENDING.equals(session.getStatus())) {
-            throw new BadRequestException("Only pending sessions can be rejected.");
-        }
-        session.setStatus(STATUS_REJECTED);
-        session.setReviewedBy(reviewer.getId());
-        session.setReviewedAt(LocalDateTime.now());
-        sessionRepository.save(session);
-
-        List<InventoryCountItemModel> items = itemRepository.findBySessionId(id);
-        Map<Integer, ProductModel> productsById = loadProducts(items);
-        return buildDetail(session, items, productsById);
-    }
-
     // ----------------------------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------------------------
 
-    private InventoryCountSessionResponse buildSummary(InventoryCountSessionModel session, Map<Long, String> userNames) {
+    private InventoryCountSessionResponse buildSummary(
+            InventoryCountSessionModel session,
+            Map<Long, String> userNames,
+            Map<Long, Integer> varianceCounts) {
         InventoryCountSessionResponse response = new InventoryCountSessionResponse();
         response.setId(session.getId());
         response.setSessionCode(sessionCode(session));
@@ -296,6 +328,9 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         response.setCountedByName(userNames.get(session.getCountedBy()));
         response.setReviewedByName(userNames.get(session.getReviewedBy()));
         response.setTotalProducts(session.getTotalProducts());
+        int varianceCount = varianceCounts.getOrDefault(session.getId(), 0);
+        response.setVarianceCount(varianceCount);
+        response.setHasDiscrepancy(varianceCount > 0);
         response.setStatus(session.getStatus());
         response.setNote(session.getNote());
         response.setCreatedAt(session.getCreatedAt());
@@ -309,7 +344,8 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
             Map<Integer, ProductModel> productsById
     ) {
         Map<Long, String> userNames = resolveUserNames(List.of(session));
-        InventoryCountSessionResponse response = buildSummary(session, userNames);
+        Map<Long, Integer> varianceCounts = loadVarianceCounts(List.of(session.getId()));
+        InventoryCountSessionResponse response = buildSummary(session, userNames, varianceCounts);
         BranchModel branch = branchRepository.findById(session.getBranchId()).orElse(null);
         response.setBranchName(branch == null ? null : branch.getName());
 
@@ -368,21 +404,34 @@ public class InventoryCountServiceImpl implements IInventoryCountService {
         return session;
     }
 
-    private void applyStock(Long branchId, Integer productId, int countedQty) {
-        if (branchId == null || productId == null || countedQty < 0) {
+    private void applyStockBatch(Long branchId, Map<Integer, Integer> countedByProductId) {
+        if (branchId == null || countedByProductId == null || countedByProductId.isEmpty()) {
             return;
         }
-        BranchInventoryModel inventory = branchInventoryRepository
-                .findByBranchIdAndProductId(branchId, productId)
-                .orElseGet(() -> {
-                    BranchInventoryModel created = new BranchInventoryModel();
-                    created.setBranchId(branchId);
-                    created.setProductId(productId);
-                    created.setCurrentStock(0);
-                    return created;
-                });
-        inventory.setCurrentStock(countedQty);
-        branchInventoryRepository.save(inventory);
+        List<Integer> productIds = countedByProductId.keySet().stream()
+                .filter(id -> id != null && countedByProductId.get(id) != null && countedByProductId.get(id) >= 0)
+                .toList();
+        if (productIds.isEmpty()) {
+            return;
+        }
+        Map<Integer, BranchInventoryModel> existing = branchInventoryRepository
+                .findByBranchIdAndProductIdIn(branchId, productIds).stream()
+                .collect(Collectors.toMap(BranchInventoryModel::getProductId, Function.identity(), (a, b) -> a));
+
+        List<BranchInventoryModel> toSave = new ArrayList<>();
+        for (Integer productId : productIds) {
+            int countedQty = countedByProductId.get(productId);
+            BranchInventoryModel inventory = existing.get(productId);
+            if (inventory == null) {
+                inventory = new BranchInventoryModel();
+                inventory.setBranchId(branchId);
+                inventory.setProductId(productId);
+                inventory.setCurrentStock(0);
+            }
+            inventory.setCurrentStock(countedQty);
+            toSave.add(inventory);
+        }
+        branchInventoryRepository.saveAll(toSave);
     }
 
     private String nextSessionCode() {

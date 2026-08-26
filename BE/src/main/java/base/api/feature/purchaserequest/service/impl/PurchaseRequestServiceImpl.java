@@ -45,6 +45,7 @@ import base.api.shared.exception.ForbiddenException;
 import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import base.api.shared.util.CategoryReorderPoints;
+import base.api.shared.util.ProductSearchNormalizer;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -355,8 +356,9 @@ public class PurchaseRequestServiceImpl implements IPurchaseRequestService {
         // When sorting/filtering by stock we still need the page of products from DB first
         // (not the entire catalog). lowStockOnly then filters within that page — just enough
         // to avoid 500s under shared-DB load.
+        String looseKeyword = ProductSearchNormalizer.toLooseLikePattern(normalizeNullableText(keyword));
         Page<ProductModel> productPage = productRepository.searchActiveProductsFiltered(
-                normalizeNullableText(keyword), categoryId, pageable);
+                looseKeyword, categoryId, pageable);
         if (productPage.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, 0);
         }

@@ -94,6 +94,7 @@ public class ProductServiceImpl implements IProductService {
         String normalizedBarcode = normalizeNullableText(request.getBarcode());
 
         validateDuplicateCode(normalizedCode);
+        validateDuplicateName(normalizedName, null);
         validateDuplicateBarcode(normalizedBarcode, null);
         validatePrices(request.getReferenceImportPrice(), request.getDefaultSalePrice());
 
@@ -139,6 +140,10 @@ public class ProductServiceImpl implements IProductService {
         String normalizedStatus = normalizeRequiredText(request.getStatus(), "Status is required.");
 
         validateDuplicateBarcode(normalizedBarcode, id);
+        String existingName = product.getName() == null ? "" : product.getName().trim();
+        if (!existingName.equalsIgnoreCase(normalizedName)) {
+            validateDuplicateName(normalizedName, id);
+        }
         BigDecimal effectiveExistingPrice = productSalePriceService == null
                 ? product.getDefaultSalePrice() : productSalePriceService.effectivePrice(product);
         BigDecimal currentSalePrice = effectiveExistingPrice == null
@@ -181,6 +186,14 @@ public class ProductServiceImpl implements IProductService {
         assertCanManageProducts();
         ProductModel product = findProductOrThrow(id);
         assertCanMutateProduct(product);
+        if (branchInventoryRepository.existsByProductId(id)) {
+            throw new ConflictException(
+                    "Cannot delete this product because it still has branch inventory records. Remove stock references first.");
+        }
+        if (warehouseInventoryRepository.existsByProductId(id)) {
+            throw new ConflictException(
+                    "Cannot delete this product because it still has warehouse inventory records. Remove stock references first.");
+        }
         productRepository.delete(product);
     }
 
@@ -224,11 +237,13 @@ public class ProductServiceImpl implements IProductService {
                 "code",
                 Sort.Direction.ASC,
                 Set.of("id", "code", "name"));
+        String looseKeyword = base.api.shared.util.ProductSearchNormalizer.toLooseLikePattern(
+                query.normalizedSearch());
         Page<ProductModel> products = productRepository.findVisibleActiveProducts(
                 visibility.supervisor(),
                 visibility.branchId(),
                 categoryId,
-                query.normalizedSearch(),
+                looseKeyword,
                 pageable);
         Map<Integer, Integer> branchStock = loadBranchStockMap(visibility.branchId());
 
@@ -274,12 +289,16 @@ public class ProductServiceImpl implements IProductService {
 
         String search = query.normalizedSearch();
         if (search != null) {
-            String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            String pattern = base.api.shared.util.ProductSearchNormalizer.toLooseLikePattern(search);
+            if (pattern == null) {
+                pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
+            }
+            final String likePattern = pattern;
             specification = specification.and((root, ignored, cb) -> cb.or(
-                    cb.like(cb.lower(root.get("code")), pattern),
-                    cb.like(cb.lower(root.get("barcode")), pattern),
-                    cb.like(cb.lower(root.get("name")), pattern),
-                    cb.like(cb.lower(root.get("description")), pattern)
+                    cb.like(cb.lower(root.get("code")), likePattern),
+                    cb.like(cb.lower(root.get("barcode")), likePattern),
+                    cb.like(cb.lower(root.get("name")), likePattern),
+                    cb.like(cb.lower(root.get("description")), likePattern)
             ));
         }
         if (categoryId != null) {
@@ -611,10 +630,12 @@ public class ProductServiceImpl implements IProductService {
         if (web == UserRole.WAREHOUSE_MANAGER) {
             throw new ForbiddenException("Warehouse managers have read-only product access.");
         }
+        if (web == UserRole.BRANCH_MANAGER || web == UserRole.INVENTORY_STAFF) {
+            throw new ForbiddenException("Branch store roles have view-only product access.");
+        }
     }
 
     private void assertCanMutateProduct(ProductModel product) {
-        UserModel actor = currentUserProvider.getCurrentUserOrThrow();
         UserRole web = currentUserProvider.getCurrentUserRole().toWebRole();
 
         if (web == UserRole.ADMIN || web == UserRole.DIRECTOR) {
@@ -622,13 +643,7 @@ public class ProductServiceImpl implements IProductService {
         }
 
         if (web == UserRole.BRANCH_MANAGER || web == UserRole.INVENTORY_STAFF) {
-            if (!ProductScope.BRANCH.getValue().equalsIgnoreCase(product.getScope())) {
-                throw new ForbiddenException("You can only edit branch-local products created at your store.");
-            }
-            if (!Objects.equals(actor.getBranchId(), product.getBranchId())) {
-                throw new ForbiddenException("You can only edit products for your branch.");
-            }
-            return;
+            throw new ForbiddenException("Branch store roles have view-only product access.");
         }
 
         throw new ForbiddenException("Access denied.");
@@ -690,6 +705,15 @@ public class ProductServiceImpl implements IProductService {
     private void validateDuplicateCode(String code) {
         if (productRepository.existsByCode(code)) {
             throw new ConflictException("Product code already exists.");
+        }
+    }
+
+    private void validateDuplicateName(String name, Integer currentId) {
+        boolean exists = currentId == null
+                ? productRepository.existsByNameIgnoreCase(name)
+                : productRepository.existsByNameIgnoreCaseAndIdNot(name, currentId);
+        if (exists) {
+            throw new ConflictException("A product with this name already exists.");
         }
     }
 

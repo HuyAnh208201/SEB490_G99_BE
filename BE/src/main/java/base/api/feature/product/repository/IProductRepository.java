@@ -24,6 +24,10 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
 
     boolean existsByCode(String code);
 
+    boolean existsByNameIgnoreCase(String name);
+
+    boolean existsByNameIgnoreCaseAndIdNot(String name, Integer id);
+
     boolean existsByBarcode(String barcode);
 
     boolean existsByBarcodeAndIdNot(String barcode, Integer id);
@@ -42,9 +46,9 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
             SELECT p FROM ProductModel p
             WHERE LOWER(p.status) = 'active'
             AND (:keyword IS NULL OR :keyword = ''
-                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+                OR LOWER(p.code) LIKE LOWER(:keyword)
+                OR LOWER(COALESCE(p.barcode, '')) LIKE LOWER(:keyword)
+                OR LOWER(p.name) LIKE LOWER(:keyword))
             AND (:categoryId IS NULL OR p.category.id = :categoryId)
             ORDER BY p.name ASC
             """)
@@ -57,9 +61,9 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
             SELECT p FROM ProductModel p
             WHERE LOWER(p.status) = 'active'
             AND (:keyword IS NULL OR :keyword = ''
-                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+                OR LOWER(p.code) LIKE LOWER(:keyword)
+                OR LOWER(COALESCE(p.barcode, '')) LIKE LOWER(:keyword)
+                OR LOWER(p.name) LIKE LOWER(:keyword))
             AND (:categoryId IS NULL OR p.category.id = :categoryId)
             """)
     Page<ProductModel> searchActiveProductsFiltered(
@@ -72,9 +76,9 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
             SELECT p FROM ProductModel p
             WHERE LOWER(p.status) = 'active'
             AND (:keyword IS NULL OR :keyword = ''
-                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+                OR LOWER(p.code) LIKE LOWER(:keyword)
+                OR LOWER(COALESCE(p.barcode, '')) LIKE LOWER(:keyword)
+                OR LOWER(p.name) LIKE LOWER(:keyword))
             """)
     Page<ProductModel> searchActiveProducts(@Param("keyword") String keyword, Pageable pageable);
 
@@ -84,9 +88,9 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
             WHERE LOWER(p.status) = 'active'
               AND p.supplierId = :supplierId
               AND (:keyword IS NULL OR :keyword = ''
-                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+                OR LOWER(p.code) LIKE LOWER(:keyword)
+                OR LOWER(COALESCE(p.barcode, '')) LIKE LOWER(:keyword)
+                OR LOWER(p.name) LIKE LOWER(:keyword))
             """)
     Page<ProductModel> searchActiveProductsBySupplier(
             @Param("supplierId") Integer supplierId,
@@ -142,9 +146,9 @@ public interface IProductRepository extends JpaRepository<ProductModel, Integer>
               )
               AND (:categoryId IS NULL OR p.category.id = :categoryId)
               AND (:keyword IS NULL OR :keyword = ''
-                OR LOWER(p.code) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.barcode) LIKE LOWER(CONCAT('%', :keyword, '%'))
-                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+                OR LOWER(p.code) LIKE LOWER(:keyword)
+                OR LOWER(COALESCE(p.barcode, '')) LIKE LOWER(:keyword)
+                OR LOWER(p.name) LIKE LOWER(:keyword))
             """)
     Page<ProductModel> findVisibleActiveProducts(
             @Param("supervisor") boolean supervisor,

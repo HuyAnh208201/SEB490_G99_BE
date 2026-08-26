@@ -946,11 +946,22 @@ public class ShiftServiceImpl implements IShiftService {
         if (shift.getStatus() != ShiftStatus.PUBLISHED) {
             throw new BusinessException("Only published shifts can be checked in.");
         }
+        LocalDateTime now = LocalDateTime.now();
+        if (shift.getStartTime() != null) {
+            LocalDateTime windowOpen = shift.getStartTime().minusMinutes(30);
+            if (now.isBefore(windowOpen)) {
+                throw new BusinessException(
+                        "Check-in opens 30 minutes before the shift starts. Too early for this shift.");
+            }
+            if (shift.getEndTime() != null && now.isAfter(shift.getEndTime())) {
+                throw new BusinessException("This shift has already ended. Check-in is no longer available.");
+            }
+        }
         ShiftAssignmentModel assignment = assignmentRepository
                 .findFirstByShiftIdAndStaffIdOrderByIdDesc(shiftId, user.getId())
                 .orElseThrow(() -> new BusinessException("You are not assigned to this shift."));
         if (assignment.getCheckInAt() == null) {
-            assignment.setCheckInAt(LocalDateTime.now());
+            assignment.setCheckInAt(now);
             assignmentRepository.save(assignment);
         }
         List<ShiftAssignmentModel> all = assignmentRepository.findByShiftId(shiftId);

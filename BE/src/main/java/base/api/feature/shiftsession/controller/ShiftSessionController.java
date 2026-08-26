@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -119,11 +120,16 @@ public class ShiftSessionController extends BaseAPIController {
                 "Shift closed.");
     }
 
-    @Operation(summary = "Shift session history")
+    @Operation(summary = "Shift session history (past shifts only, paginated)")
     @PreAuthorize("hasRole('CASHIER')")
     @GetMapping("/history")
-    public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> history() {
-        return success(shiftSessionService.getHistory());
+    public ResponseEntity<TFUResponse<base.api.shared.dto.PageResponseDTO<ShiftSessionResponse>>> history(
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "20") int size) {
+        base.api.shared.dto.PageRequestDTO pageRequest = new base.api.shared.dto.PageRequestDTO();
+        pageRequest.setPage(page);
+        pageRequest.setSize(size);
+        return success(shiftSessionService.getHistoryPage(pageRequest));
     }
 
     @Operation(summary = "Branch manager: active / pending shift sessions at branch")
@@ -138,6 +144,37 @@ public class ShiftSessionController extends BaseAPIController {
     @GetMapping("/reconciliation/pending")
     public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> pendingReconciliation() {
         return success(shiftSessionService.listPendingReconciliation());
+    }
+
+    @Operation(summary = "Branch manager: filtered cash reconciliation list")
+    @PreAuthorize("@permissionChecker.has('APPROVE_CASH_DISCREPANCY')")
+    @GetMapping("/reconciliation")
+    public ResponseEntity<TFUResponse<List<ShiftSessionResponse>>> reconciliation(
+            @RequestParam(required = false, defaultValue = "with") String discrepancy,
+            @RequestParam(required = false) String status) {
+        return success(shiftSessionService.listReconciliation(discrepancy, status));
+    }
+
+    @Operation(summary = "Branch manager: attendance audit (check-in vs shift start)")
+    @PreAuthorize("@permissionChecker.hasAny('APPROVE_CASH_DISCREPANCY','SHIFT_MANAGEMENT','REPORTS_VIEW')")
+    @GetMapping("/branch/attendance")
+    public ResponseEntity<TFUResponse<List<base.api.feature.shiftsession.dto.response.BranchAttendanceResponse>>> branchAttendance(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return success(shiftSessionService.listBranchAttendance(from, to));
+    }
+
+    @Operation(summary = "Branch manager: completed refunds at branch")
+    @PreAuthorize("@permissionChecker.hasAny('APPROVE_CASH_DISCREPANCY','SHIFT_MANAGEMENT','REPORTS_VIEW')")
+    @GetMapping("/branch/refunds")
+    public ResponseEntity<TFUResponse<List<base.api.feature.shiftsession.dto.response.BranchRefundResponse>>> branchRefunds(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return success(shiftSessionService.listBranchRefunds(from, to));
     }
 
     @Operation(summary = "Branch manager: reconciliation detail")

@@ -9,7 +9,8 @@ public interface IPosScanService {
     /**
      * Thiết bị phụ (điện thoại) gửi mã vừa quét lên.
      * Mã được kiểm tra ngay bằng luồng quét chuẩn nên điện thoại biết liền
-     * là hợp lệ hay hết hàng, thay vì gửi mù rồi chờ máy bán hàng báo lỗi.
+     * là hợp lệ hay hết hàng. Lỗi vẫn được ghi vào hàng đợi (errorMessage)
+     * để máy bán hàng poll được, rồi exception được ném lại cho điện thoại.
      */
     ProductResponse pushScanEvent(PushScanEventRequest request);
 

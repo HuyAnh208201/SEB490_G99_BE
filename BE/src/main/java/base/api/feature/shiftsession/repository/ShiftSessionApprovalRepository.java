@@ -10,4 +10,6 @@ import java.util.List;
 public interface ShiftSessionApprovalRepository extends JpaRepository<ShiftSessionApprovalModel, Long> {
 
     List<ShiftSessionApprovalModel> findBySessionIdOrderByDecidedAtDesc(Long sessionId);
+
+    void deleteBySessionId(Long sessionId);
 }

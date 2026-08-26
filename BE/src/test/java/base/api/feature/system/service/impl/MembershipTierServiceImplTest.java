@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +35,32 @@ class MembershipTierServiceImplTest {
 
     @InjectMocks
     private MembershipTierServiceImpl service;
+
+    @Test
+    void listTiersDeactivatesLegacyVietnameseAndEmptyCodeRows() {
+        MembershipTierModel silver = tier(1L, "SILVER");
+        MembershipTierModel legacyBronze = tier(2L, "");
+        legacyBronze.setCode("");
+        legacyBronze.setName("Đồng");
+        legacyBronze.setActive(true);
+
+        MembershipTierModel legacySilver = tier(3L, "LEGACY_SILVER");
+        legacySilver.setName("Bạc");
+        legacySilver.setActive(true);
+
+        when(membershipTierRepository.findAllByOrderBySortOrderAsc())
+                .thenReturn(List.of(silver, legacyBronze, legacySilver));
+        when(membershipTierRepository.save(any(MembershipTierModel.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        List<MembershipTierResponse> responses = service.listTiers();
+
+        assertEquals(3, responses.size());
+        assertTrue(responses.stream().anyMatch(t -> "SILVER".equals(t.code()) && t.active()));
+        assertTrue(responses.stream().anyMatch(t -> "Đồng".equals(t.name()) && !t.active()));
+        assertTrue(responses.stream().anyMatch(t -> "Bạc".equals(t.name()) && !t.active()));
+        verify(membershipTierRepository, times(2)).save(any(MembershipTierModel.class));
+    }
 
     @Test
     void updateTierRejectsMissingTier() {

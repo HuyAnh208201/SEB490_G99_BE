@@ -9,6 +9,10 @@ import base.api.feature.product.dto.response.ProductResponse;
 import base.api.feature.product.service.IProductService;
 import base.api.shared.entity.PosScanEventModel;
 import base.api.shared.entity.UserModel;
+import base.api.shared.exception.BadRequestException;
+import base.api.shared.exception.BusinessException;
+import base.api.shared.exception.ForbiddenException;
+import base.api.shared.exception.NotFoundException;
 import base.api.shared.security.CurrentUserProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -33,24 +37,55 @@ public class PosScanServiceImpl implements IPosScanService {
     private CurrentUserProvider currentUserProvider;
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = {
+            NotFoundException.class,
+            BadRequestException.class,
+            BusinessException.class,
+            ForbiddenException.class
+    })
     public ProductResponse pushScanEvent(PushScanEventRequest request) {
         UserModel cashier = currentUserProvider.getCurrentUserOrThrow();
+        String barcode = request.getBarcode().trim();
 
-        // Kiểm tra ngay bằng luồng quét chuẩn: không thấy / ngừng bán / sai chi nhánh /
-        // hết tồn đều ném lỗi ở đây, nên mã hỏng không bao giờ lọt vào hàng đợi.
-        ProductResponse product = productService.scanByBarcode(request.getBarcode());
+        try {
+            // Kiểm tra ngay bằng luồng quét chuẩn: không thấy / ngừng bán / sai chi nhánh /
+            // hết tồn đều ném lỗi — vẫn ghi sự kiện lỗi vào hàng đợi cho máy bán hàng.
+            ProductResponse product = productService.scanByBarcode(barcode);
 
+            PosScanEventModel event = new PosScanEventModel();
+            event.setCashierUserId(cashier.getId());
+            event.setBranchId(cashier.getBranchId());
+            event.setBarcode(barcode);
+            event.setProductId(product.getId());
+            event.setProductName(product.getName());
+            event.setErrorMessage(null);
+            event.setCreatedAt(LocalDateTime.now());
+            scanEventRepository.save(event);
+
+            return product;
+        } catch (NotFoundException | BadRequestException | BusinessException | ForbiddenException ex) {
+            saveErrorEvent(cashier, barcode, ex.getMessage());
+            throw ex;
+        }
+    }
+
+    private void saveErrorEvent(UserModel cashier, String barcode, String errorMessage) {
         PosScanEventModel event = new PosScanEventModel();
         event.setCashierUserId(cashier.getId());
         event.setBranchId(cashier.getBranchId());
-        event.setBarcode(request.getBarcode().trim());
-        event.setProductId(product.getId());
-        event.setProductName(product.getName());
+        event.setBarcode(barcode);
+        event.setProductId(null);
+        event.setProductName(null);
+        event.setErrorMessage(truncate(errorMessage, 500));
         event.setCreatedAt(LocalDateTime.now());
         scanEventRepository.save(event);
+    }
 
-        return product;
+    private static String truncate(String value, int maxLen) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= maxLen ? value : value.substring(0, maxLen);
     }
 
     @Override
@@ -70,12 +105,7 @@ public class PosScanServiceImpl implements IPosScanService {
                         afterId,
                         LocalDateTime.now().minusHours(MAX_EVENT_AGE_HOURS))
                 .stream()
-                .map(e -> new ScanEventResponse(
-                        e.getId(),
-                        e.getBarcode(),
-                        e.getProductId(),
-                        e.getProductName(),
-                        e.getCreatedAt()))
+                .map(this::toResponse)
                 .toList();
 
         // latestId phải tính cả trường hợp mã mới nhất đã quá cũ nên bị lọc ra khỏi events,
@@ -85,5 +115,17 @@ public class PosScanServiceImpl implements IPosScanService {
                 : events.get(events.size() - 1).getId();
 
         return new ScanEventFeedResponse(nextCursor, events);
+    }
+
+    private ScanEventResponse toResponse(PosScanEventModel e) {
+        boolean success = e.getErrorMessage() == null && e.getProductId() != null;
+        return new ScanEventResponse(
+                e.getId(),
+                e.getBarcode(),
+                e.getProductId(),
+                e.getProductName(),
+                e.getCreatedAt(),
+                e.getErrorMessage(),
+                success);
     }
 }

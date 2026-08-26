@@ -6,12 +6,9 @@ import base.api.feature.cashier.service.ICashierService;
 import base.api.feature.posorder.dto.request.CheckoutLineRequest;
 import base.api.feature.posorder.dto.request.CheckoutRequest;
 import base.api.feature.posorder.dto.response.OrderResponse;
-import base.api.feature.posorder.repository.OrderDiscountRepository;
 import base.api.feature.posorder.repository.OrderItemRepository;
 import base.api.feature.posorder.repository.OrderRepository;
 import base.api.feature.posorder.repository.PaymentRepository;
-import base.api.feature.posorder.repository.VoucherCatalogRepository;
-import base.api.feature.posorder.repository.VoucherRepository;
 import base.api.feature.product.repository.IProductRepository;
 import base.api.feature.product.service.ProductCostService;
 import base.api.feature.purchaserequest.repository.BranchInventoryRepository;
@@ -50,7 +47,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Extra checkout paths (voucher, PAYOS, points) not covered by {@link PosOrderCheckoutTest}.
+ * Extra checkout paths (PAYOS, points) not covered by {@link PosOrderCheckoutTest}.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -60,10 +57,7 @@ class PosOrderCheckoutExtraTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private OrderItemRepository orderItemRepository;
-    @Mock private OrderDiscountRepository orderDiscountRepository;
     @Mock private PaymentRepository paymentRepository;
-    @Mock private VoucherRepository voucherRepository;
-    @Mock private VoucherCatalogRepository voucherCatalogRepository;
     @Mock private IProductRepository productRepository;
     @Mock private ProductCostService productCostService;
     @Mock private BranchInventoryRepository branchInventoryRepository;
@@ -134,7 +128,7 @@ class PosOrderCheckoutExtraTest {
     }
 
     @Test
-    void voucherCodeIsIgnoredOnCheckout() {
+    void legacyVoucherCodeFieldIsIgnoredOnCheckout() {
         stubProduct(1, "Milk", "12000");
         when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(2))).thenReturn(1);
 
@@ -145,9 +139,6 @@ class PosOrderCheckoutExtraTest {
 
         assertEquals(0, new BigDecimal("24000").compareTo(response.getTotal()));
         assertEquals(0, BigDecimal.ZERO.compareTo(response.getDiscountAmount()));
-        verify(voucherRepository, never()).findByCodeIgnoreCase(any());
-        verify(voucherRepository, never()).markUsed(any());
-        verify(orderDiscountRepository, never()).save(any());
     }
 
     @Test
@@ -225,7 +216,7 @@ class PosOrderCheckoutExtraTest {
     }
 
     @Test
-    void blankVoucherCodeIsIgnored() {
+    void blankLegacyVoucherCodeFieldIsIgnored() {
         stubProduct(1, "Milk", "12000");
         when(branchInventoryRepository.deductStock(eq(BRANCH_ID), eq(1), eq(1))).thenReturn(1);
 
@@ -235,7 +226,6 @@ class PosOrderCheckoutExtraTest {
         OrderResponse response = service.checkout(request);
 
         assertEquals(0, new BigDecimal("12000").compareTo(response.getTotal()));
-        verify(voucherRepository, never()).findByCodeIgnoreCase(any());
     }
 
     private void stubProduct(int id, String name, String price) {

@@ -95,28 +95,16 @@ class ProductServiceImplTest {
     }
 
     @Test
-    void createAsBranchManagerCreatesBranchScopedProduct() {
+    void createRejectsBranchManager() {
         asBranchManager(5L);
         CreateProductRequest request = createRequest("LOCAL-1", "Store Cola", "can", null);
         when(productRepository.existsByCode("LOCAL-1")).thenReturn(false);
         when(categoryRepository.findById(1)).thenReturn(Optional.of(category(1)));
-        when(productRepository.save(any(ProductModel.class))).thenAnswer(inv -> {
-            ProductModel saved = inv.getArgument(0);
-            saved.setId(11);
-            return saved;
-        });
-        when(branchInventoryRepository.findByBranchIdAndProductId(5L, 11)).thenReturn(Optional.empty());
-        when(branchInventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(warehouseInventoryRepository.findByProductId(11)).thenReturn(Optional.empty());
-        when(warehouseInventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(productMapper.toResponse(any())).thenReturn(new ProductResponse());
 
-        service.create(request);
+        ForbiddenException error = assertThrows(ForbiddenException.class, () -> service.create(request));
 
-        ArgumentCaptor<ProductModel> captor = ArgumentCaptor.forClass(ProductModel.class);
-        verify(productRepository).save(captor.capture());
-        assertEquals(ProductScope.BRANCH.getValue(), captor.getValue().getScope());
-        assertEquals(5L, captor.getValue().getBranchId());
+        assertTrue(error.getMessage().contains("view-only product access"));
+        verify(productRepository, never()).save(any());
     }
 
     @Test
@@ -199,7 +187,7 @@ class ProductServiceImplTest {
     }
 
     @Test
-    void createAsBranchManagerWithoutBranchFails() {
+    void createRejectsBranchManagerWithoutBranch() {
         UserModel actor = new UserModel();
         actor.setId(2L);
         actor.setBranchId(null);
@@ -209,9 +197,9 @@ class ProductServiceImplTest {
         when(productRepository.existsByCode("LOCAL-1")).thenReturn(false);
         when(categoryRepository.findById(1)).thenReturn(Optional.of(category(1)));
 
-        BadRequestException error = assertThrows(BadRequestException.class, () -> service.create(request));
+        ForbiddenException error = assertThrows(ForbiddenException.class, () -> service.create(request));
 
-        assertEquals("Branch is required for branch-local products.", error.getMessage());
+        assertTrue(error.getMessage().contains("view-only product access"));
     }
 
     @Test
@@ -253,7 +241,30 @@ class ProductServiceImplTest {
         ForbiddenException error = assertThrows(
                 ForbiddenException.class, () -> service.update(10, updateRequest("Name", "active")));
 
-        assertTrue(error.getMessage().contains("branch-local products"));
+        assertTrue(error.getMessage().contains("view-only product access"));
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void createRejectsInventoryStaff() {
+        when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.INVENTORY_STAFF);
+
+        ForbiddenException error = assertThrows(
+                ForbiddenException.class, () -> service.create(createRequest("P001", "Cola", "bottle", null)));
+
+        assertTrue(error.getMessage().contains("view-only product access"));
+    }
+
+    @Test
+    void updateRejectsInventoryStaff() {
+        asInventoryStaff(5L);
+        ProductModel global = product(10, ProductScope.GLOBAL.getValue(), null);
+        when(productRepository.findByIdWithCategory(10)).thenReturn(Optional.of(global));
+
+        ForbiddenException error = assertThrows(
+                ForbiddenException.class, () -> service.update(10, updateRequest("Name", "active")));
+
+        assertTrue(error.getMessage().contains("view-only product access"));
         verify(productRepository, never()).save(any());
     }
 
@@ -276,10 +287,37 @@ class ProductServiceImplTest {
         asAdmin();
         ProductModel existing = product(10, ProductScope.GLOBAL.getValue(), null);
         when(productRepository.findByIdWithCategory(10)).thenReturn(Optional.of(existing));
+        when(branchInventoryRepository.existsByProductId(10)).thenReturn(false);
+        when(warehouseInventoryRepository.existsByProductId(10)).thenReturn(false);
 
         service.delete(10);
 
         verify(productRepository).delete(existing);
+    }
+
+    @Test
+    void deleteRejectsWhenBranchInventoryExists() {
+        asAdmin();
+        ProductModel existing = product(10, ProductScope.GLOBAL.getValue(), null);
+        when(productRepository.findByIdWithCategory(10)).thenReturn(Optional.of(existing));
+        when(branchInventoryRepository.existsByProductId(10)).thenReturn(true);
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.delete(10));
+
+        assertTrue(error.getMessage().contains("branch inventory"));
+        verify(productRepository, never()).delete(any(ProductModel.class));
+    }
+
+    @Test
+    void createRejectsDuplicateName() {
+        asAdmin();
+        CreateProductRequest request = createRequest("P001", "Cola", "bottle", null);
+        when(productRepository.existsByCode("P001")).thenReturn(false);
+        when(productRepository.existsByNameIgnoreCase("Cola")).thenReturn(true);
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.create(request));
+
+        assertEquals("A product with this name already exists.", error.getMessage());
     }
 
     private void asAdmin() {
@@ -295,6 +333,14 @@ class ProductServiceImplTest {
         actor.setBranchId(branchId);
         when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(actor);
         when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.BRANCH_MANAGER);
+    }
+
+    private void asInventoryStaff(Long branchId) {
+        UserModel actor = new UserModel();
+        actor.setId(3L);
+        actor.setBranchId(branchId);
+        when(currentUserProvider.getCurrentUserOrThrow()).thenReturn(actor);
+        when(currentUserProvider.getCurrentUserRole()).thenReturn(UserRole.INVENTORY_STAFF);
     }
 
     private static CreateProductRequest createRequest(String code, String name, String unit, String barcode) {
